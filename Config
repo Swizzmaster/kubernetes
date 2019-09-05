@@ -12,20 +12,20 @@ package.EKSKubernetesPatches = {
         network-access = blocked;
     };
 
-    # Use NoOpBuild. See https://w.amazon.com/index.php/BrazilBuildSystem/NoOpBuild
-    build-system = no-op;
+    build-system = brazilpython;
     build-tools = {
         1.0 = {
-            NoOpBuild = 1.0;
+            BrazilPython = 3.0;
         };
     };
 
-    # Use runtime-dependencies for when you want to bring in additional
-    # packages when deploying.
-    # Use dependencies instead if you intend for these dependencies to
-    # be exported to other packages that build against you.
     dependencies = {
         1.0 = {
+            BrazilPython-setuptools = default;
+            Python = default;
+            Python-loguru = 0.x;
+            Click = 6.x;
+            Requests = 2.x.x;
         };
     };
 
