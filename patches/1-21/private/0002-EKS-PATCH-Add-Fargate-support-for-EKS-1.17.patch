@@ -1,4 +1,4 @@
-From 7a68b1fd024e08ba650ab5a0115a4df496574849 Mon Sep 17 00:00:00 2001
+From eaec4d9b0d4057e4d67b16c99a61aa4e50cb6739 Mon Sep 17 00:00:00 2001
 From: Jyoti Mahapatra <jyotima@amazon.com>
 Date: Thu, 20 May 2021 09:12:48 +0000
 Subject: [PATCH] --EKS-PATCH-- Add Fargate support for EKS 1.17 // owner:
@@ -25,7 +25,7 @@ https://code.amazon.com/packages/EKSDataPlaneKubernetes/commits/b0e0580a0225c5af
 Signed-off-by: Jyoti Mahapatra<jyotima@amazon.com>
 ---
  pkg/features/kube_features.go                 |   7 +
- pkg/kubelet/apis/config/fuzzer/fuzzer.go      |   1 +
+ pkg/kubelet/apis/config/fuzzer/fuzzer.go      |   3 +-
  pkg/kubelet/cm/helpers_linux.go               |  12 +-
  pkg/kubelet/kubelet.go                        |   3 +
  .../kuberuntime_container_linux.go            |   3 +
@@ -38,7 +38,7 @@ Signed-off-by: Jyoti Mahapatra<jyotima@amazon.com>
  .../legacy-cloud-providers/aws/aws_routes.go  |   6 +-
  .../legacy-cloud-providers/aws/aws_test.go    |  62 +++-
  .../legacy-cloud-providers/aws/instances.go   |  14 +-
- 14 files changed, 704 insertions(+), 84 deletions(-)
+ 14 files changed, 705 insertions(+), 85 deletions(-)
  create mode 100644 pkg/kubelet/lifecycle/fargate_pod_admit_handler.go
  create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator.go
 
@@ -68,14 +68,23 @@ index 3bb8a7af0e2..e20fde0a858 100644
  	// inherited features from generic apiserver, relisted here to get a conflict if it is changed
  	// unintentionally on either side:
 diff --git a/pkg/kubelet/apis/config/fuzzer/fuzzer.go b/pkg/kubelet/apis/config/fuzzer/fuzzer.go
-index b5192d333de..7e96f0a92de 100644
+index b5192d333de..410f08947cb 100644
 --- a/pkg/kubelet/apis/config/fuzzer/fuzzer.go
 +++ b/pkg/kubelet/apis/config/fuzzer/fuzzer.go
+@@ -19,7 +19,7 @@ package fuzzer
+ import (
+ 	"time"
+ 
+-	"github.com/google/gofuzz"
++	fuzz "github.com/google/gofuzz"
+ 
+ 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+ 	runtimeserializer "k8s.io/apimachinery/pkg/runtime/serializer"
 @@ -105,6 +105,7 @@ func Funcs(codecs runtimeserializer.CodecFactory) []interface{} {
  			if obj.Logging.Format == "" {
  				obj.Logging.Format = "text"
  			}
-+			obj.EnableProfiling = true
++			obj.EnableProfilingHandler = true
  			obj.EnableSystemLogHandler = true
  		},
  	}
@@ -1300,5 +1309,5 @@ index a62e7ccf395..741b1b7638c 100644
  	}
  
 -- 
-2.17.1
+2.24.3 (Apple Git-128)
 

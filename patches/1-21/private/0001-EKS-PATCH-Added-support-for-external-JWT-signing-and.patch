@@ -1,9 +1,10 @@
-From 48a71826d0fc740eefbe5e9fa4c70f2852200392 Mon Sep 17 00:00:00 2001
+From a295da8a25d3f05aa45796a98e6fee763c1941aa Mon Sep 17 00:00:00 2001
 From: Jyoti Mahapatra <jyotima@amazon.com>
 Date: Thu, 20 May 2021 08:14:15 +0000
 Subject: [PATCH] --EKS-PATCH-- Added support for external JWT signing and
- verifying ref.
- https://github.com/micahhausler/kubernetes/commit/147f45449d6d750c848751eb7d17aba4a9b571be
+ verifying
+
+ref. https://github.com/micahhausler/kubernetes/commit/147f45449d6d750c848751eb7d17aba4a9b571be
 
 Author:    Micah Hausler <mhausler@amazon.com>
 Date:      Thu Jan 17 15:41:00 2019 -0800
@@ -21,13 +22,12 @@ Date:      Thu Jan 17 15:41:00 2019 -0800
  pkg/serviceaccount/jwt.go                     |  18 +-
  pkg/serviceaccount/jwt_external.go            | 187 +++++++++++
  pkg/serviceaccount/jwt_external_test.go       | 128 +++++++
- pkg/serviceaccount/jwt_test.go                | 162 ++++++---
+ pkg/serviceaccount/jwt_test.go                | 171 +++++++---
  staging/src/k8s.io/client-go/util/cert/pem.go |   7 +-
  .../heketi/client/api/go-client/client.go     |   6 +-
- .../square/go-jose.v2/cryptosigner/BUILD      |  27 ++
  .../go-jose.v2/cryptosigner/cryptosigner.go   | 138 ++++++++
  vendor/modules.txt                            |   1 +
- 19 files changed, 1171 insertions(+), 69 deletions(-)
+ 18 files changed, 1153 insertions(+), 69 deletions(-)
  create mode 100755 hack/update-generated-externalsigner-dockerized.sh
  create mode 100755 hack/update-generated-externalsigner.sh
  create mode 100755 hack/verify-generated-externalsigner.sh
@@ -35,7 +35,6 @@ Date:      Thu Jan 17 15:41:00 2019 -0800
  create mode 100644 pkg/serviceaccount/externalsigner/v1alpha1/service.proto
  create mode 100644 pkg/serviceaccount/jwt_external.go
  create mode 100644 pkg/serviceaccount/jwt_external_test.go
- create mode 100644 vendor/gopkg.in/square/go-jose.v2/cryptosigner/BUILD
  create mode 100644 vendor/gopkg.in/square/go-jose.v2/cryptosigner/cryptosigner.go
 
 diff --git a/cmd/kube-apiserver/app/options/validation.go b/cmd/kube-apiserver/app/options/validation.go
@@ -1126,7 +1125,7 @@ index 00000000000..d806e346589
 +
 +}
 diff --git a/pkg/serviceaccount/jwt_test.go b/pkg/serviceaccount/jwt_test.go
-index aecfb23a48d..2ba2a8bb086 100644
+index aecfb23a48d..9cb69972f44 100644
 --- a/pkg/serviceaccount/jwt_test.go
 +++ b/pkg/serviceaccount/jwt_test.go
 @@ -33,8 +33,10 @@ import (
@@ -1204,7 +1203,7 @@ index aecfb23a48d..2ba2a8bb086 100644
  	}{
  		"no keys": {
  			Token:       rsaToken,
-@@ -306,58 +334,84 @@ func TestTokenGenerateAndValidate(t *testing.T) {
+@@ -306,58 +334,93 @@ func TestTokenGenerateAndValidate(t *testing.T) {
  			ExpectedErr: true,
  			ExpectedOK:  false,
  		},
@@ -1298,8 +1297,17 @@ index aecfb23a48d..2ba2a8bb086 100644
 +					return tc.Client.CoreV1().Pods(namespace).Get(context.TODO(), name, metav1.GetOptions{})
 +				})),
 +			)
-+			authn := serviceaccount.JWTTokenAuthenticator(serviceaccount.LegacyIssuer, tc.Keys, auds, serviceaccount.NewLegacyValidator(tc.Client != nil, getter))
-+
++			var authn authenticator.Token
++			if tc.ExternalServiceClient != nil {
++				authn = &serviceaccount.ExternalTokenAuthenticator{
++					Client:       tc.ExternalServiceClient,
++					Iss:          tc.Issuer,
++					ImplicitAuds: nil,
++					Validator:    serviceaccount.NewValidator(getter),
++				}
++			} else {
++				authn = serviceaccount.JWTTokenAuthenticator(serviceaccount.LegacyIssuer, tc.Keys, auds, serviceaccount.NewLegacyValidator(tc.Client != nil, getter))
++			}
 +			// An invalid, non-JWT token should always fail
 +			ctx := authenticator.WithAudiences(context.Background(), auds)
 +			if _, ok, err := authn.AuthenticateToken(ctx, "invalid token"); err != nil || ok {
@@ -1380,39 +1388,6 @@ index e8a62913892..630934b67cb 100644
  	if err != nil {
  		return nil, err
  	}
-diff --git a/vendor/gopkg.in/square/go-jose.v2/cryptosigner/BUILD b/vendor/gopkg.in/square/go-jose.v2/cryptosigner/BUILD
-new file mode 100644
-index 00000000000..c0a446b7caa
---- /dev/null
-+++ b/vendor/gopkg.in/square/go-jose.v2/cryptosigner/BUILD
-@@ -0,0 +1,27 @@
-+load("@io_bazel_rules_go//go:def.bzl", "go_library")
-+
-+go_library(
-+    name = "go_default_library",
-+    srcs = ["cryptosigner.go"],
-+    importmap = "k8s.io/kubernetes/vendor/gopkg.in/square/go-jose.v2/cryptosigner",
-+    importpath = "gopkg.in/square/go-jose.v2/cryptosigner",
-+    visibility = ["//visibility:public"],
-+    deps = [
-+        "//vendor/golang.org/x/crypto/ed25519:go_default_library",
-+        "//vendor/gopkg.in/square/go-jose.v2:go_default_library",
-+    ],
-+)
-+
-+filegroup(
-+    name = "package-srcs",
-+    srcs = glob(["**"]),
-+    tags = ["automanaged"],
-+    visibility = ["//visibility:private"],
-+)
-+
-+filegroup(
-+    name = "all-srcs",
-+    srcs = [":package-srcs"],
-+    tags = ["automanaged"],
-+    visibility = ["//visibility:public"],
-+)
 diff --git a/vendor/gopkg.in/square/go-jose.v2/cryptosigner/cryptosigner.go b/vendor/gopkg.in/square/go-jose.v2/cryptosigner/cryptosigner.go
 new file mode 100644
 index 00000000000..0ec98768eb1
@@ -1570,5 +1545,5 @@ index 45a2a04eb1a..c30e77e399f 100644
  gopkg.in/square/go-jose.v2/jwt
  # gopkg.in/tomb.v1 v1.0.0-20141024135613-dd632973f1e7 => gopkg.in/tomb.v1 v1.0.0-20141024135613-dd632973f1e7
 -- 
-2.17.1
+2.24.3 (Apple Git-128)
 
