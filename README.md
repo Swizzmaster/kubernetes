@@ -3,6 +3,7 @@
 ## Summary
 
 This package is used to track patches that EKS applies on top of upstream [kubernetes](https://github.com/kubernetes/kubernetes).
+The EKSDataplaneCDK clones the repo and applies the patches on top of upstream based on the git tag. The tag is created based on the commit id.
 
 ## Usage
 
