@@ -1,9 +1,0 @@
-{
-    "body": "**What type of PR is this?**\r\n\r\n/kind cleanup\r\n\r\n**What this PR does / why we need it**:\r\n\r\netcd images published in gcr.io now include an image version suffix. For example the image version of  `k8s.gcr.io/etcd:3.3.15-0` is `0`.\r\n\r\nAll in-tree kubernetes code uses these image versions except kubeadm and we'd like to update kubeadm to use them as well so that if we ever need to update an etcd image with a new base image or a fix to the scripts contained in the image we can do it via immutable docker tags.\r\n\r\nOne kubeadm is updated we will stop publishing the unversioned tags, e.g.  `k8s.gcr.io/etcd:3.3.15`.\r\n\r\n**Special notes for your reviewer**:\r\n\r\n**Does this PR introduce a user-facing change?**:\r\n```release-note\r\nNONE\r\n```\r\n\r\n/milestone 1.17\r\n/area etcd\r\n/sig api-machinery\r\n/priority important-longterm\r\n/cc @dims ",
-    "creation_date": "2019-09-04T21:45:20.548218",
-    "owner": "nic",
-    "patch_url": "https://github.com/kubernetes/kubernetes/pull/82348.patch",
-    "pr_creation_date": "2019-09-04T21:36:03Z",
-    "pr_id": "82348",
-    "url": "https://github.com/kubernetes/kubernetes/pull/82348"
-}
