@@ -1,0 +1,25 @@
+From 4a82d9bc8045638820d33e6110c2890df95ad4e4 Mon Sep 17 00:00:00 2001
+From: Jyoti Mahapatra <jyotima@amazon.com>
+Date: Fri, 30 Jul 2021 02:53:29 -0700
+Subject: [PATCH] change the allowed ip
+
+---
+ pkg/proxy/util/utils.go | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/pkg/proxy/util/utils.go b/pkg/proxy/util/utils.go
+index 9ec44c2de5a..029178251bb 100644
+--- a/pkg/proxy/util/utils.go
++++ b/pkg/proxy/util/utils.go
+@@ -96,7 +96,7 @@ func IsProxyableIP(ip string) error {
+ }
+ 
+ func isProxyableIP(ip net.IP) error {
+-	if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsInterfaceLocalMulticast() {
++	if !ip.IsGlobalUnicast() {
+ 		return ErrAddressNotAllowed
+ 	}
+ 	return nil
+-- 
+2.24.3 (Apple Git-128)
+
