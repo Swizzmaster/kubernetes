@@ -1,4 +1,4 @@
-From 914d6a880254b255a8ed249d8a327d62228a24d6 Mon Sep 17 00:00:00 2001
+From 68eda1f5bd508d5228ff946cbe8caa3fea56dd09 Mon Sep 17 00:00:00 2001
 From: Micah Hausler <mhausler@amazon.com>
 Date: Wed, 19 Sep 2018 18:16:23 -0700
 Subject: [PATCH] --EKS-PATCH-- Added allowlist CIDR flag, use "klog"
@@ -18,7 +18,7 @@ should consider removing the non-inclusive flag.
 
 Signed-off-by: Jyoti Mahapatra <jyotima@amazon.com>
 ---
- cmd/kube-apiserver/app/dialer.go              | 46 +++++++++
+ cmd/kube-apiserver/app/dialer.go              | 50 ++++++++++
  cmd/kube-apiserver/app/options/allowlist.go   |  9 ++
  cmd/kube-apiserver/app/options/options.go     |  9 ++
  .../app/options/options_test.go               |  1 +
@@ -28,7 +28,7 @@ Signed-off-by: Jyoti Mahapatra <jyotima@amazon.com>
  pkg/kubeapiserver/options/ipnetslice_test.go  | 36 +++++++
  pkg/kubeapiserver/options/options.go          |  1 +
  pkg/registry/core/node/strategy.go            | 14 +++
- 10 files changed, 230 insertions(+)
+ 10 files changed, 234 insertions(+)
  create mode 100644 cmd/kube-apiserver/app/dialer.go
  create mode 100644 cmd/kube-apiserver/app/options/allowlist.go
  create mode 100644 pkg/kubeapiserver/options/ipnetslice.go
@@ -36,10 +36,10 @@ Signed-off-by: Jyoti Mahapatra <jyotima@amazon.com>
 
 diff --git a/cmd/kube-apiserver/app/dialer.go b/cmd/kube-apiserver/app/dialer.go
 new file mode 100644
-index 00000000000..3b67af3e45a
+index 00000000000..81392de989d
 --- /dev/null
 +++ b/cmd/kube-apiserver/app/dialer.go
-@@ -0,0 +1,46 @@
+@@ -0,0 +1,50 @@
 +package app
 +
 +import (
@@ -49,7 +49,6 @@ index 00000000000..3b67af3e45a
 +	mathrand "math/rand"
 +	"net"
 +	"net/http"
-+	"strings"
 +	"time"
 +
 +	"k8s.io/klog/v2"
@@ -79,7 +78,12 @@ index 00000000000..3b67af3e45a
 +			klog.Infof("[%x: %v] Dialed in %v.", id, addr, time.Since(start))
 +		}()
 +
-+		if !allowlist.Contains(strings.Split(addr, ":")[0]) {
++		host, _, err := net.SplitHostPort(addr)
++		if err != nil {
++			return nil, errors.New("Invalid address")
++		}
++
++		if !allowlist.Contains(host) {
 +			return nil, errors.New("Address is not allowed")
 +		}
 +		dialer := &net.Dialer{}
@@ -380,5 +384,5 @@ index 2fe255155bc..1f71423c9c4 100644
  	// - no port is specified in request (Kubelet's port is default)
  	// - the requested port matches the kubelet port for this node
 -- 
-2.17.1
+2.24.3 (Apple Git-128)
 
