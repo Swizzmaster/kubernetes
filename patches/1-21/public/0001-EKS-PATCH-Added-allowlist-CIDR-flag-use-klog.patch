@@ -1,4 +1,4 @@
-From 2e1a30abc9f326e0e15182d76d001eb0cd3b7ee5 Mon Sep 17 00:00:00 2001
+From 3f8ae1bc9c520f701dc2d20d85ef93f50e96862e Mon Sep 17 00:00:00 2001
 From: Micah Hausler <mhausler@amazon.com>
 Date: Wed, 19 Sep 2018 18:16:23 -0700
 Subject: [PATCH] --EKS-PATCH-- Added allowlist CIDR flag, use "klog"
@@ -21,7 +21,7 @@ Signed-off-by: Jyoti Mahapatra <jyotima@amazon.com>
  cmd/kube-apiserver/app/dialer.go              |  53 +++
  cmd/kube-apiserver/app/options/allowlist.go   |   9 +
  cmd/kube-apiserver/app/options/options.go     |   9 +
- .../app/options/options_test.go               |   1 +
+ .../app/options/options_test.go               |   2 +
  cmd/kube-apiserver/app/options/validation.go  |  15 +
  cmd/kube-apiserver/app/server.go              |   6 +
  pkg/kubeapiserver/options/ipnetslice.go       |  93 +++++
@@ -30,7 +30,7 @@ Signed-off-by: Jyoti Mahapatra <jyotima@amazon.com>
  pkg/proxy/util/utils.go                       |   2 +-
  pkg/registry/core/node/strategy.go            |  25 +-
  .../apiserver/proxy_cidr_allowlist_test.go    | 388 ++++++++++++++++++
- 12 files changed, 633 insertions(+), 5 deletions(-)
+ 12 files changed, 634 insertions(+), 5 deletions(-)
  create mode 100644 cmd/kube-apiserver/app/dialer.go
  create mode 100644 cmd/kube-apiserver/app/options/allowlist.go
  create mode 100644 pkg/kubeapiserver/options/ipnetslice.go
@@ -146,14 +146,22 @@ index a16bc5498c5..0b6847a7766 100644
  		"A port range to reserve for services with NodePort visibility. "+
  		"Example: '30000-32767'. Inclusive at both ends of the range.")
 diff --git a/cmd/kube-apiserver/app/options/options_test.go b/cmd/kube-apiserver/app/options/options_test.go
-index d506ddb7274..3a833ff188f 100644
+index d506ddb7274..72ecc46c982 100644
 --- a/cmd/kube-apiserver/app/options/options_test.go
 +++ b/cmd/kube-apiserver/app/options/options_test.go
-@@ -127,6 +127,7 @@ func TestAddFlags(t *testing.T) {
+@@ -111,6 +111,7 @@ func TestAddFlags(t *testing.T) {
+ 		"--kubelet-client-certificate=/var/run/kubernetes/ceserver.crt",
+ 		"--kubelet-client-key=/var/run/kubernetes/server.key",
+ 		"--kubelet-certificate-authority=/var/run/kubernetes/caserver.crt",
++		"--proxy-cidr-whitelist=192.168.0.0/24",
+ 		"--proxy-client-cert-file=/var/run/kubernetes/proxy.crt",
+ 		"--proxy-client-key-file=/var/run/kubernetes/proxy.key",
+ 		"--request-timeout=2m",
+@@ -127,6 +128,7 @@ func TestAddFlags(t *testing.T) {
  		MasterCount:            5,
  		EndpointReconcilerType: string(reconcilers.LeaseEndpointReconcilerType),
  		AllowPrivileged:        false,
-+		ProxyCIDRAllowlist:     kubeoptions.NewIPNetSlice("0.0.0.0/0"),
++		ProxyCIDRAllowlist:     kubeoptions.NewIPNetSlice("192.168.0.0/24"),
  		GenericServerRunOptions: &apiserveroptions.ServerRunOptions{
  			AdvertiseAddress:            net.ParseIP("192.168.10.10"),
  			CorsAllowedOriginList:       []string{"10.10.10.100", "10.10.10.200"},
