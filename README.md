@@ -3,7 +3,66 @@
 ## Summary
 
 This package is used to track patches that EKS applies on top of upstream [kubernetes](https://github.com/kubernetes/kubernetes).
-The EKSDataplaneCDK clones the repo and applies the patches on top of upstream based on the git tag. The tag is created based on the commit id.
+The EKSDataPlaneCDK clones the repo and applies the patches on top of upstream based on the git tag. The tag is created based on the commit id.
+
+## Development
+
+Clone this repo and the gitfarm kubernetes repository.
+```
+$ brazil ws create -n EKSDataPlaneKubernetes
+$ cd EKSDataPlaneKubernetes
+$ brazil ws use -p EKSDataPlaneKubernetes
+$ brazil ws use -p EKSKubernetesPatches
+$ cd src/EKSDataPlaneKubernetes
+```
+
+Checkout the kubernetes version the patches apply to.
+```
+$ cat ~/workplace/EKSKubernetesPatches/src/EKSKubernetesPatches/patches/1-21/GIT_TAG
+$ bash -c 'git checkout $(cat ~/workplace/EKSKubernetesPatches/src/EKSKubernetesPatches/patches/1-21/GIT_TAG)'
+$ bash -c 'git checkout -b $(cat ~/workplace/EKSKubernetesPatches/src/EKSKubernetesPatches/patches/1-21/GIT_TAG)-eks'
+```
+
+Apply the patches (as the EKSDataPlaneCDK pipeline would https://code.amazon.com/packages/EKSDataPlaneCDK/blobs/6cc76cc315429094bdf921eab7a7ee9ebee1694f/--/eks_code_pipeline/build_deploy_scripts/k8s_build_patch.sh#L39-L60).
+```
+$ KUBERNETES_PATCH_DIR=$HOME/workplace/EKSKubernetesPatches/src/EKSKubernetesPatches
+$ KUBE_MINOR_VERSION=21
+$ bash -c 'for file in ${KUBERNETES_PATCH_DIR}/patches/1-${KUBE_MINOR_VERSION}/public/*.patch; do
+      if git am < $file; then
+        echo "Applied $file"
+      else
+        echo "Apply failed for $file. Exiting."
+        exit 1
+      fi
+    done'
+$ bash -c 'for file in ${KUBERNETES_PATCH_DIR}/patches/1-${KUBE_MINOR_VERSION}/private/*.patch; do
+      if git am < $file; then
+        echo "Applied $file"
+      else
+        echo "Apply failed for $file. Exiting."
+        exit 1
+      fi
+    done'
+```
+
+Add, reorder, or remove patches with `git rebase -i`, `git cherry-pick`, etc.
+```
+$ git cherry-pick 1234
+```
+
+Prepare the new patches.
+```
+# For example, if a patch was cherry-picked onto HEAD
+$ git format-patch -1 HEAD
+$ mv ./0001-YOUR-PATCH.patch $HOME/workplace/EKSKubernetesPatches/src/EKSKubernetesPatches/patches/1-21/private/0006-YOUR-PATCH.patch
+$ cd $HOME/workplace/EKSKubernetesPatches/src/EKSKubernetesPatches/
+$ cr
+```
+
+# ekspatch
+
+Optionally you may use the ekspatch cli to help with some common patch
+manipulation operations.
 
 ## Usage
 
@@ -32,7 +91,7 @@ Options:
   --help  Show this message and exit.
 ```
 
-Clone the kubernetes codecommit repository.
+Clone the kubernetes codecommit repository which is a mirror of the gitfarm repository.
 
 ## Create Patches
 ```
