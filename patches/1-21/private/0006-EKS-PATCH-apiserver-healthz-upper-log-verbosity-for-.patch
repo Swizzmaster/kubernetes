@@ -1,4 +1,4 @@
-From e888accbfa60724afb2ba08ec9710fc5f94bcd10 Mon Sep 17 00:00:00 2001
+From a3494c7e66aa096fbaebbea34cd133d73704b285 Mon Sep 17 00:00:00 2001
 From: Gyuho Lee <leegyuho@amazon.com>
 Date: Tue, 28 Sep 2021 19:38:47 +0000
 Subject: [PATCH] --EKS-PATCH-- apiserver/healthz: upper log verbosity for
@@ -17,7 +17,8 @@ to minimize the noise and log billing.
 Signed-off-by: Gyuho Lee <leegyuho@amazon.com>
 ---
  .../src/k8s.io/apiserver/pkg/server/healthz/healthz.go    | 8 ++++++--
- 1 file changed, 6 insertions(+), 2 deletions(-)
+ .../k8s.io/apiserver/pkg/server/healthz/healthz_test.go   | 2 +-
+ 2 files changed, 7 insertions(+), 3 deletions(-)
 
 diff --git a/staging/src/k8s.io/apiserver/pkg/server/healthz/healthz.go b/staging/src/k8s.io/apiserver/pkg/server/healthz/healthz.go
 index e80b8501edf..75735565f2a 100644
@@ -38,6 +39,19 @@ index e80b8501edf..75735565f2a 100644
  				formatQuoted(excluded.List()...))
  		}
  		// always be verbose on failure
+diff --git a/staging/src/k8s.io/apiserver/pkg/server/healthz/healthz_test.go b/staging/src/k8s.io/apiserver/pkg/server/healthz/healthz_test.go
+index 0fb67c84570..a56b4d20770 100644
+--- a/staging/src/k8s.io/apiserver/pkg/server/healthz/healthz_test.go
++++ b/staging/src/k8s.io/apiserver/pkg/server/healthz/healthz_test.go
+@@ -105,7 +105,7 @@ func testMultipleChecks(path, name string, t *testing.T) {
+ 		{"?exclude=dontexist", "ok", http.StatusOK, false},
+ 		{"?exclude=bad", "ok", http.StatusOK, true},
+ 		{"?verbose=true&exclude=bad", fmt.Sprintf("[+]ping ok\n[+]bad excluded: ok\n%s check passed\n", name), http.StatusOK, true},
+-		{"?verbose=true&exclude=dontexist", fmt.Sprintf("[+]ping ok\nwarn: some health checks cannot be excluded: no matches for \"dontexist\"\n%s check passed\n", name), http.StatusOK, false},
++		{"?verbose=true&exclude=dontexist", fmt.Sprintf("[+]ping ok\n%s check passed\n", name), http.StatusOK, false},
+ 		{"/ping", "ok", http.StatusOK, false},
+ 		{"", "ok", http.StatusOK, false},
+ 		{"?verbose", fmt.Sprintf("[+]ping ok\n[-]bad failed: reason withheld\n%s check failed\n", name), http.StatusInternalServerError, true},
 -- 
 2.32.0
 
