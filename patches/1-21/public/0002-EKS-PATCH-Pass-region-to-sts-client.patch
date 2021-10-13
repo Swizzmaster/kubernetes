@@ -1,0 +1,30 @@
+From 5c444d7289d96c6ad5e5f62cfa15f13b716d2e8c Mon Sep 17 00:00:00 2001
+From: Rasita Pai <prasita@amazon.com>
+Date: Wed, 13 Oct 2021 10:46:18 -0700
+Subject: [PATCH] --EKS-PATCH-- Pass region to sts client
+
+---
+ staging/src/k8s.io/legacy-cloud-providers/aws/aws.go | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/staging/src/k8s.io/legacy-cloud-providers/aws/aws.go b/staging/src/k8s.io/legacy-cloud-providers/aws/aws.go
+index aafc7fe0564..490e119d4d9 100644
+--- a/staging/src/k8s.io/legacy-cloud-providers/aws/aws.go
++++ b/staging/src/k8s.io/legacy-cloud-providers/aws/aws.go
+@@ -1180,8 +1180,12 @@ func init() {
+ 			return nil, fmt.Errorf("unable to validate custom endpoint overrides: %v", err)
+ 		}
+ 
++		regionName, err := azToRegion(cfg.Global.Zone)
++		if err != nil {
++			return nil, err
++		}
+ 		sess, err := session.NewSessionWithOptions(session.Options{
+-			Config:            aws.Config{},
++			Config:            *aws.NewConfig().WithRegion(regionName).WithSTSRegionalEndpoint(endpoints.RegionalSTSEndpoint),
+ 			SharedConfigState: session.SharedConfigEnable,
+ 		})
+ 		if err != nil {
+-- 
+2.31.0
+
