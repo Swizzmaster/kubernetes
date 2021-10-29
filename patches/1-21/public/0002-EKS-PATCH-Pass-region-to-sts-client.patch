@@ -1,21 +1,21 @@
-From 5c444d7289d96c6ad5e5f62cfa15f13b716d2e8c Mon Sep 17 00:00:00 2001
+From 86871e67815a4d9d22553bf06b18e6fea182b73e Mon Sep 17 00:00:00 2001
 From: Rasita Pai <prasita@amazon.com>
 Date: Wed, 13 Oct 2021 10:46:18 -0700
 Subject: [PATCH] --EKS-PATCH-- Pass region to sts client
 
 ---
- staging/src/k8s.io/legacy-cloud-providers/aws/aws.go | 6 +++++-
- 1 file changed, 5 insertions(+), 1 deletion(-)
+ .../k8s.io/legacy-cloud-providers/aws/aws.go  | 54 ++++++++++++-------
+ 1 file changed, 35 insertions(+), 19 deletions(-)
 
 diff --git a/staging/src/k8s.io/legacy-cloud-providers/aws/aws.go b/staging/src/k8s.io/legacy-cloud-providers/aws/aws.go
-index aafc7fe0564..490e119d4d9 100644
+index aafc7fe0564..d9e444333bd 100644
 --- a/staging/src/k8s.io/legacy-cloud-providers/aws/aws.go
 +++ b/staging/src/k8s.io/legacy-cloud-providers/aws/aws.go
 @@ -1180,8 +1180,12 @@ func init() {
  			return nil, fmt.Errorf("unable to validate custom endpoint overrides: %v", err)
  		}
  
-+		regionName, err := azToRegion(cfg.Global.Zone)
++		regionName, err := getRegionFromMetadata(cfg)
 +		if err != nil {
 +			return nil, err
 +		}
@@ -25,6 +25,82 @@ index aafc7fe0564..490e119d4d9 100644
  			SharedConfigState: session.SharedConfigEnable,
  		})
  		if err != nil {
+@@ -1204,10 +1208,36 @@ func init() {
+ 		}
+ 
+ 		aws := newAWSSDKProvider(creds, cfg)
+-		return newAWSCloud(*cfg, aws)
++		return newAWSCloud(*cfg, aws, regionName)
+ 	})
+ }
+ 
++func getRegionFromMetadata(cfg *CloudConfig) (string, error) {
++	klog.Infof("Get AWS region from metadata client")
++
++	metadata, err := newAWSSDKProvider(nil, cfg).Metadata()
++	if err != nil {
++		return "", fmt.Errorf("error creating AWS metadata client: %q", err)
++	}
++
++	err = updateConfigZone(cfg, metadata)
++	if err != nil {
++		return "", fmt.Errorf("unable to determine AWS zone from cloud provider config or EC2 instance metadata: %v", err)
++	}
++
++	zone := cfg.Global.Zone
++	if len(zone) <= 1 {
++		return "", fmt.Errorf("invalid AWS zone in config file: %s", zone)
++	}
++
++	regionName, err := azToRegion(zone)
++	if err != nil {
++		return "", err
++	}
++
++	return regionName, nil
++}
++
+ // readAWSCloudConfig reads an instance of AWSCloudConfig from config reader.
+ func readAWSCloudConfig(config io.Reader) (*CloudConfig, error) {
+ 	var cfg CloudConfig
+@@ -1263,7 +1293,7 @@ func azToRegion(az string) (string, error) {
+ 
+ // newAWSCloud creates a new instance of AWSCloud.
+ // AWSProvider and instanceId are primarily for tests
+-func newAWSCloud(cfg CloudConfig, awsServices Services) (*Cloud, error) {
++func newAWSCloud(cfg CloudConfig, awsServices Services, regionName string) (*Cloud, error) {
+ 	// We have some state in the Cloud object - in particular the attaching map
+ 	// Log so that if we are building multiple Cloud objects, it is obvious!
+ 	klog.Infof("Building AWS cloudprovider")
+@@ -1273,26 +1303,12 @@ func newAWSCloud(cfg CloudConfig, awsServices Services) (*Cloud, error) {
+ 		return nil, fmt.Errorf("error creating AWS metadata client: %q", err)
+ 	}
+ 
+-	err = updateConfigZone(&cfg, metadata)
+-	if err != nil {
+-		return nil, fmt.Errorf("unable to determine AWS zone from cloud provider config or EC2 instance metadata: %v", err)
+-	}
+-
+-	zone := cfg.Global.Zone
+-	if len(zone) <= 1 {
+-		return nil, fmt.Errorf("invalid AWS zone in config file: %s", zone)
+-	}
+-	regionName, err := azToRegion(zone)
+-	if err != nil {
+-		return nil, err
+-	}
+-
+ 	if !cfg.Global.DisableStrictZoneCheck {
+ 		if !isRegionValid(regionName, metadata) {
+-			return nil, fmt.Errorf("not a valid AWS zone (unknown region): %s", zone)
++			return nil, fmt.Errorf("not a valid AWS zone (unknown region): %s", cfg.Global.Zone)
+ 		}
+ 	} else {
+-		klog.Warningf("Strict AWS zone checking is disabled.  Proceeding with zone: %s", zone)
++		klog.Warningf("Strict AWS zone checking is disabled.  Proceeding with zone: %s", cfg.Global.Zone)
+ 	}
+ 
+ 	ec2, err := awsServices.Compute(regionName)
 -- 
-2.31.0
+2.17.1
 
