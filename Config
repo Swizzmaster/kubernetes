@@ -21,16 +21,24 @@ package.EKSKubernetesPatches = {
 
     dependencies = {
         1.0 = {
-            BrazilPython-setuptools = default;
             Python = default;
+            Python-setuptools = default;
+
             Python-loguru = 0.x;
             Click = 6.x;
             Requests = 2.x.x;
+
         };
     };
 
     runtime-dependencies = {
         1.0 = {
+        };
+    };
+
+    test-dependencies = {
+        1.0 = {
+            BrazilPython-Pytest = 3.x;
         };
     };
 
