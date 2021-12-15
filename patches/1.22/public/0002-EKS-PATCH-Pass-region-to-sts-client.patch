@@ -1,14 +1,20 @@
-From 51daae8c06046d551f58bb7144dbf484dc0696bb Mon Sep 17 00:00:00 2001
+From a26766258d6725c99e7cf360b45092121e41268d Mon Sep 17 00:00:00 2001
 From: Rasita Pai <prasita@amazon.com>
 Date: Wed, 13 Oct 2021 10:46:18 -0700
 Subject: [PATCH] --EKS-PATCH-- Pass region to sts client
 
+First, this change explicitly sets the region from metadata.
+Second, it also uses .WithSTSRegionalEndpoint(endpoints.RegionalSTSEndpoint)
+to enable the regional STS endpoint, which is required because as of SDK
+version v1.42.23 the default is legacy (endpoints.LegacySTSEndpoint).
+
+Signed-off-by: Nick Turner <nic@amazon.com>
 ---
  .../k8s.io/legacy-cloud-providers/aws/aws.go  | 32 ++++++++++++++++++-
  1 file changed, 31 insertions(+), 1 deletion(-)
 
 diff --git a/staging/src/k8s.io/legacy-cloud-providers/aws/aws.go b/staging/src/k8s.io/legacy-cloud-providers/aws/aws.go
-index aafc7fe0564..aa8634f20fd 100644
+index d21e2cd7d44..b8a67e0693f 100644
 --- a/staging/src/k8s.io/legacy-cloud-providers/aws/aws.go
 +++ b/staging/src/k8s.io/legacy-cloud-providers/aws/aws.go
 @@ -1180,8 +1180,12 @@ func init() {
