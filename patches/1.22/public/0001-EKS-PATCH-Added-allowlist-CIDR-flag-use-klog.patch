@@ -1,4 +1,4 @@
-From 3f8ae1bc9c520f701dc2d20d85ef93f50e96862e Mon Sep 17 00:00:00 2001
+From b67824287c8b6102e6c50530392fc80d75453223 Mon Sep 17 00:00:00 2001
 From: Micah Hausler <mhausler@amazon.com>
 Date: Wed, 19 Sep 2018 18:16:23 -0700
 Subject: [PATCH] --EKS-PATCH-- Added allowlist CIDR flag, use "klog"
@@ -16,21 +16,21 @@ flag must remain, despite containing the non-inclusive term
 functionality and should be used instead of it. Future releases
 should consider removing the non-inclusive flag.
 
-Signed-off-by: Jyoti Mahapatra <jyotima@amazon.com>
+Signed-off-by: Nick Turner <nic@amazon.com>
 ---
  cmd/kube-apiserver/app/dialer.go              |  53 +++
  cmd/kube-apiserver/app/options/allowlist.go   |   9 +
  cmd/kube-apiserver/app/options/options.go     |   9 +
  .../app/options/options_test.go               |   2 +
  cmd/kube-apiserver/app/options/validation.go  |  15 +
- cmd/kube-apiserver/app/server.go              |   6 +
+ cmd/kube-apiserver/app/server.go              |   5 +-
  pkg/kubeapiserver/options/ipnetslice.go       |  93 +++++
  pkg/kubeapiserver/options/ipnetslice_test.go  |  36 ++
  pkg/kubeapiserver/options/options.go          |   1 +
  pkg/proxy/util/utils.go                       |   2 +-
  pkg/registry/core/node/strategy.go            |  25 +-
  .../apiserver/proxy_cidr_allowlist_test.go    | 388 ++++++++++++++++++
- 12 files changed, 634 insertions(+), 5 deletions(-)
+ 12 files changed, 632 insertions(+), 6 deletions(-)
  create mode 100644 cmd/kube-apiserver/app/dialer.go
  create mode 100644 cmd/kube-apiserver/app/options/allowlist.go
  create mode 100644 pkg/kubeapiserver/options/ipnetslice.go
@@ -112,10 +112,10 @@ index 00000000000..d10ec4ebdda
 +	ProxyCIDRAllowlist kubeoptions.IPNetSlice = kubeoptions.DefaultProxyCIDRAllowlist
 +)
 diff --git a/cmd/kube-apiserver/app/options/options.go b/cmd/kube-apiserver/app/options/options.go
-index a16bc5498c5..0b6847a7766 100644
+index 32c777c192f..6e80adf62a1 100644
 --- a/cmd/kube-apiserver/app/options/options.go
 +++ b/cmd/kube-apiserver/app/options/options.go
-@@ -65,6 +65,7 @@ type ServerRunOptions struct {
+@@ -66,6 +66,7 @@ type ServerRunOptions struct {
  	KubeletConfig             kubeletclient.KubeletClientConfig
  	KubernetesServiceNodePort int
  	MaxConnectionBytesPerSec  int64
@@ -123,7 +123,7 @@ index a16bc5498c5..0b6847a7766 100644
  	// ServiceClusterIPRange is mapped to input provided by user
  	ServiceClusterIPRanges string
  	// PrimaryServiceClusterIPRange and SecondaryServiceClusterIPRange are the results
-@@ -136,6 +137,8 @@ func NewServerRunOptions() *ServerRunOptions {
+@@ -138,6 +139,8 @@ func NewServerRunOptions() *ServerRunOptions {
  		},
  		ServiceNodePortRange: kubeoptions.DefaultServiceNodePortRange,
  	}
@@ -132,7 +132,7 @@ index a16bc5498c5..0b6847a7766 100644
  
  	// Overwrite the default for storage data format.
  	s.Etcd.DefaultStorageMediaType = "application/vnd.kubernetes.protobuf"
-@@ -231,6 +234,12 @@ func (s *ServerRunOptions) Flags() (fss cliflag.NamedFlagSets) {
+@@ -224,6 +227,12 @@ func (s *ServerRunOptions) Flags() (fss cliflag.NamedFlagSets) {
  		"A CIDR notation IP range from which to assign service cluster IPs. This must not "+
  		"overlap with any IP ranges assigned to nodes or pods. Max of two dual-stack CIDRs is allowed.")
  
@@ -146,18 +146,18 @@ index a16bc5498c5..0b6847a7766 100644
  		"A port range to reserve for services with NodePort visibility. "+
  		"Example: '30000-32767'. Inclusive at both ends of the range.")
 diff --git a/cmd/kube-apiserver/app/options/options_test.go b/cmd/kube-apiserver/app/options/options_test.go
-index d506ddb7274..72ecc46c982 100644
+index 912285fd4bf..0493e534167 100644
 --- a/cmd/kube-apiserver/app/options/options_test.go
 +++ b/cmd/kube-apiserver/app/options/options_test.go
-@@ -111,6 +111,7 @@ func TestAddFlags(t *testing.T) {
- 		"--kubelet-client-certificate=/var/run/kubernetes/ceserver.crt",
+@@ -112,6 +112,7 @@ func TestAddFlags(t *testing.T) {
  		"--kubelet-client-key=/var/run/kubernetes/server.key",
  		"--kubelet-certificate-authority=/var/run/kubernetes/caserver.crt",
+ 		"--tracing-config-file=/var/run/kubernetes/tracing_config.yaml",
 +		"--proxy-cidr-whitelist=192.168.0.0/24",
  		"--proxy-client-cert-file=/var/run/kubernetes/proxy.crt",
  		"--proxy-client-key-file=/var/run/kubernetes/proxy.key",
  		"--request-timeout=2m",
-@@ -127,6 +128,7 @@ func TestAddFlags(t *testing.T) {
+@@ -128,6 +129,7 @@ func TestAddFlags(t *testing.T) {
  		MasterCount:            5,
  		EndpointReconcilerType: string(reconcilers.LeaseEndpointReconcilerType),
  		AllowPrivileged:        false,
@@ -166,7 +166,7 @@ index d506ddb7274..72ecc46c982 100644
  			AdvertiseAddress:            net.ParseIP("192.168.10.10"),
  			CorsAllowedOriginList:       []string{"10.10.10.100", "10.10.10.200"},
 diff --git a/cmd/kube-apiserver/app/options/validation.go b/cmd/kube-apiserver/app/options/validation.go
-index 3fdf5c315d9..22501c077ba 100644
+index 6bf7b9d8a87..f2f92c6584a 100644
 --- a/cmd/kube-apiserver/app/options/validation.go
 +++ b/cmd/kube-apiserver/app/options/validation.go
 @@ -31,6 +31,18 @@ import (
@@ -199,22 +199,21 @@ index 3fdf5c315d9..22501c077ba 100644
  	errs = append(errs, validateServiceNodePort(s)...)
  	errs = append(errs, validateAPIPriorityAndFairness(s)...)
 diff --git a/cmd/kube-apiserver/app/server.go b/cmd/kube-apiserver/app/server.go
-index 59413c4be1d..60074debb9a 100644
+index 8b23c685fc8..485b9a5ce54 100644
 --- a/cmd/kube-apiserver/app/server.go
 +++ b/cmd/kube-apiserver/app/server.go
-@@ -200,6 +200,12 @@ func CreateServerChain(completedOptions completedServerRunOptions, stopCh <-chan
- 		return nil, err
- 	}
- 
-+	// This will likely break node dialer, any good ideas for how to mitigate that?
-+	proxyTransport, err = CreateOutboundDialer(completedOptions)
+@@ -239,7 +239,10 @@ func CreateKubeAPIServerConfig(s completedServerRunOptions) (
+ 	[]admission.PluginInitializer,
+ 	error,
+ ) {
+-	proxyTransport := CreateProxyTransport()
++	proxyTransport, err := CreateOutboundDialer(s)
 +	if err != nil {
-+		return nil, err
++		return nil, nil, nil, err
 +	}
-+
- 	kubeAPIServerConfig, serviceResolver, pluginInitializer, err := CreateKubeAPIServerConfig(completedOptions, nodeTunneler, proxyTransport)
+ 
+ 	genericConfig, versionedInformers, serviceResolver, pluginInitializers, admissionPostStartHook, storageFactory, err := buildGenericConfig(s.ServerRunOptions, proxyTransport)
  	if err != nil {
- 		return nil, err
 diff --git a/pkg/kubeapiserver/options/ipnetslice.go b/pkg/kubeapiserver/options/ipnetslice.go
 new file mode 100644
 index 00000000000..8cc2fe76574
@@ -366,7 +365,7 @@ index 1314e52c05f..818b7061566 100644
  const DefaultEtcdPathPrefix = "/registry"
 +var DefaultProxyCIDRAllowlist IPNetSlice = NewIPNetSlice()
 diff --git a/pkg/proxy/util/utils.go b/pkg/proxy/util/utils.go
-index 9ec44c2de5a..029178251bb 100644
+index c1286029a01..3d7f75f74e8 100644
 --- a/pkg/proxy/util/utils.go
 +++ b/pkg/proxy/util/utils.go
 @@ -96,7 +96,7 @@ func IsProxyableIP(ip string) error {
@@ -379,7 +378,7 @@ index 9ec44c2de5a..029178251bb 100644
  	}
  	return nil
 diff --git a/pkg/registry/core/node/strategy.go b/pkg/registry/core/node/strategy.go
-index 2fe255155bc..aebeffccbbe 100644
+index 496a860d0c7..479a5aa1bba 100644
 --- a/pkg/registry/core/node/strategy.go
 +++ b/pkg/registry/core/node/strategy.go
 @@ -35,6 +35,7 @@ import (
@@ -390,7 +389,7 @@ index 2fe255155bc..aebeffccbbe 100644
  	"k8s.io/kubernetes/pkg/api/legacyscheme"
  	api "k8s.io/kubernetes/pkg/apis/core"
  	"k8s.io/kubernetes/pkg/apis/core/validation"
-@@ -251,6 +252,26 @@ func ResourceLocation(getter ResourceGetter, connection client.ConnectionInfoGet
+@@ -266,6 +267,26 @@ func ResourceLocation(getter ResourceGetter, connection client.ConnectionInfoGet
  		return nil, nil, err
  	}
  
@@ -417,7 +416,7 @@ index 2fe255155bc..aebeffccbbe 100644
  	// We check if we want to get a default Kubelet's transport. It happens if either:
  	// - no port is specified in request (Kubelet's port is default)
  	// - the requested port matches the kubelet port for this node
-@@ -263,10 +284,6 @@ func ResourceLocation(getter ResourceGetter, connection client.ConnectionInfoGet
+@@ -278,10 +299,6 @@ func ResourceLocation(getter ResourceGetter, connection client.ConnectionInfoGet
  			nil
  	}
  
@@ -823,5 +822,5 @@ index 00000000000..d3044053ca4
 +	return service
 +}
 -- 
-2.31.1
+2.17.1
 
