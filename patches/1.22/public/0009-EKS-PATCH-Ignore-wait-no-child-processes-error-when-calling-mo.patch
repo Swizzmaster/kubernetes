@@ -5,6 +5,7 @@ Subject: [PATCH] Ignore 'wait: no child processes' error when calling
  mount/umount
 
 Upstream PR: https://github.com/kubernetes/kubernetes/pull/103780
+DROP in 1.23
 
 ---
  staging/src/k8s.io/mount-utils/mount_linux.go | 18 ++++++++++++++++++
