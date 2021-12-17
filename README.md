@@ -3,49 +3,28 @@
 ## Summary
 
 This package is used to track patches that EKS applies on top of upstream [kubernetes](https://github.com/kubernetes/kubernetes).
-The EKSDataPlaneCDK clones the repo and applies the patches on top of upstream based on the git tag. The tag is created based on the commit id.
+EKSDataPlaneCDK clones this repo and applies the patches on top of upstream based on the GIT_TAG.
 
 ## Development
 
 Clone this repo and the gitfarm kubernetes repository.
 ```
+$ cd ~/workplace/
 $ brazil ws create -n EKSDataPlaneKubernetes
-$ cd EKSDataPlaneKubernetes
+$ cd EKSDataPlaneKubernetes/
 $ brazil ws use -p EKSDataPlaneKubernetes
 $ brazil ws use -p EKSKubernetesPatches
-$ cd src/EKSDataPlaneKubernetes
+$ cd src/EKSKubernetesPatches/
 ```
 
-Checkout the kubernetes version the patches apply to.
+Apply the patches. Make sure the kubernetes repository is clean before doing this or the script could overwrite something!
 ```
-$ cat ~/workplace/EKSKubernetesPatches/src/EKSKubernetesPatches/patches/1-21/GIT_TAG
-$ bash -c 'git checkout $(cat ~/workplace/EKSKubernetesPatches/src/EKSKubernetesPatches/patches/1-21/GIT_TAG)'
-$ bash -c 'git checkout -b $(cat ~/workplace/EKSKubernetesPatches/src/EKSKubernetesPatches/patches/1-21/GIT_TAG)-eks'
-```
-
-Apply the patches (as the EKSDataPlaneCDK pipeline would https://code.amazon.com/packages/EKSDataPlaneCDK/blobs/6cc76cc315429094bdf921eab7a7ee9ebee1694f/--/eks_code_pipeline/build_deploy_scripts/k8s_build_patch.sh#L39-L60).
-```
-$ KUBERNETES_PATCH_DIR=$HOME/workplace/EKSKubernetesPatches/src/EKSKubernetesPatches
-$ KUBE_MINOR_VERSION=21
-$ bash -c 'for file in ${KUBERNETES_PATCH_DIR}/patches/1-${KUBE_MINOR_VERSION}/public/*.patch; do
-      if git am < $file; then
-        echo "Applied $file"
-      else
-        echo "Apply failed for $file. Exiting."
-        exit 1
-      fi
-    done'
-$ bash -c 'for file in ${KUBERNETES_PATCH_DIR}/patches/1-${KUBE_MINOR_VERSION}/private/*.patch; do
-      if git am < $file; then
-        echo "Applied $file"
-      else
-        echo "Apply failed for $file. Exiting."
-        exit 1
-      fi
-    done'
+$ cat patches/1.21/GIT_TAG
+v1.21.5
+$ ./hack/apply_patches.sh patches/1.22 ../EKSDataPlaneKubernetes/
 ```
 
-Add, reorder, or remove patches with `git rebase -i`, `git cherry-pick`, etc.
+Add, edit, drop, or reorder patches with `git rebase -i`, `git cherry-pick`, etc.
 ```
 $ git cherry-pick 1234
 ```
@@ -58,6 +37,14 @@ $ mv ./0001-YOUR-PATCH.patch $HOME/workplace/EKSKubernetesPatches/src/EKSKuberne
 $ cd $HOME/workplace/EKSKubernetesPatches/src/EKSKubernetesPatches/
 $ cr
 ```
+
+### Rebasing patches on a new kubernetes version
+
+For a new minor version, copy the preceding directory then edit the GIT_TAG to the new version you wish to rebase the patches on.
+
+For a new patch version, find the existing directory then edit the GIT_TAG.
+
+Then the process is the same as above. When you apply the patches you should expect a patch to fail in which case you must decide to edit or drop it. Submit a cr with the patch edited or dropped. Repeat this process until all patches succeed for the new GIT_TAG.
 
 # ekspatch
 
