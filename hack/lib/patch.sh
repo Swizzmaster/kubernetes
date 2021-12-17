@@ -12,7 +12,7 @@ function checkout_kubernetes {
   if ! git config remote.upstream.url > /dev/null; then
     git remote add upstream https://github.com/kubernetes/kubernetes.git
   fi
-  git fetch upstream
+  git fetch upstream --tags
   git checkout "$VERSION"
 
   popd

@@ -11,6 +11,14 @@ if [[ "$REPLY" =~ ^[Yy]$ ]]; then
   KUBERNETES_DIR="$PWD/../EKSDataPlaneKubernetes"
   if [[ ! -d "$KUBERNETES_DIR" ]]; then
     brazil ws use -p EKSDataPlaneKubernetes
+  else
+    pushd "$KUBERNETES_DIR"
+    if ! git diff-index --quiet HEAD --; then
+        echo "Your EKSDataplaneKubernetes directory is in a dirty state.  Exiting.  Stash, commit or reset your in progress work."
+        popd
+        exit 1
+    fi
+    popd
   fi
 
   echo "Which patches to apply?"
