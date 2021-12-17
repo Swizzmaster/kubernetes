@@ -1,18 +1,17 @@
-From 6d988acb558ac31cbe7c494327949c022ce5a06d Mon Sep 17 00:00:00 2001
+From 4def9b820b3f11cab0b386aef469aaa7742b51e6 Mon Sep 17 00:00:00 2001
 From: Shyam Jeedigunta <jeedigv@amazon.com>
 Date: Mon, 19 Jul 2021 12:31:37 -0700
-Subject: [PATCH] Ignore 'wait: no child processes' error when calling
+Subject: [PATCH 6/7] Ignore 'wait: no child processes' error when calling
  mount/umount
 
 Upstream PR: https://github.com/kubernetes/kubernetes/pull/103780
 DROP in 1.23
-
 ---
  staging/src/k8s.io/mount-utils/mount_linux.go | 18 ++++++++++++++++++
  1 file changed, 18 insertions(+)
 
 diff --git a/staging/src/k8s.io/mount-utils/mount_linux.go b/staging/src/k8s.io/mount-utils/mount_linux.go
-index 10a1c3f0106..507528fdf7c 100644
+index 7097eae0876..8e5fa81a0e0 100644
 --- a/staging/src/k8s.io/mount-utils/mount_linux.go
 +++ b/staging/src/k8s.io/mount-utils/mount_linux.go
 @@ -45,6 +45,8 @@ const (
@@ -24,7 +23,7 @@ index 10a1c3f0106..507528fdf7c 100644
  )
  
  // Mounter provides the default implementation of mount.Interface
-@@ -176,6 +178,14 @@ func (mounter *Mounter) doMount(mounterPath string, mountCmd string, source stri
+@@ -181,6 +183,14 @@ func (mounter *Mounter) doMount(mounterPath string, mountCmd string, source stri
  	command := exec.Command(mountCmd, mountArgs...)
  	output, err := command.CombinedOutput()
  	if err != nil {
@@ -39,7 +38,7 @@ index 10a1c3f0106..507528fdf7c 100644
  		klog.Errorf("Mount failed: %v\nMounting command: %s\nMounting arguments: %s\nOutput: %s\n", err, mountCmd, mountArgsLogStr, string(output))
  		return fmt.Errorf("mount failed: %v\nMounting command: %s\nMounting arguments: %s\nOutput: %s",
  			err, mountCmd, mountArgsLogStr, string(output))
-@@ -267,6 +277,14 @@ func (mounter *Mounter) Unmount(target string) error {
+@@ -284,6 +294,14 @@ func (mounter *Mounter) Unmount(target string) error {
  	command := exec.Command("umount", target)
  	output, err := command.CombinedOutput()
  	if err != nil {
@@ -55,5 +54,5 @@ index 10a1c3f0106..507528fdf7c 100644
  	}
  	return nil
 -- 
-2.33.0
+2.17.1
 

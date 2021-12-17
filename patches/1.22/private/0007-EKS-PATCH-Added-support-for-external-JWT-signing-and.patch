@@ -1,13 +1,13 @@
-From a295da8a25d3f05aa45796a98e6fee763c1941aa Mon Sep 17 00:00:00 2001
-From: Jyoti Mahapatra <jyotima@amazon.com>
-Date: Thu, 20 May 2021 08:14:15 +0000
-Subject: [PATCH] --EKS-PATCH-- Added support for external JWT signing and
+From 0fb2455a5e731fe65dbede8a56998d188d25b863 Mon Sep 17 00:00:00 2001
+From: Micah Hausler <mhausler@amazon.com>
+Date: Thu, 17 Jan 2019 15:41:00 -0800
+Subject: [PATCH 7/7] --EKS-PATCH-- Added support for external JWT signing and
  verifying
 
 ref. https://github.com/micahhausler/kubernetes/commit/147f45449d6d750c848751eb7d17aba4a9b571be
 
-Author:    Micah Hausler <mhausler@amazon.com>
-Date:      Thu Jan 17 15:41:00 2019 -0800
+1.22: Support for multiple issuers was added, so that migration is
+possible from 1 issuer to another, so this patch needed to be rebased.
 ---
  cmd/kube-apiserver/app/options/validation.go  |  25 ++
  cmd/kube-apiserver/app/server.go              |  20 ++
@@ -24,10 +24,9 @@ Date:      Thu Jan 17 15:41:00 2019 -0800
  pkg/serviceaccount/jwt_external_test.go       | 128 +++++++
  pkg/serviceaccount/jwt_test.go                | 171 +++++++---
  staging/src/k8s.io/client-go/util/cert/pem.go |   7 +-
- .../heketi/client/api/go-client/client.go     |   6 +-
  .../go-jose.v2/cryptosigner/cryptosigner.go   | 138 ++++++++
  vendor/modules.txt                            |   1 +
- 18 files changed, 1153 insertions(+), 69 deletions(-)
+ 17 files changed, 1152 insertions(+), 64 deletions(-)
  create mode 100755 hack/update-generated-externalsigner-dockerized.sh
  create mode 100755 hack/update-generated-externalsigner.sh
  create mode 100755 hack/verify-generated-externalsigner.sh
@@ -38,7 +37,7 @@ Date:      Thu Jan 17 15:41:00 2019 -0800
  create mode 100644 vendor/gopkg.in/square/go-jose.v2/cryptosigner/cryptosigner.go
 
 diff --git a/cmd/kube-apiserver/app/options/validation.go b/cmd/kube-apiserver/app/options/validation.go
-index 22501c077ba..09edd88e8b6 100644
+index f2f92c6584a..4a383c294a9 100644
 --- a/cmd/kube-apiserver/app/options/validation.go
 +++ b/cmd/kube-apiserver/app/options/validation.go
 @@ -160,6 +160,24 @@ func validateAPIPriorityAndFairness(options *ServerRunOptions) []error {
@@ -49,7 +48,7 @@ index 22501c077ba..09edd88e8b6 100644
 +	var errs []error
 +
 +	enableAttempted := options.Authentication.ServiceAccounts.KeyServiceURL != ""
-+	requiredTokenFlagsSet := options.Authentication.ServiceAccounts.Issuer != ""
++	requiredTokenFlagsSet := len(options.Authentication.ServiceAccounts.Issuers) != 0
 +
 +	if enableAttempted && !utilfeature.DefaultFeatureGate.Enabled(features.ExternalKeyService) {
 +		errs = append(errs, errors.New("the ExternalKeyService feature is not enabled but --key-service-url flag was passed"))
@@ -81,10 +80,10 @@ index 22501c077ba..09edd88e8b6 100644
  }
  
 diff --git a/cmd/kube-apiserver/app/server.go b/cmd/kube-apiserver/app/server.go
-index f8ec962e43f..91c6e2f1f35 100644
+index 485b9a5ce54..f4c16c3a4e0 100644
 --- a/cmd/kube-apiserver/app/server.go
 +++ b/cmd/kube-apiserver/app/server.go
-@@ -679,7 +679,27 @@ func Complete(s *options.ServerRunOptions) (completedServerRunOptions, error) {
+@@ -600,7 +600,27 @@ func Complete(s *options.ServerRunOptions) (completedServerRunOptions, error) {
  		if err != nil {
  			return options, fmt.Errorf("failed to build token generator: %v", err)
  		}
@@ -92,7 +91,7 @@ index f8ec962e43f..91c6e2f1f35 100644
 +		s.ServiceAccountTokenMaxExpiration = s.Authentication.ServiceAccounts.MaxExpiration
 +	}
 +
-+	if s.Authentication.ServiceAccounts.KeyServiceURL != "" && s.Authentication.ServiceAccounts.Issuer != "" {
++	if s.Authentication.ServiceAccounts.KeyServiceURL != "" && len(s.Authentication.ServiceAccounts.Issuers) != 0 {
 +		if s.Authentication.ServiceAccounts.MaxExpiration != 0 {
 +			lowBound := time.Hour
 +			upBound := time.Duration(1<<32) * time.Second
@@ -103,7 +102,7 @@ index f8ec962e43f..91c6e2f1f35 100644
 +		}
  		s.ServiceAccountTokenMaxExpiration = s.Authentication.ServiceAccounts.MaxExpiration
 +		s.ServiceAccountIssuer, err = serviceaccount.ExternalJWTTokenGenerator(
-+			s.Authentication.ServiceAccounts.Issuer,
++			s.Authentication.ServiceAccounts.Issuers[0],
 +			s.Authentication.ServiceAccounts.KeyServiceURL,
 +		)
 +		if err != nil {
@@ -268,10 +267,10 @@ index 00000000000..8f66dc9b437
 +    exit 1
 +fi
 diff --git a/pkg/features/kube_features.go b/pkg/features/kube_features.go
-index 960775916c4..3bb8a7af0e2 100644
+index c628e3eb13a..61db14afc44 100644
 --- a/pkg/features/kube_features.go
 +++ b/pkg/features/kube_features.go
-@@ -196,6 +196,12 @@ const (
+@@ -175,6 +175,12 @@ const (
  	// intended to be used for service account token verification.
  	ServiceAccountIssuerDiscovery featuregate.Feature = "ServiceAccountIssuerDiscovery"
  
@@ -281,29 +280,30 @@ index 960775916c4..3bb8a7af0e2 100644
 +	// External signing of projected service account tokens
 +	ExternalKeyService featuregate.Feature = "ExternalKeyService"
 +
- 	// owner: @Random-Liu
- 	// beta: v1.11
- 	// ga:   v1.21
-@@ -788,6 +794,7 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
+ 	// owner: @saad-ali
+ 	// ga: 	  v1.10
+ 	//
+@@ -828,6 +834,7 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
  	SupportNodePidsLimit:                           {Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 1.23
- 	BoundServiceAccountTokenVolume:                 {Default: true, PreRelease: featuregate.Beta},
+ 	BoundServiceAccountTokenVolume:                 {Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 1.23
  	ServiceAccountIssuerDiscovery:                  {Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 1.22
 +	ExternalKeyService:                             {Default: false, PreRelease: featuregate.Alpha},
- 	CRIContainerLogRotation:                        {Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 1.22
  	CSIMigration:                                   {Default: true, PreRelease: featuregate.Beta},
  	CSIMigrationGCE:                                {Default: false, PreRelease: featuregate.Beta}, // Off by default (requires GCE PD CSI Driver)
+ 	InTreePluginGCEUnregister:                      {Default: false, PreRelease: featuregate.Alpha},
 diff --git a/pkg/kubeapiserver/authenticator/config.go b/pkg/kubeapiserver/authenticator/config.go
-index bc8033c04ca..0036555fb3b 100644
+index e6c00731746..f29c3277d7e 100644
 --- a/pkg/kubeapiserver/authenticator/config.go
 +++ b/pkg/kubeapiserver/authenticator/config.go
-@@ -37,12 +37,14 @@ import (
+@@ -35,6 +35,7 @@ import (
  	"k8s.io/apiserver/pkg/authentication/token/tokenfile"
  	tokenunion "k8s.io/apiserver/pkg/authentication/token/union"
  	"k8s.io/apiserver/pkg/server/dynamiccertificates"
 +	utilfeature "k8s.io/apiserver/pkg/util/feature"
  	"k8s.io/apiserver/plugin/pkg/authenticator/token/oidc"
  	"k8s.io/apiserver/plugin/pkg/authenticator/token/webhook"
- 
+ 	"k8s.io/kube-openapi/pkg/validation/spec"
+@@ -42,6 +43,7 @@ import (
  	// Initialize all known client auth plugins.
  	_ "k8s.io/client-go/plugin/pkg/client/auth"
  	"k8s.io/client-go/util/keyutil"
@@ -311,60 +311,60 @@ index bc8033c04ca..0036555fb3b 100644
  	"k8s.io/kubernetes/pkg/serviceaccount"
  )
  
-@@ -64,6 +66,7 @@ type Config struct {
+@@ -63,6 +65,7 @@ type Config struct {
  	ServiceAccountKeyFiles      []string
  	ServiceAccountLookup        bool
- 	ServiceAccountIssuer        string
+ 	ServiceAccountIssuers       []string
 +	KeyServiceURL               string
  	APIAudiences                authenticator.Audiences
  	WebhookTokenAuthnConfigFile string
  	WebhookTokenAuthnVersion    string
-@@ -132,7 +135,7 @@ func (config Config) New() (authenticator.Request, *spec.SecurityDefinitions, er
+@@ -131,7 +134,7 @@ func (config Config) New() (authenticator.Request, *spec.SecurityDefinitions, er
  		tokenAuthenticators = append(tokenAuthenticators, serviceAccountAuth)
  	}
- 	if config.ServiceAccountIssuer != "" {
--		serviceAccountAuth, err := newServiceAccountAuthenticator(config.ServiceAccountIssuer, config.ServiceAccountKeyFiles, config.APIAudiences, config.ServiceAccountTokenGetter)
-+		serviceAccountAuth, err := newServiceAccountAuthenticator(config.KeyServiceURL, config.ServiceAccountIssuer, config.ServiceAccountKeyFiles, config.APIAudiences, config.ServiceAccountTokenGetter)
+ 	if len(config.ServiceAccountIssuers) > 0 {
+-		serviceAccountAuth, err := newServiceAccountAuthenticator(config.ServiceAccountIssuers, config.ServiceAccountKeyFiles, config.APIAudiences, config.ServiceAccountTokenGetter)
++		serviceAccountAuth, err := newServiceAccountAuthenticator(config.KeyServiceURL, config.ServiceAccountIssuers, config.ServiceAccountKeyFiles, config.APIAudiences, config.ServiceAccountTokenGetter)
  		if err != nil {
  			return nil, nil, err
  		}
-@@ -271,7 +274,11 @@ func newLegacyServiceAccountAuthenticator(keyfiles []string, lookup bool, apiAud
+@@ -280,7 +283,11 @@ func newLegacyServiceAccountAuthenticator(keyfiles []string, lookup bool, apiAud
  }
  
  // newServiceAccountAuthenticator returns an authenticator.Token or an error
--func newServiceAccountAuthenticator(iss string, keyfiles []string, apiAudiences authenticator.Audiences, serviceAccountGetter serviceaccount.ServiceAccountTokenGetter) (authenticator.Token, error) {
-+func newServiceAccountAuthenticator(keyServerURL string, iss string, keyfiles []string, apiAudiences authenticator.Audiences, serviceAccountGetter serviceaccount.ServiceAccountTokenGetter) (authenticator.Token, error) {
+-func newServiceAccountAuthenticator(issuers []string, keyfiles []string, apiAudiences authenticator.Audiences, serviceAccountGetter serviceaccount.ServiceAccountTokenGetter) (authenticator.Token, error) {
++func newServiceAccountAuthenticator(keyServerURL string, issuers []string, keyfiles []string, apiAudiences authenticator.Audiences, serviceAccountGetter serviceaccount.ServiceAccountTokenGetter) (authenticator.Token, error) {
 +	if utilfeature.DefaultFeatureGate.Enabled(features.ExternalKeyService) && keyServerURL != "" {
-+		return serviceaccount.ExternalJWTTokenAuthenticator(keyServerURL, iss, apiAudiences, serviceaccount.NewValidator(serviceAccountGetter))
++		return serviceaccount.ExternalJWTTokenAuthenticator(keyServerURL, issuers, apiAudiences, serviceaccount.NewValidator(serviceAccountGetter))
 +	}
 +
  	allPublicKeys := []interface{}{}
  	for _, keyfile := range keyfiles {
  		publicKeys, err := keyutil.PublicKeysFromFile(keyfile)
-@@ -280,9 +287,7 @@ func newServiceAccountAuthenticator(iss string, keyfiles []string, apiAudiences
+@@ -289,9 +296,7 @@ func newServiceAccountAuthenticator(issuers []string, keyfiles []string, apiAudi
  		}
  		allPublicKeys = append(allPublicKeys, publicKeys...)
  	}
 -
--	tokenAuthenticator := serviceaccount.JWTTokenAuthenticator(iss, allPublicKeys, apiAudiences, serviceaccount.NewValidator(serviceAccountGetter))
+-	tokenAuthenticator := serviceaccount.JWTTokenAuthenticator(issuers, allPublicKeys, apiAudiences, serviceaccount.NewValidator(serviceAccountGetter))
 -	return tokenAuthenticator, nil
-+	return serviceaccount.JWTTokenAuthenticator(iss, allPublicKeys, apiAudiences, serviceaccount.NewValidator(serviceAccountGetter)), nil
++	return serviceaccount.JWTTokenAuthenticator(issuers, allPublicKeys, apiAudiences, serviceaccount.NewValidator(serviceAccountGetter)), nil
  }
  
  func newWebhookTokenAuthenticator(config Config) (authenticator.Token, error) {
 diff --git a/pkg/kubeapiserver/options/authentication.go b/pkg/kubeapiserver/options/authentication.go
-index 8100a74f2c5..4b456fb74c6 100644
+index 550f3d86e51..6709530b6aa 100644
 --- a/pkg/kubeapiserver/options/authentication.go
 +++ b/pkg/kubeapiserver/options/authentication.go
 @@ -90,6 +90,7 @@ type ServiceAccountAuthenticationOptions struct {
- 	Issuer           string
+ 	Issuers          []string
  	JWKSURI          string
  	MaxExpiration    time.Duration
 +	KeyServiceURL    string
  	ExtendExpiration bool
  }
  
-@@ -325,6 +326,9 @@ func (o *BuiltInAuthenticationOptions) AddFlags(fs *pflag.FlagSet) {
+@@ -342,6 +343,9 @@ func (o *BuiltInAuthenticationOptions) AddFlags(fs *pflag.FlagSet) {
  			"API server's external (as auto-detected or overridden with external-hostname). "+
  			"Only valid if the ServiceAccountIssuerDiscovery feature gate is enabled.")
  
@@ -374,9 +374,9 @@ index 8100a74f2c5..4b456fb74c6 100644
  		// Deprecated in 1.13
  		fs.StringSliceVar(&o.APIAudiences, "service-account-api-audiences", o.APIAudiences, ""+
  			"Identifiers of the API. The service account token authenticator will validate that "+
-@@ -412,6 +416,7 @@ func (o *BuiltInAuthenticationOptions) ToAuthenticationConfig() (kubeauthenticat
+@@ -429,6 +433,7 @@ func (o *BuiltInAuthenticationOptions) ToAuthenticationConfig() (kubeauthenticat
  		ret.ServiceAccountKeyFiles = o.ServiceAccounts.KeyFiles
- 		ret.ServiceAccountIssuer = o.ServiceAccounts.Issuer
+ 		ret.ServiceAccountIssuers = o.ServiceAccounts.Issuers
  		ret.ServiceAccountLookup = o.ServiceAccounts.Lookup
 +		ret.KeyServiceURL = o.ServiceAccounts.KeyServiceURL
  	}
@@ -752,7 +752,7 @@ index 00000000000..cd8036f501b
 +  repeated PublicKey public_keys = 2;
 +}
 diff --git a/pkg/serviceaccount/jwt.go b/pkg/serviceaccount/jwt.go
-index c779957bdbe..d17e175a3e6 100644
+index 6722b206d1d..96765506aa5 100644
 --- a/pkg/serviceaccount/jwt.go
 +++ b/pkg/serviceaccount/jwt.go
 @@ -174,7 +174,11 @@ func signerFromECDSAPrivateKey(keyPair *ecdsa.PrivateKey) (jose.Signer, error) {
@@ -799,7 +799,7 @@ index c779957bdbe..d17e175a3e6 100644
  		return nil, fmt.Errorf("failed to create signer: %v", err)
 diff --git a/pkg/serviceaccount/jwt_external.go b/pkg/serviceaccount/jwt_external.go
 new file mode 100644
-index 00000000000..bb631b51c61
+index 00000000000..29014dfbac1
 --- /dev/null
 +++ b/pkg/serviceaccount/jwt_external.go
 @@ -0,0 +1,187 @@
@@ -948,7 +948,7 @@ index 00000000000..bb631b51c61
 +
 +type ExternalTokenAuthenticator struct {
 +	Client       externalsigner.KeyServiceClient
-+	Iss          string
++	Issuers      []string
 +	Validator    Validator
 +	ImplicitAuds authenticator.Audiences
 +}
@@ -968,7 +968,7 @@ index 00000000000..bb631b51c61
 +		return nil, false, err
 +	}
 +	return JWTTokenAuthenticator(
-+		a.Iss,
++		a.Issuers,
 +		keys,
 +		a.ImplicitAuds,
 +		a.Validator,
@@ -978,14 +978,14 @@ index 00000000000..bb631b51c61
 +}
 +
 +// ExternalJWTTokenAuthenticator authenticates JWT tokens signed externally
-+func ExternalJWTTokenAuthenticator(socketPath string, iss string, implicitAuds authenticator.Audiences, validator Validator) (authenticator.Token, error) {
++func ExternalJWTTokenAuthenticator(socketPath string, issuers []string, implicitAuds authenticator.Audiences, validator Validator) (authenticator.Token, error) {
 +	conn, err := grpc.Dial(fmt.Sprintf("unix://%s", socketPath), grpc.WithInsecure())
 +	if err != nil {
 +		return nil, err
 +	}
 +	return &ExternalTokenAuthenticator{
 +		Client:       externalsigner.NewKeyServiceClient(conn),
-+		Iss:          iss,
++		Issuers:      issuers,
 +		Validator:    validator,
 +		ImplicitAuds: implicitAuds,
 +	}, nil
@@ -1125,7 +1125,7 @@ index 00000000000..d806e346589
 +
 +}
 diff --git a/pkg/serviceaccount/jwt_test.go b/pkg/serviceaccount/jwt_test.go
-index aecfb23a48d..9cb69972f44 100644
+index ded059f412e..fbace2fb7f2 100644
 --- a/pkg/serviceaccount/jwt_test.go
 +++ b/pkg/serviceaccount/jwt_test.go
 @@ -33,8 +33,10 @@ import (
@@ -1143,7 +1143,7 @@ index aecfb23a48d..9cb69972f44 100644
  }
  
  func TestTokenGenerateAndValidate(t *testing.T) {
-+	newIssuer := "https://kubernetes.default.svc"
++	newIssuer := []string{serviceaccount.LegacyIssuer, "bar"}
  	expectedUserName := "system:serviceaccount:test:my-service-account"
  	expectedUserUID := "12345"
  
@@ -1167,7 +1167,7 @@ index aecfb23a48d..9cb69972f44 100644
  
 +	// Generate the remote RSA token
 +	remoteRsaGenerator := serviceaccount.ExternalTokenGenerator{
-+		Iss:    newIssuer,
++		Iss:    newIssuer[0],
 +		Client: newMockKeyServiceClient(getPrivateKey(rsaPrivateKey)),
 +	}
 +	remoteRsaToken, err := remoteRsaGenerator.GenerateToken(
@@ -1180,10 +1180,10 @@ index aecfb23a48d..9cb69972f44 100644
 +		t.Fatalf("no token generated")
 +	}
 +
- 	// Generate signer with same keys as RSA signer but different issuer
+ 	// Generate signer with same keys as RSA signer but different unrecognized issuer
  	badIssuerGenerator, err := serviceaccount.JWTTokenGenerator("foo", getPrivateKey(rsaPrivateKey))
  	if err != nil {
-@@ -208,11 +233,14 @@ func TestTokenGenerateAndValidate(t *testing.T) {
+@@ -218,11 +243,14 @@ func TestTokenGenerateAndValidate(t *testing.T) {
  		Keys   []interface{}
  		Token  string
  
@@ -1199,11 +1199,11 @@ index aecfb23a48d..9cb69972f44 100644
 +		ExpectedGroups        []string
 +		Authenticator         authenticator.Token
 +		ExternalServiceClient externalsigner.KeyServiceClient
-+		Issuer                string
++		Issuer                []string
  	}{
  		"no keys": {
  			Token:       rsaToken,
-@@ -306,58 +334,93 @@ func TestTokenGenerateAndValidate(t *testing.T) {
+@@ -326,58 +354,93 @@ func TestTokenGenerateAndValidate(t *testing.T) {
  			ExpectedErr: true,
  			ExpectedOK:  false,
  		},
@@ -1247,7 +1247,7 @@ index aecfb23a48d..9cb69972f44 100644
 -				return tc.Client.CoreV1().Pods(namespace).Get(context.TODO(), name, metav1.GetOptions{})
 -			})),
 -		)
--		authn := serviceaccount.JWTTokenAuthenticator(serviceaccount.LegacyIssuer, tc.Keys, auds, serviceaccount.NewLegacyValidator(tc.Client != nil, getter))
+-		authn := serviceaccount.JWTTokenAuthenticator([]string{serviceaccount.LegacyIssuer, "bar"}, tc.Keys, auds, serviceaccount.NewLegacyValidator(tc.Client != nil, getter))
 -
 -		// An invalid, non-JWT token should always fail
 -		ctx := authenticator.WithAudiences(context.Background(), auds)
@@ -1301,12 +1301,12 @@ index aecfb23a48d..9cb69972f44 100644
 +			if tc.ExternalServiceClient != nil {
 +				authn = &serviceaccount.ExternalTokenAuthenticator{
 +					Client:       tc.ExternalServiceClient,
-+					Iss:          tc.Issuer,
++					Issuers:      tc.Issuer,
 +					ImplicitAuds: nil,
 +					Validator:    serviceaccount.NewValidator(getter),
 +				}
 +			} else {
-+				authn = serviceaccount.JWTTokenAuthenticator(serviceaccount.LegacyIssuer, tc.Keys, auds, serviceaccount.NewLegacyValidator(tc.Client != nil, getter))
++				authn = serviceaccount.JWTTokenAuthenticator([]string{serviceaccount.LegacyIssuer, "bar"}, tc.Keys, auds, serviceaccount.NewLegacyValidator(tc.Client != nil, getter))
 +			}
 +			// An invalid, non-JWT token should always fail
 +			ctx := authenticator.WithAudiences(context.Background(), auds)
@@ -1371,23 +1371,6 @@ index c77512315ab..627e9ea9c05 100644
  	}
  	return certs, nil
  }
-diff --git a/vendor/github.com/heketi/heketi/client/api/go-client/client.go b/vendor/github.com/heketi/heketi/client/api/go-client/client.go
-index e8a62913892..630934b67cb 100644
---- a/vendor/github.com/heketi/heketi/client/api/go-client/client.go
-+++ b/vendor/github.com/heketi/heketi/client/api/go-client/client.go
-@@ -196,11 +196,7 @@ func (c *Client) doBasic(req *http.Request) (*http.Response, error) {
- 		<-c.throttle
- 	}()
- 
--	getClient := c.getClient
--	if getClient == nil {
--		getClient = HeketiHttpClient
--	}
--	httpClient, err := getClient(c.tlsClientConfig, c.checkRedirect)
-+	httpClient, err := HeketiHttpClient(c.tlsClientConfig, c.checkRedirect)
- 	if err != nil {
- 		return nil, err
- 	}
 diff --git a/vendor/gopkg.in/square/go-jose.v2/cryptosigner/cryptosigner.go b/vendor/gopkg.in/square/go-jose.v2/cryptosigner/cryptosigner.go
 new file mode 100644
 index 00000000000..0ec98768eb1
@@ -1533,17 +1516,17 @@ index 00000000000..0ec98768eb1
 +	return out, err
 +}
 diff --git a/vendor/modules.txt b/vendor/modules.txt
-index 45a2a04eb1a..c30e77e399f 100644
+index 76e597587d0..600c1f80d00 100644
 --- a/vendor/modules.txt
 +++ b/vendor/modules.txt
-@@ -1560,6 +1560,7 @@ gopkg.in/natefinch/lumberjack.v2
+@@ -1244,6 +1244,7 @@ gopkg.in/natefinch/lumberjack.v2
+ ## explicit
  gopkg.in/square/go-jose.v2
- # gopkg.in/square/go-jose.v2 => gopkg.in/square/go-jose.v2 v2.2.2
  gopkg.in/square/go-jose.v2/cipher
 +gopkg.in/square/go-jose.v2/cryptosigner
  gopkg.in/square/go-jose.v2/json
  gopkg.in/square/go-jose.v2/jwt
  # gopkg.in/tomb.v1 v1.0.0-20141024135613-dd632973f1e7 => gopkg.in/tomb.v1 v1.0.0-20141024135613-dd632973f1e7
 -- 
-2.24.3 (Apple Git-128)
+2.17.1
 

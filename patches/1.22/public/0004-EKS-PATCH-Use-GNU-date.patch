@@ -1,7 +1,7 @@
-From 78f2b568ad9524dfab8bb25f12d7578553f621a1 Mon Sep 17 00:00:00 2001
+From e0cb409b887ffebf1b8ca0f2680ba3c65fe9844c Mon Sep 17 00:00:00 2001
 From: Micah Hausler <mhausler@amazon.com>
 Date: Sun, 1 Nov 2020 09:24:08 -0800
-Subject: [PATCH] --EKS-PATCH-- Use GNU date
+Subject: [PATCH 4/7] --EKS-PATCH-- Use GNU date
 
 Use GNU date if available for builds on darwin
 

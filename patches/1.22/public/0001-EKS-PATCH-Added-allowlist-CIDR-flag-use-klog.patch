@@ -1,7 +1,7 @@
 From b67824287c8b6102e6c50530392fc80d75453223 Mon Sep 17 00:00:00 2001
 From: Micah Hausler <mhausler@amazon.com>
 Date: Wed, 19 Sep 2018 18:16:23 -0700
-Subject: [PATCH] --EKS-PATCH-- Added allowlist CIDR flag, use "klog"
+Subject: [PATCH 1/7] --EKS-PATCH-- Added allowlist CIDR flag, use "klog"
 
 Alternative to https://github.com/kubernetes/kubernetes/pull/71980
 
