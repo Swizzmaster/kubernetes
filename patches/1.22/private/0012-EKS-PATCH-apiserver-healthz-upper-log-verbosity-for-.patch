@@ -1,4 +1,4 @@
-From a3494c7e66aa096fbaebbea34cd133d73704b285 Mon Sep 17 00:00:00 2001
+From 46da9abe259c18494bde78c84d0502e3aefa4a16 Mon Sep 17 00:00:00 2001
 From: Gyuho Lee <leegyuho@amazon.com>
 Date: Tue, 28 Sep 2021 19:38:47 +0000
 Subject: [PATCH] --EKS-PATCH-- apiserver/healthz: upper log verbosity for
@@ -21,10 +21,10 @@ Signed-off-by: Gyuho Lee <leegyuho@amazon.com>
  2 files changed, 7 insertions(+), 3 deletions(-)
 
 diff --git a/staging/src/k8s.io/apiserver/pkg/server/healthz/healthz.go b/staging/src/k8s.io/apiserver/pkg/server/healthz/healthz.go
-index e80b8501edf..75735565f2a 100644
+index eb288239ce5..2beddcfb0a9 100644
 --- a/staging/src/k8s.io/apiserver/pkg/server/healthz/healthz.go
 +++ b/staging/src/k8s.io/apiserver/pkg/server/healthz/healthz.go
-@@ -235,8 +235,12 @@ func handleRootHealth(name string, checks ...HealthChecker) http.HandlerFunc {
+@@ -248,8 +248,12 @@ func handleRootHealth(name string, firstTimeHealthy func(), checks ...HealthChec
  			}
  		}
  		if excluded.Len() > 0 {
@@ -40,10 +40,10 @@ index e80b8501edf..75735565f2a 100644
  		}
  		// always be verbose on failure
 diff --git a/staging/src/k8s.io/apiserver/pkg/server/healthz/healthz_test.go b/staging/src/k8s.io/apiserver/pkg/server/healthz/healthz_test.go
-index 0fb67c84570..a56b4d20770 100644
+index 89937987e2c..42951e25434 100644
 --- a/staging/src/k8s.io/apiserver/pkg/server/healthz/healthz_test.go
 +++ b/staging/src/k8s.io/apiserver/pkg/server/healthz/healthz_test.go
-@@ -105,7 +105,7 @@ func testMultipleChecks(path, name string, t *testing.T) {
+@@ -106,7 +106,7 @@ func testMultipleChecks(path, name string, t *testing.T) {
  		{"?exclude=dontexist", "ok", http.StatusOK, false},
  		{"?exclude=bad", "ok", http.StatusOK, true},
  		{"?verbose=true&exclude=bad", fmt.Sprintf("[+]ping ok\n[+]bad excluded: ok\n%s check passed\n", name), http.StatusOK, true},
@@ -53,5 +53,5 @@ index 0fb67c84570..a56b4d20770 100644
  		{"", "ok", http.StatusOK, false},
  		{"?verbose", fmt.Sprintf("[+]ping ok\n[-]bad failed: reason withheld\n%s check failed\n", name), http.StatusInternalServerError, true},
 -- 
-2.32.0
+2.17.1
 

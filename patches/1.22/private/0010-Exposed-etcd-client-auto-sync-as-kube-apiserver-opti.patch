@@ -1,4 +1,4 @@
-From 5f90aae5993f2b9299a051057af668e9c8788cc6 Mon Sep 17 00:00:00 2001
+From 383cc5ac90e288c2ba2b7c59602fdddca0cb449f Mon Sep 17 00:00:00 2001
 From: Qing Ju <juqing@amazon.com>
 Date: Wed, 7 Apr 2021 17:50:46 -0700
 Subject: [PATCH] Exposed etcd client auto-sync as kube-apiserver option
@@ -29,10 +29,10 @@ index d8b45b8198f..2c1c27e1592 100644
  		"The prefix to prepend to all resource paths in etcd.")
  
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/config.go b/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/config.go
-index 500e55c0206..1036be45404 100644
+index 45cfd2ea185..492237bdbfc 100644
 --- a/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/config.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/config.go
-@@ -37,7 +37,8 @@ const (
+@@ -39,7 +39,8 @@ const (
  // TransportConfig holds all connection related info,  i.e. equal TransportConfig means equal servers we talk to.
  type TransportConfig struct {
  	// ServerList is the list of storage servers to connect with.
@@ -43,10 +43,10 @@ index 500e55c0206..1036be45404 100644
  	KeyFile       string
  	CertFile      string
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/factory/etcd3.go b/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/factory/etcd3.go
-index c0fd8045f3a..455b93dea0f 100644
+index 74ebea655c8..453e2fb88a7 100644
 --- a/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/factory/etcd3.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/factory/etcd3.go
-@@ -146,6 +146,7 @@ func newETCD3Client(c storagebackend.TransportConfig) (*clientv3.Client, error)
+@@ -168,6 +168,7 @@ func newETCD3Client(c storagebackend.TransportConfig) (*clientv3.Client, error)
  		dialOptions = append(dialOptions, grpc.WithContextDialer(dialer))
  	}
  	cfg := clientv3.Config{
@@ -55,5 +55,5 @@ index c0fd8045f3a..455b93dea0f 100644
  		DialKeepAliveTime:    keepaliveTime,
  		DialKeepAliveTimeout: keepaliveTimeout,
 -- 
-2.30.1
+2.17.1
 

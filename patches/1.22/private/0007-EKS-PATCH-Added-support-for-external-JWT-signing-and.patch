@@ -1,7 +1,7 @@
 From 0fb2455a5e731fe65dbede8a56998d188d25b863 Mon Sep 17 00:00:00 2001
 From: Micah Hausler <mhausler@amazon.com>
 Date: Thu, 17 Jan 2019 15:41:00 -0800
-Subject: [PATCH 7/7] --EKS-PATCH-- Added support for external JWT signing and
+Subject: [PATCH] --EKS-PATCH-- Added support for external JWT signing and
  verifying
 
 ref. https://github.com/micahhausler/kubernetes/commit/147f45449d6d750c848751eb7d17aba4a9b571be

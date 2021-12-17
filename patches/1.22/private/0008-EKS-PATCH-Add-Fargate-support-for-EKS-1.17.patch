@@ -1,4 +1,4 @@
-From 36f02e6f7f9fd1a640502d19ca4104c6504ff111 Mon Sep 17 00:00:00 2001
+From c3df5197fcff294a5b8f24813657b2b301fab6da Mon Sep 17 00:00:00 2001
 From: Rasita Pai <prasita@amazon.com>
 Date: Wed, 13 Oct 2021 12:52:13 -0700
 Subject: [PATCH] --EKS-PATCH-- Add Fargate support for EKS 1.17
@@ -46,10 +46,10 @@ Signed-off-by: Jyoti Mahapatra<jyotima@amazon.com>
  create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator.go
 
 diff --git a/pkg/features/kube_features.go b/pkg/features/kube_features.go
-index c628e3eb13a..c2d3733bb2d 100644
+index 61db14afc44..2fa74fc6707 100644
 --- a/pkg/features/kube_features.go
 +++ b/pkg/features/kube_features.go
-@@ -386,6 +386,12 @@ const (
+@@ -392,6 +392,12 @@ const (
  	// NodePublishVolume calls.
  	DelegateFSGroupToCSIDriver featuregate.Feature = "DelegateFSGroupToCSIDriver"
  
@@ -62,7 +62,7 @@ index c628e3eb13a..c2d3733bb2d 100644
  	// owner: @RobertKrawitz, @derekwaynecarr
  	// beta: v1.15
  	// GA: v1.20
-@@ -915,6 +921,7 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
+@@ -922,6 +928,7 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
  	MemoryQoS:                                      {Default: false, PreRelease: featuregate.Alpha},
  	CPUManagerPolicyOptions:                        {Default: false, PreRelease: featuregate.Alpha},
  	ControllerManagerLeaderMigration:               {Default: true, PreRelease: featuregate.Beta},
@@ -1323,5 +1323,5 @@ index a62e7ccf395..741b1b7638c 100644
  	}
  
 -- 
-2.34.0
+2.17.1
 
