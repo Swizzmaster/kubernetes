@@ -12,19 +12,13 @@ if [[ "$REPLY" =~ ^[Yy]$ ]]; then
   if [[ ! -d "$KUBERNETES_DIR" ]]; then
     brazil ws use -p EKSDataPlaneKubernetes
   else
-    pushd "$KUBERNETES_DIR"
-    if ! git diff-index --quiet HEAD --; then
-        echo "Your EKSDataplaneKubernetes directory is in a dirty state.  Exiting.  Stash, commit or reset your in progress work."
-        popd
-        exit 1
-    fi
-    popd
+    check_dirty "$KUBERNETES_DIR"
   fi
 
   echo "Which patches to apply?"
   select PARENT_PATCHES_DIR in patches/*; do test -n "$PARENT_PATCHES_DIR" && break; done
   PARENT_PATCHES_DIR="$PWD/$PARENT_PATCHES_DIR"
-  if apply_patches_public_private "$PARENT_PATCHES_DIR" "$KUBERNETES_DIR"; then
+  if apply_patches_all "$PARENT_PATCHES_DIR" "$KUBERNETES_DIR"; then
     read -p "Create a CR to EKSDataPlaneKubernetes? y/n? " -n 1 -r
   else
     read -p "Create a CR to EKSDataPlaneKubernetes with the patches that succeeded anyway? y/n? " -n 1 -r

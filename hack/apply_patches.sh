@@ -8,4 +8,5 @@ set -u
 
 PARENT_PATCHES_DIR=$(realpath "$1")
 KUBERNETES_DIR=$(realpath "$2")
-apply_patches_public_private "$PARENT_PATCHES_DIR" "$KUBERNETES_DIR"
+check_dirty "$KUBERNETES_DIR"
+apply_patches_all "$PARENT_PATCHES_DIR" "$KUBERNETES_DIR"

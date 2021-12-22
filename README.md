@@ -17,25 +17,42 @@ $ brazil ws use -p EKSKubernetesPatches
 $ cd src/EKSKubernetesPatches/
 ```
 
-Apply the patches. Make sure the kubernetes repository is clean before doing this or the script could overwrite something!
+Apply the patches. Make sure the EKSDataPlaneKubernetes repository is clean because the script will modify it.
 ```
-$ cat patches/1.21/GIT_TAG
-v1.21.5
-$ ./hack/apply_patches.sh patches/1.22 ../EKSDataPlaneKubernetes/
+$ pushd ~/workplace/EKSKubernetesPatches/src/EKSKubernetesPatches/
+$ cat patches/1.22/GIT_TAG
+v1.22.4
+$ ./hack/apply_patches.sh patches/1.22 ~/workplace/EKSKubernetesPatches/src/EKSDataPlaneKubernetes/
+$ popd
 ```
 
 Add, edit, drop, or reorder patches with `git rebase -i`, `git cherry-pick`, etc.
 ```
-$ git cherry-pick 1234
+$ pushd ~/workplace/EKSKubernetesPatches/src/EKSDataPlaneKubernetes/
+$ git cherry-pick PATCH-1234
+$ git checkout -b PATCH-1234
+$ popd
 ```
 
-Prepare the new patches.
+Prepare the new patches. Make sure the EKSKubernetesPatches repository is clean because the script will modify it.
 ```
-# For example, if a patch was cherry-picked onto HEAD
-$ git format-patch -1 HEAD
-$ mv ./0001-YOUR-PATCH.patch $HOME/workplace/EKSKubernetesPatches/src/EKSKubernetesPatches/patches/1-21/private/0006-YOUR-PATCH.patch
-$ cd $HOME/workplace/EKSKubernetesPatches/src/EKSKubernetesPatches/
+$ pushd ~/workplace/EKSKubernetesPatches/src/EKSKubernetesPatches/
+$ ./hack/prepare_patches.sh ~/workplace/EKSKubernetesPatches/src/EKSDataPlaneKubernetes/ patches/1.22/
+$ popd
+```
+
+Check the diff and commit patches accordingly.
+For example:
+- if your intention was only to add one patch, it's not necessary to commit the other patches whose commit hash changed but content did not.
+- if you dropped or reordered patches, then it's necessary to commit all patches because they need to be renamed.
+- if you edited a patch X that modifies a file also modified by a subsequent patch Y then it's necessary to commit both patch X and Y.
+Submit a CR with the prepared patches.
+```
+$ pushd ~/workplace/EKSKubernetesPatches/src/EKSKubernetesPatches/
+$ git diff
+$ git add patches/1.22/private/0099-PATCH-1234
 $ cr
+$ popd
 ```
 
 ### Rebasing patches on a new kubernetes version
