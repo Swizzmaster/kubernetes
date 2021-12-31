@@ -11,10 +11,10 @@ PARENT_PATCHES_DIR=$(realpath "$2")
 
 check_dirty "$REPO_ROOT"
 PARENT_PATCHES_DIR_PATTERN=".*/patches/1.[0-9][0-9]"
-if [[ "$PARENT_PATCHES_DIR" =~ $PARENT_PATCHES_DIR_PATTERN/public ]]; then
+if [[ "$PARENT_PATCHES_DIR" =~ $PARENT_PATCHES_DIR_PATTERN/0-public ]]; then
   PARENT_PATCHES_DIR=$(realpath "$PARENT_PATCHES_DIR"/..)
   prepare_patches_public "$KUBERNETES_DIR" "$PARENT_PATCHES_DIR"
-elif [[ "$PARENT_PATCHES_DIR" =~ $PARENT_PATCHES_DIR_PATTERN/private ]]; then
+elif [[ "$PARENT_PATCHES_DIR" =~ $PARENT_PATCHES_DIR_PATTERN/1-private ]]; then
   PARENT_PATCHES_DIR=$(realpath "$PARENT_PATCHES_DIR"/..)
   prepare_patches_private "$KUBERNETES_DIR" "$PARENT_PATCHES_DIR"
 elif [[ "$PARENT_PATCHES_DIR" =~ $PARENT_PATCHES_DIR_PATTERN ]]; then

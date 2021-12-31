@@ -1,7 +1,9 @@
-From c3df5197fcff294a5b8f24813657b2b301fab6da Mon Sep 17 00:00:00 2001
+From 755c037284ca0a3ca07cf707704a764ccc4f759f Mon Sep 17 00:00:00 2001
 From: Rasita Pai <prasita@amazon.com>
 Date: Wed, 13 Oct 2021 12:52:13 -0700
 Subject: [PATCH] --EKS-PATCH-- Add Fargate support for EKS 1.17
+
+--EKS-PRIVATE--
 
 // owner: @saranbalaji90
 // alpha: TBD
@@ -549,7 +551,7 @@ index c2969a51126..1f5edaee902 100644
 +	return currentCpuQuota
 +}
 diff --git a/staging/src/k8s.io/legacy-cloud-providers/aws/aws.go b/staging/src/k8s.io/legacy-cloud-providers/aws/aws.go
-index b8a67e0693f..fede2d51baa 100644
+index 37c45bf4f7e..7c2f33b232c 100644
 --- a/staging/src/k8s.io/legacy-cloud-providers/aws/aws.go
 +++ b/staging/src/k8s.io/legacy-cloud-providers/aws/aws.go
 @@ -248,6 +248,9 @@ const volumeAttachmentStuck = "VolumeAttachmentStuck"
@@ -611,7 +613,7 @@ index b8a67e0693f..fede2d51baa 100644
  	}
  	// [ServiceOverride "1"]
  	//  Service = s3
-@@ -1168,6 +1199,15 @@ func (s *awsSdkEC2) DescribeVpcs(request *ec2.DescribeVpcsInput) (*ec2.DescribeV
+@@ -1175,6 +1206,15 @@ func (s *awsSdkEC2) DescribeVpcs(request *ec2.DescribeVpcsInput) (*ec2.DescribeV
  	return s.ec2.DescribeVpcs(request)
  }
  
@@ -627,7 +629,7 @@ index b8a67e0693f..fede2d51baa 100644
  func init() {
  	registerMetrics()
  	cloudprovider.RegisterCloudProvider(ProviderName, func(config io.Reader) (cloudprovider.Interface, error) {
-@@ -1220,9 +1260,11 @@ func getRegionFromMetadata(cfg *CloudConfig) (string, error) {
+@@ -1227,9 +1267,11 @@ func getRegionFromMetadata(cfg *CloudConfig) (string, error) {
  		return "", fmt.Errorf("error creating AWS metadata client: %q", err)
  	}
  
@@ -642,7 +644,7 @@ index b8a67e0693f..fede2d51baa 100644
  	}
  
  	zone := cfg.Global.Zone
-@@ -1303,9 +1345,11 @@ func newAWSCloud(cfg CloudConfig, awsServices Services) (*Cloud, error) {
+@@ -1310,9 +1352,11 @@ func newAWSCloud(cfg CloudConfig, awsServices Services) (*Cloud, error) {
  		return nil, fmt.Errorf("error creating AWS metadata client: %q", err)
  	}
  
@@ -657,7 +659,7 @@ index b8a67e0693f..fede2d51baa 100644
  	}
  
  	zone := cfg.Global.Zone
-@@ -1389,8 +1433,8 @@ func newAWSCloud(cfg CloudConfig, awsServices Services) (*Cloud, error) {
+@@ -1396,8 +1440,8 @@ func newAWSCloud(cfg CloudConfig, awsServices Services) (*Cloud, error) {
  		if err := awsCloud.tagging.init(cfg.Global.KubernetesClusterTag, cfg.Global.KubernetesClusterID); err != nil {
  			return nil, err
  		}
@@ -668,7 +670,7 @@ index b8a67e0693f..fede2d51baa 100644
  		info, err := awsCloud.selfAWSInstance.describeInstance()
  		if err != nil {
  			return nil, err
-@@ -1487,11 +1531,24 @@ func (c *Cloud) HasClusterID() bool {
+@@ -1494,11 +1538,24 @@ func (c *Cloud) HasClusterID() bool {
  	return len(c.tagging.clusterID()) > 0
  }
  
@@ -694,7 +696,7 @@ index b8a67e0693f..fede2d51baa 100644
  		macs, err := c.metadata.GetMetadata("network/interfaces/macs/")
  		if err != nil {
  			return nil, fmt.Errorf("error querying AWS metadata for %q: %q", "network/interfaces/macs", err)
-@@ -1575,11 +1632,11 @@ func (c *Cloud) NodeAddresses(ctx context.Context, name types.NodeName) ([]v1.No
+@@ -1582,11 +1639,11 @@ func (c *Cloud) NodeAddresses(ctx context.Context, name types.NodeName) ([]v1.No
  		return addresses, nil
  	}
  
@@ -709,7 +711,7 @@ index b8a67e0693f..fede2d51baa 100644
  }
  
  // parseMetadataLocalHostname parses the output of "local-hostname" metadata.
-@@ -1663,6 +1720,14 @@ func (c *Cloud) NodeAddressesByProviderID(ctx context.Context, providerID string
+@@ -1670,6 +1727,14 @@ func (c *Cloud) NodeAddressesByProviderID(ctx context.Context, providerID string
  		return nil, err
  	}
  
@@ -724,7 +726,7 @@ index b8a67e0693f..fede2d51baa 100644
  	instance, err := describeInstance(c.ec2, instanceID)
  	if err != nil {
  		return nil, err
-@@ -1679,6 +1744,11 @@ func (c *Cloud) InstanceExistsByProviderID(ctx context.Context, providerID strin
+@@ -1686,6 +1751,11 @@ func (c *Cloud) InstanceExistsByProviderID(ctx context.Context, providerID strin
  		return false, err
  	}
  
@@ -736,7 +738,7 @@ index b8a67e0693f..fede2d51baa 100644
  	request := &ec2.DescribeInstancesInput{
  		InstanceIds: []*string{instanceID.awsString()},
  	}
-@@ -1714,6 +1784,11 @@ func (c *Cloud) InstanceShutdownByProviderID(ctx context.Context, providerID str
+@@ -1721,6 +1791,11 @@ func (c *Cloud) InstanceShutdownByProviderID(ctx context.Context, providerID str
  		return false, err
  	}
  
@@ -748,7 +750,7 @@ index b8a67e0693f..fede2d51baa 100644
  	request := &ec2.DescribeInstancesInput{
  		InstanceIds: []*string{instanceID.awsString()},
  	}
-@@ -1750,15 +1825,15 @@ func (c *Cloud) InstanceID(ctx context.Context, nodeName types.NodeName) (string
+@@ -1757,15 +1832,15 @@ func (c *Cloud) InstanceID(ctx context.Context, nodeName types.NodeName) (string
  	if c.selfAWSInstance.nodeName == nodeName {
  		return "/" + c.selfAWSInstance.availabilityZone + "/" + c.selfAWSInstance.awsID, nil
  	}
@@ -767,7 +769,7 @@ index b8a67e0693f..fede2d51baa 100644
  }
  
  // InstanceTypeByProviderID returns the cloudprovider instance type of the node with the specified unique providerID
-@@ -1770,6 +1845,10 @@ func (c *Cloud) InstanceTypeByProviderID(ctx context.Context, providerID string)
+@@ -1777,6 +1852,10 @@ func (c *Cloud) InstanceTypeByProviderID(ctx context.Context, providerID string)
  		return "", err
  	}
  
@@ -778,7 +780,7 @@ index b8a67e0693f..fede2d51baa 100644
  	instance, err := describeInstance(c.ec2, instanceID)
  	if err != nil {
  		return "", err
-@@ -1783,11 +1862,11 @@ func (c *Cloud) InstanceType(ctx context.Context, nodeName types.NodeName) (stri
+@@ -1790,11 +1869,11 @@ func (c *Cloud) InstanceType(ctx context.Context, nodeName types.NodeName) (stri
  	if c.selfAWSInstance.nodeName == nodeName {
  		return c.selfAWSInstance.instanceType, nil
  	}
@@ -793,7 +795,7 @@ index b8a67e0693f..fede2d51baa 100644
  }
  
  // GetCandidateZonesForDynamicVolume retrieves  a list of all the zones in which nodes are running
-@@ -1874,6 +1953,14 @@ func (c *Cloud) GetZoneByProviderID(ctx context.Context, providerID string) (clo
+@@ -1881,6 +1960,14 @@ func (c *Cloud) GetZoneByProviderID(ctx context.Context, providerID string) (clo
  	if err != nil {
  		return cloudprovider.Zone{}, err
  	}
@@ -808,7 +810,7 @@ index b8a67e0693f..fede2d51baa 100644
  	instance, err := c.getInstanceByID(string(instanceID))
  	if err != nil {
  		return cloudprovider.Zone{}, err
-@@ -1891,12 +1978,12 @@ func (c *Cloud) GetZoneByProviderID(ctx context.Context, providerID string) (clo
+@@ -1898,12 +1985,12 @@ func (c *Cloud) GetZoneByProviderID(ctx context.Context, providerID string) (clo
  // This is particularly useful in external cloud providers where the kubelet
  // does not initialize node data.
  func (c *Cloud) GetZoneByNodeName(ctx context.Context, nodeName types.NodeName) (cloudprovider.Zone, error) {
@@ -823,7 +825,7 @@ index b8a67e0693f..fede2d51baa 100644
  		Region:        c.region,
  	}
  
-@@ -1942,25 +2029,37 @@ type awsInstance struct {
+@@ -1949,25 +2036,37 @@ type awsInstance struct {
  
  	// instance type
  	instanceType string
@@ -871,7 +873,7 @@ index b8a67e0693f..fede2d51baa 100644
  }
  
  // Gets the full information about this instance from the EC2 API
-@@ -1973,13 +2072,12 @@ func (i *awsInstance) describeInstance() (*ec2.Instance, error) {
+@@ -1980,13 +2079,12 @@ func (i *awsInstance) describeInstance() (*ec2.Instance, error) {
  // Otherwise the mountDevice is assigned by finding the first available mountDevice, and it is returned with alreadyAttached=false.
  func (c *Cloud) getMountDevice(
  	i *awsInstance,
@@ -886,7 +888,7 @@ index b8a67e0693f..fede2d51baa 100644
  		name := aws.StringValue(blockDevice.DeviceName)
  		name = strings.TrimPrefix(name, "/dev/sd")
  		name = strings.TrimPrefix(name, "/dev/xvd")
-@@ -2350,12 +2448,17 @@ func (d *awsDisk) deleteVolume() (bool, error) {
+@@ -2357,12 +2455,17 @@ func (d *awsDisk) deleteVolume() (bool, error) {
  	return true, nil
  }
  
@@ -905,7 +907,7 @@ index b8a67e0693f..fede2d51baa 100644
  	instanceID, err := c.metadata.GetMetadata("instance-id")
  	if err != nil {
  		return nil, fmt.Errorf("error fetching instance-id from ec2 metadata service: %q", err)
-@@ -2373,7 +2476,7 @@ func (c *Cloud) buildSelfAWSInstance() (*awsInstance, error) {
+@@ -2380,7 +2483,7 @@ func (c *Cloud) buildSelfAWSInstance() (*awsInstance, error) {
  	if err != nil {
  		return nil, fmt.Errorf("error finding instance %s: %q", instanceID, err)
  	}
@@ -914,7 +916,7 @@ index b8a67e0693f..fede2d51baa 100644
  }
  
  // wrapAttachError wraps the error returned by an AttachVolume request with
-@@ -2405,7 +2508,7 @@ func (c *Cloud) AttachDisk(diskName KubernetesVolumeID, nodeName types.NodeName)
+@@ -2412,7 +2515,7 @@ func (c *Cloud) AttachDisk(diskName KubernetesVolumeID, nodeName types.NodeName)
  		return "", err
  	}
  
@@ -923,7 +925,7 @@ index b8a67e0693f..fede2d51baa 100644
  	if err != nil {
  		return "", fmt.Errorf("error finding instance %s: %q", nodeName, err)
  	}
-@@ -2426,7 +2529,7 @@ func (c *Cloud) AttachDisk(diskName KubernetesVolumeID, nodeName types.NodeName)
+@@ -2433,7 +2536,7 @@ func (c *Cloud) AttachDisk(diskName KubernetesVolumeID, nodeName types.NodeName)
  		}
  	}()
  
@@ -932,7 +934,7 @@ index b8a67e0693f..fede2d51baa 100644
  	if err != nil {
  		return "", err
  	}
-@@ -2517,9 +2620,12 @@ func (c *Cloud) DetachDisk(diskName KubernetesVolumeID, nodeName types.NodeName)
+@@ -2524,9 +2627,12 @@ func (c *Cloud) DetachDisk(diskName KubernetesVolumeID, nodeName types.NodeName)
  		return "", nil
  	}
  
@@ -947,7 +949,7 @@ index b8a67e0693f..fede2d51baa 100644
  	if err != nil {
  		return "", err
  	}
-@@ -2857,7 +2963,7 @@ func (c *Cloud) DisksAreAttached(nodeDisks map[types.NodeName][]KubernetesVolume
+@@ -2864,7 +2970,7 @@ func (c *Cloud) DisksAreAttached(nodeDisks map[types.NodeName][]KubernetesVolume
  		for _, diskName := range diskNames {
  			setNodeDisk(attached, diskName, nodeName, false)
  		}
@@ -956,7 +958,7 @@ index b8a67e0693f..fede2d51baa 100644
  	}
  
  	// Note that we get instances regardless of state.
-@@ -4942,12 +5048,6 @@ func (c *Cloud) describeInstances(filters []*ec2.Filter) ([]*ec2.Instance, error
+@@ -4949,12 +5055,6 @@ func (c *Cloud) describeInstances(filters []*ec2.Filter) ([]*ec2.Instance, error
  	return matches, nil
  }
  
@@ -969,7 +971,7 @@ index b8a67e0693f..fede2d51baa 100644
  // mapInstanceToNodeName maps a EC2 instance to a k8s NodeName, by extracting the PrivateDNSName
  func mapInstanceToNodeName(i *ec2.Instance) types.NodeName {
  	return types.NodeName(aws.StringValue(i.PrivateDnsName))
-@@ -4961,12 +5061,15 @@ var aliveFilter = []string{
+@@ -4968,12 +5068,15 @@ var aliveFilter = []string{
  	ec2.InstanceStateNameStopped,
  }
  
@@ -989,7 +991,7 @@ index b8a67e0693f..fede2d51baa 100644
  		// exclude instances in "terminated" state
  		newEc2Filter("instance-state-name", aliveFilter...),
  	}
-@@ -4982,13 +5085,13 @@ func (c *Cloud) findInstanceByNodeName(nodeName types.NodeName) (*ec2.Instance,
+@@ -4989,13 +5092,13 @@ func (c *Cloud) findInstanceByNodeName(nodeName types.NodeName) (*ec2.Instance,
  	if len(instances) > 1 {
  		return nil, fmt.Errorf("multiple instances found for name: %s", nodeName)
  	}
@@ -1007,7 +1009,7 @@ index b8a67e0693f..fede2d51baa 100644
  
  	// we leverage node cache to try to retrieve node's provider id first, as
  	// get instance by provider id is way more efficient than by filters in
-@@ -4996,9 +5099,14 @@ func (c *Cloud) getInstanceByNodeName(nodeName types.NodeName) (*ec2.Instance, e
+@@ -5003,9 +5106,14 @@ func (c *Cloud) getInstanceByNodeName(nodeName types.NodeName) (*ec2.Instance, e
  	awsID, err := c.nodeNameToProviderID(nodeName)
  	if err != nil {
  		klog.V(3).Infof("Unable to convert node name %q to aws instanceID, fall back to findInstanceByNodeName: %v", nodeName, err)
@@ -1024,7 +1026,7 @@ index b8a67e0693f..fede2d51baa 100644
  	}
  	if err == nil && instance == nil {
  		return nil, cloudprovider.InstanceNotFound
-@@ -5006,17 +5114,16 @@ func (c *Cloud) getInstanceByNodeName(nodeName types.NodeName) (*ec2.Instance, e
+@@ -5013,17 +5121,16 @@ func (c *Cloud) getInstanceByNodeName(nodeName types.NodeName) (*ec2.Instance, e
  	return instance, err
  }
  
@@ -1049,7 +1051,7 @@ index b8a67e0693f..fede2d51baa 100644
  }
  
  func (c *Cloud) nodeNameToProviderID(nodeName types.NodeName) (InstanceID, error) {
-@@ -5072,3 +5179,88 @@ func getInitialAttachDetachDelay(status string) time.Duration {
+@@ -5079,3 +5186,88 @@ func getInitialAttachDetachDelay(status string) time.Duration {
  	}
  	return volumeAttachmentStatusInitialDelay
  }
@@ -1322,6 +1324,3 @@ index a62e7ccf395..741b1b7638c 100644
  		return "", fmt.Errorf("Invalid format for AWS instance (%s)", name)
  	}
  
--- 
-2.17.1
-

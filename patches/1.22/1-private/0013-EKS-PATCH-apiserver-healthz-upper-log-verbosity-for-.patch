@@ -1,8 +1,10 @@
-From 46da9abe259c18494bde78c84d0502e3aefa4a16 Mon Sep 17 00:00:00 2001
+From 93bae92473c6c8e049946fabb815b6cb50b496fb Mon Sep 17 00:00:00 2001
 From: Gyuho Lee <leegyuho@amazon.com>
 Date: Tue, 28 Sep 2021 19:38:47 +0000
 Subject: [PATCH] --EKS-PATCH-- apiserver/healthz: upper log verbosity for
  "kms-provider-0"
+
+--EKS-PRIVATE--
 
 To silence
 
@@ -52,6 +54,3 @@ index 89937987e2c..42951e25434 100644
  		{"/ping", "ok", http.StatusOK, false},
  		{"", "ok", http.StatusOK, false},
  		{"?verbose", fmt.Sprintf("[+]ping ok\n[-]bad failed: reason withheld\n%s check failed\n", name), http.StatusInternalServerError, true},
--- 
-2.17.1
-

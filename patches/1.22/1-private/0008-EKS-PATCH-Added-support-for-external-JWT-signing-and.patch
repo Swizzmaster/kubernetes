@@ -1,4 +1,4 @@
-From 0fb2455a5e731fe65dbede8a56998d188d25b863 Mon Sep 17 00:00:00 2001
+From a2f20abaa426e79576b592da038201c934569180 Mon Sep 17 00:00:00 2001
 From: Micah Hausler <mhausler@amazon.com>
 Date: Thu, 17 Jan 2019 15:41:00 -0800
 Subject: [PATCH] --EKS-PATCH-- Added support for external JWT signing and
@@ -8,6 +8,8 @@ ref. https://github.com/micahhausler/kubernetes/commit/147f45449d6d750c848751eb7
 
 1.22: Support for multiple issuers was added, so that migration is
 possible from 1 issuer to another, so this patch needed to be rebased.
+
+--EKS-PRIVATE--
 ---
  cmd/kube-apiserver/app/options/validation.go  |  25 ++
  cmd/kube-apiserver/app/server.go              |  20 ++
@@ -1527,6 +1529,3 @@ index 76e597587d0..600c1f80d00 100644
  gopkg.in/square/go-jose.v2/json
  gopkg.in/square/go-jose.v2/jwt
  # gopkg.in/tomb.v1 v1.0.0-20141024135613-dd632973f1e7 => gopkg.in/tomb.v1 v1.0.0-20141024135613-dd632973f1e7
--- 
-2.17.1
-
