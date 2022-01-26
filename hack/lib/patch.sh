@@ -163,8 +163,10 @@ function prepare_patches_all {
 function remove_patches() {
   local PATCHES_DIR=$1
 
-  files=($(ls $PATCHES_DIR))
-  for file in ${files[@]}; do
-      rm ${PATCHES_DIR}/$file
-  done
+  if [[ -z "${PATCHES_DIR}" ]]; then
+      echo "remove_patches: PATCHES_DIR cannot be empty."
+      exit 1
+  fi
+
+  rm ${PATCHES_DIR}/*
 }
