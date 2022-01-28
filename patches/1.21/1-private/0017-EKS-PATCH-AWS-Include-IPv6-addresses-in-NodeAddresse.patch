@@ -1,7 +1,9 @@
-From 5a54c3bd35de12c6932d830bc5327388340f37c1 Mon Sep 17 00:00:00 2001
+From ca79bc234b2c10521ecb270b115fe3cc2ebb3aa1 Mon Sep 17 00:00:00 2001
 From: Angus Lees <gus@inodes.org>
 Date: Thu, 19 Nov 2020 17:34:07 +1100
-Subject: [PATCH] AWS: Include IPv6 addresses in NodeAddresses
+Subject: [PATCH] --EKS-PATCH-- AWS: Include IPv6 addresses in NodeAddresses
+
+--EKS-PRIVATE--
 
 The change changes the in tree cloud provider code to append ipv6
 addresses to the Node object advertised by the kubelet.
@@ -17,7 +19,7 @@ Signed-off-by: Jyoti Mahapatra<jyotima@amazon.com>
  3 files changed, 78 insertions(+), 6 deletions(-)
 
 diff --git a/staging/src/k8s.io/legacy-cloud-providers/aws/aws.go b/staging/src/k8s.io/legacy-cloud-providers/aws/aws.go
-index 0aef68ccf2b..651079bc44f 100644
+index 7c2f33b232c..2a5fe901100 100644
 --- a/staging/src/k8s.io/legacy-cloud-providers/aws/aws.go
 +++ b/staging/src/k8s.io/legacy-cloud-providers/aws/aws.go
 @@ -24,6 +24,7 @@ import (
@@ -28,7 +30,7 @@ index 0aef68ccf2b..651079bc44f 100644
  	"path"
  	"regexp"
  	"sort"
-@@ -1518,6 +1519,17 @@ func getNodeAddressesForFargateNode(privateDNSName, privateIP string) []v1.NodeA
+@@ -1548,6 +1549,17 @@ func getNodeAddressesForFargateNode(privateDNSName, privateIP string) []v1.NodeA
  	return addresses
  }
  
@@ -46,7 +48,7 @@ index 0aef68ccf2b..651079bc44f 100644
  // NodeAddresses is an implementation of Instances.NodeAddresses.
  func (c *Cloud) NodeAddresses(ctx context.Context, name types.NodeName) ([]v1.NodeAddress, error) {
  	if c.selfAWSInstance.nodeName == name || len(name) == 0 {
-@@ -1575,6 +1587,27 @@ func (c *Cloud) NodeAddresses(ctx context.Context, name types.NodeName) ([]v1.No
+@@ -1605,6 +1617,27 @@ func (c *Cloud) NodeAddresses(ctx context.Context, name types.NodeName) ([]v1.No
  			}
  		}
  
@@ -74,7 +76,7 @@ index 0aef68ccf2b..651079bc44f 100644
  		externalIP, err := c.metadata.GetMetadata("public-ipv4")
  		if err != nil {
  			//TODO: It would be nice to be able to determine the reason for the failure,
-@@ -1664,6 +1697,25 @@ func extractNodeAddresses(instance *ec2.Instance) ([]v1.NodeAddress, error) {
+@@ -1694,6 +1727,25 @@ func extractNodeAddresses(instance *ec2.Instance) ([]v1.NodeAddress, error) {
  		}
  	}
  
@@ -127,7 +129,7 @@ index b0662072f43..8a5eda69d38 100644
  		return "", nil
  	}
 diff --git a/staging/src/k8s.io/legacy-cloud-providers/aws/aws_test.go b/staging/src/k8s.io/legacy-cloud-providers/aws/aws_test.go
-index ae018be23fd..5db99139c5e 100644
+index d4c1ac10d31..1834c4e5d7c 100644
 --- a/staging/src/k8s.io/legacy-cloud-providers/aws/aws_test.go
 +++ b/staging/src/k8s.io/legacy-cloud-providers/aws/aws_test.go
 @@ -589,7 +589,7 @@ func testHasNodeAddress(t *testing.T, addrs []v1.NodeAddress, addressType v1.Nod
@@ -204,6 +206,3 @@ index ae018be23fd..5db99139c5e 100644
  	var index1, index2 int
  	for i, addr := range addrs {
  		if addr.Type == v1.NodeInternalIP && addr.Address == "192.168.0.1" {
--- 
-2.17.1
-

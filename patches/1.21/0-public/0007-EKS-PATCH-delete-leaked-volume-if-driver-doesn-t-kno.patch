@@ -1,8 +1,8 @@
-From d4907aec4c9b648ca6a076b112e91c5a424cb0a6 Mon Sep 17 00:00:00 2001
+From 705962ffaaca582f50514f4fd8a18afd946d13b8 Mon Sep 17 00:00:00 2001
 From: Xiang Li <lixiang1992@gwu.edu>
 Date: Mon, 15 Mar 2021 10:59:32 -0700
-Subject: [PATCH] -- EKS PATCH -- delete leaked volume if driver doesn't know
- the volume status -- aws
+Subject: [PATCH] --EKS-PATCH-- delete leaked volume if driver doesn't know the
+ volume status -- aws
 
 PR: https://github.com/kubernetes/kubernetes/pull/99664
 
@@ -13,10 +13,10 @@ Signed-off-by: Taylor Neyland <tneyla@amazon.com>
  2 files changed, 68 insertions(+), 4 deletions(-)
 
 diff --git a/staging/src/k8s.io/legacy-cloud-providers/aws/aws.go b/staging/src/k8s.io/legacy-cloud-providers/aws/aws.go
-index 821d0994d18..81065005d56 100644
+index aa8634f20fd..b8a67e0693f 100644
 --- a/staging/src/k8s.io/legacy-cloud-providers/aws/aws.go
 +++ b/staging/src/k8s.io/legacy-cloud-providers/aws/aws.go
-@@ -2570,7 +2570,7 @@ func (c *Cloud) CreateDisk(volumeOptions *VolumeOptions) (KubernetesVolumeID, er
+@@ -2593,7 +2593,7 @@ func (c *Cloud) CreateDisk(volumeOptions *VolumeOptions) (KubernetesVolumeID, er
  		createType = DefaultVolumeType
  
  	default:
@@ -25,7 +25,7 @@ index 821d0994d18..81065005d56 100644
  	}
  
  	request := &ec2.CreateVolumeInput{}
-@@ -2602,12 +2602,12 @@ func (c *Cloud) CreateDisk(volumeOptions *VolumeOptions) (KubernetesVolumeID, er
+@@ -2625,12 +2625,12 @@ func (c *Cloud) CreateDisk(volumeOptions *VolumeOptions) (KubernetesVolumeID, er
  
  	response, err := c.ec2.CreateVolume(request)
  	if err != nil {
@@ -40,7 +40,7 @@ index 821d0994d18..81065005d56 100644
  	}
  	volumeName := KubernetesVolumeID("aws://" + aws.StringValue(response.AvailabilityZone) + "/" + string(awsID))
  
-@@ -2620,8 +2620,22 @@ func (c *Cloud) CreateDisk(volumeOptions *VolumeOptions) (KubernetesVolumeID, er
+@@ -2643,8 +2643,22 @@ func (c *Cloud) CreateDisk(volumeOptions *VolumeOptions) (KubernetesVolumeID, er
  		// because Kubernetes may have limited permissions to the key.
  		if isAWSErrorVolumeNotFound(err) {
  			err = fmt.Errorf("failed to create encrypted volume: the volume disappeared after creation, most likely due to inaccessible KMS encryption key")
@@ -65,7 +65,7 @@ index 821d0994d18..81065005d56 100644
  
  	return volumeName, nil
 diff --git a/staging/src/k8s.io/legacy-cloud-providers/aws/aws_test.go b/staging/src/k8s.io/legacy-cloud-providers/aws/aws_test.go
-index a9d59aff0ae..b0a8187574a 100644
+index a6cd5d29a6c..d168eb8467e 100644
 --- a/staging/src/k8s.io/legacy-cloud-providers/aws/aws_test.go
 +++ b/staging/src/k8s.io/legacy-cloud-providers/aws/aws_test.go
 @@ -73,6 +73,11 @@ func (m *MockedFakeEC2) DescribeVolumes(request *ec2.DescribeVolumesInput) ([]*e
@@ -132,6 +132,3 @@ index a9d59aff0ae..b0a8187574a 100644
  func TestRegionIsValid(t *testing.T) {
  	fake := newMockedFakeAWSServices("fakeCluster")
  	fake.selfInstance.Placement = &ec2.Placement{
--- 
-2.17.1
-

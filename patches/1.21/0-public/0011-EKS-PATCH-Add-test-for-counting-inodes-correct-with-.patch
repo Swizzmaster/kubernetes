@@ -1,7 +1,8 @@
-From 69618852be2fa41a36c0b0e9c77cb23e50966775 Mon Sep 17 00:00:00 2001
+From f41168c89c3479fb0ed25e6add58d17e2f47e069 Mon Sep 17 00:00:00 2001
 From: Natanael Copa <ncopa@mirantis.com>
 Date: Mon, 2 Nov 2020 17:02:57 +0100
-Subject: [PATCH 2/2] Add test for counting inodes correct with hardlinks
+Subject: [PATCH] --EKS-PATCH-- Add test for counting inodes correct with
+ hardlinks
 
 Upstream PR: https://github.com/kubernetes/kubernetes/pull/104024
 ---
@@ -34,6 +35,3 @@ index 3bee08bf1ed..55570f2b321 100644
  }
  
  // TestMetricsDuRequireInit tests that if MetricsDu is not initialized with a path, GetMetrics
--- 
-2.33.0
-

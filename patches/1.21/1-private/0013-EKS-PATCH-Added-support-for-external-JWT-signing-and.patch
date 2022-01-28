@@ -1,8 +1,10 @@
-From a295da8a25d3f05aa45796a98e6fee763c1941aa Mon Sep 17 00:00:00 2001
+From b0b31289ed1aed7b289e1d7452d1948774c097a7 Mon Sep 17 00:00:00 2001
 From: Jyoti Mahapatra <jyotima@amazon.com>
 Date: Thu, 20 May 2021 08:14:15 +0000
 Subject: [PATCH] --EKS-PATCH-- Added support for external JWT signing and
  verifying
+
+--EKS-PRIVATE--
 
 ref. https://github.com/micahhausler/kubernetes/commit/147f45449d6d750c848751eb7d17aba4a9b571be
 
@@ -81,7 +83,7 @@ index 22501c077ba..09edd88e8b6 100644
  }
  
 diff --git a/cmd/kube-apiserver/app/server.go b/cmd/kube-apiserver/app/server.go
-index f8ec962e43f..91c6e2f1f35 100644
+index 60074debb9a..f217614827a 100644
 --- a/cmd/kube-apiserver/app/server.go
 +++ b/cmd/kube-apiserver/app/server.go
 @@ -679,7 +679,27 @@ func Complete(s *options.ServerRunOptions) (completedServerRunOptions, error) {
@@ -1533,10 +1535,10 @@ index 00000000000..0ec98768eb1
 +	return out, err
 +}
 diff --git a/vendor/modules.txt b/vendor/modules.txt
-index 45a2a04eb1a..c30e77e399f 100644
+index 0075b726f3c..824a3f9bbdf 100644
 --- a/vendor/modules.txt
 +++ b/vendor/modules.txt
-@@ -1560,6 +1560,7 @@ gopkg.in/natefinch/lumberjack.v2
+@@ -1563,6 +1563,7 @@ gopkg.in/natefinch/lumberjack.v2
  gopkg.in/square/go-jose.v2
  # gopkg.in/square/go-jose.v2 => gopkg.in/square/go-jose.v2 v2.2.2
  gopkg.in/square/go-jose.v2/cipher
@@ -1544,6 +1546,3 @@ index 45a2a04eb1a..c30e77e399f 100644
  gopkg.in/square/go-jose.v2/json
  gopkg.in/square/go-jose.v2/jwt
  # gopkg.in/tomb.v1 v1.0.0-20141024135613-dd632973f1e7 => gopkg.in/tomb.v1 v1.0.0-20141024135613-dd632973f1e7
--- 
-2.24.3 (Apple Git-128)
-

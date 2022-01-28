@@ -1,14 +1,13 @@
-From 82cfe9f14f8fb445d682ce2774ea44ce54885e81 Mon Sep 17 00:00:00 2001
+From bfa7b5732c3eecb121f3bff616c4cd0228c53a76 Mon Sep 17 00:00:00 2001
 From: Jan Safranek <jsafrane@redhat.com>
 Date: Wed, 19 May 2021 17:29:59 +0200
-Subject: [PATCH] ConsistentRead tries 10 times
+Subject: [PATCH] --EKS-PATCH-- ConsistentRead tries 10 times
 
 We've seen clusters where 3 attempts were not enough. Bumping to 10. The
 slowdown should be negligible and it will reduce retry attempts in the
 upper layers of kubelet.
 
 Upstream commit: https://github.com/kubernetes/kubernetes/commit/82cfe9f14f8fb445d682ce2774ea44ce54885e81
-
 ---
  staging/src/k8s.io/mount-utils/mount_helper_unix.go | 2 +-
  1 file changed, 1 insertion(+), 1 deletion(-)
@@ -26,6 +25,3 @@ index 2c14a27c719..f3658647eea 100644
  )
  
  // IsCorruptedMnt return true if err is about corrupted mount point
--- 
-2.33.0
-

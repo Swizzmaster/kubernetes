@@ -1,7 +1,7 @@
-From 5b13c8f68d48740261fa4c96ecb0a504982088a8 Mon Sep 17 00:00:00 2001
+From 9d2d8fbb3f6cf7360df00afa4682acb230706687 Mon Sep 17 00:00:00 2001
 From: Natanael Copa <ncopa@mirantis.com>
 Date: Wed, 30 Sep 2020 15:19:27 +0200
-Subject: [PATCH 1/2] Get inodes and disk usage via pure go
+Subject: [PATCH] --EKS-PATCH-- Get inodes and disk usage via pure go
 
 Fix inode usage calculation to use filepath.Walk instead of executing an
 external find. Also calculate the disk usage while at it so we also get
@@ -349,6 +349,3 @@ index df57d82b548..c9f69ba6941 100644
  	used, err := resource.ParseQuantity(fmt.Sprintf("%d", total))
  	if err != nil {
  		t.Fatalf("TestDiskUsage failed: %s", err.Error())
--- 
-2.33.0
-
