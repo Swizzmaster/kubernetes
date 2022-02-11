@@ -26,7 +26,7 @@ if [[ "$REPLY" =~ ^[Yy]$ ]]; then
   echo
   if [[ "$REPLY" =~ ^[Yy]$ ]]; then
     pushd "$PWD/../EKSDataPlaneKubernetes"
-    cr --new-review --parent "$VERSION"
+    cr --range "${VERSION}":HEAD --new-review
     echo "Please link to your EKSDataPlaneKubernetes CR from your EKSKubernetesPatches CR!"
   fi
 fi
