@@ -24,9 +24,11 @@ if [[ "$REPLY" =~ ^[Yy]$ ]]; then
     read -p "Create a CR to EKSDataPlaneKubernetes with the patches that succeeded anyway? y/n? " -n 1 -r
   fi
   echo
+  VERSION=$(get_version "${PARENT_PATCHES_DIR}")
+
   if [[ "$REPLY" =~ ^[Yy]$ ]]; then
     pushd "$PWD/../EKSDataPlaneKubernetes"
-    cr --range "${VERSION}":HEAD --new-review
+    cr --new-review --range "${VERSION}:HEAD"
     echo "Please link to your EKSDataPlaneKubernetes CR from your EKSKubernetesPatches CR!"
   fi
 fi
