@@ -1,4 +1,4 @@
-From ee893bdd3f46abde43398faa9e0694ec0798e653 Mon Sep 17 00:00:00 2001
+From d99bcada0bfa205eff7d88b669ccb9bfdc4477df Mon Sep 17 00:00:00 2001
 From: Gyuho Lee <leegyuho@amazon.com>
 Date: Thu, 17 Oct 2019 13:02:49 -0700
 Subject: [PATCH] --EKS-PATCH-- staging/*/apiserver: disable info level gRPC

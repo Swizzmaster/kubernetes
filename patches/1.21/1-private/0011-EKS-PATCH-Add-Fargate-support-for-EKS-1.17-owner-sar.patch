@@ -1,4 +1,4 @@
-From 37380af99a0e19f85cf9754edd8d87a6c44c2589 Mon Sep 17 00:00:00 2001
+From 45faf0cf0c426042c035691907c8c836a8a34f83 Mon Sep 17 00:00:00 2001
 From: Rasita Pai <prasita@amazon.com>
 Date: Wed, 13 Oct 2021 12:52:13 -0700
 Subject: [PATCH] --EKS-PATCH-- Add Fargate support for EKS 1.17 // owner:

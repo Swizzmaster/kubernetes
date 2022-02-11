@@ -1,4 +1,4 @@
-From b1b98dd967902978c9466be202a7fd228c8a75ed Mon Sep 17 00:00:00 2001
+From 66a82db46d834e52b2ed4e06f6bb938589ed45c4 Mon Sep 17 00:00:00 2001
 From: Micah Hausler <mhausler@amazon.com>
 Date: Wed, 19 Sep 2018 18:16:23 -0700
 Subject: [PATCH] --EKS-PATCH-- Added allowlist CIDR flag, use "klog"
