@@ -1,4 +1,4 @@
-From 722669f336dc21dfbb4524d69661db1ebeec8715 Mon Sep 17 00:00:00 2001
+From b2b1d980c29bdcfc26d22d5899d9286665432759 Mon Sep 17 00:00:00 2001
 From: Prithvi Ramesh <pritrame@amazon.com>
 Date: Sun, 26 Jul 2020 22:25:54 -0700
 Subject: [PATCH] --EKS-PATCH-- efs volume validation in Kubelet
@@ -41,7 +41,7 @@ cr https://code.amazon.com/reviews/CR-30564575
  create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator_testdata/valid-volumes.yaml
 
 diff --git a/pkg/kubelet/kubelet.go b/pkg/kubelet/kubelet.go
-index e7619e16034..9488faf722a 100644
+index c8888a8e7d5..257f4e9bec1 100644
 --- a/pkg/kubelet/kubelet.go
 +++ b/pkg/kubelet/kubelet.go
 @@ -852,7 +852,7 @@ func NewMainKubelet(kubeCfg *kubeletconfiginternal.KubeletConfiguration,

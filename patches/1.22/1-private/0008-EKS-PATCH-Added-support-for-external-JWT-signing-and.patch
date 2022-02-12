@@ -1,4 +1,4 @@
-From a2f20abaa426e79576b592da038201c934569180 Mon Sep 17 00:00:00 2001
+From 9d776dced5e771b5dca17bfcd1f8b0a6c775b8db Mon Sep 17 00:00:00 2001
 From: Micah Hausler <mhausler@amazon.com>
 Date: Thu, 17 Jan 2019 15:41:00 -0800
 Subject: [PATCH] --EKS-PATCH-- Added support for external JWT signing and
@@ -1518,7 +1518,7 @@ index 00000000000..0ec98768eb1
 +	return out, err
 +}
 diff --git a/vendor/modules.txt b/vendor/modules.txt
-index 76e597587d0..600c1f80d00 100644
+index b5609f96fdc..fe5f987e81c 100644
 --- a/vendor/modules.txt
 +++ b/vendor/modules.txt
 @@ -1244,6 +1244,7 @@ gopkg.in/natefinch/lumberjack.v2
