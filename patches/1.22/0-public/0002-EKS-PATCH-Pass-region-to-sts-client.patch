@@ -1,4 +1,4 @@
-From a4b1d71d659c6db503912f37c76c90f88e814927 Mon Sep 17 00:00:00 2001
+From 6ca35252abf9bcacb2a4264c7acf0d9ab5b59592 Mon Sep 17 00:00:00 2001
 From: Rasita Pai <prasita@amazon.com>
 Date: Wed, 13 Oct 2021 10:46:18 -0700
 Subject: [PATCH] --EKS-PATCH-- Pass region to sts client
