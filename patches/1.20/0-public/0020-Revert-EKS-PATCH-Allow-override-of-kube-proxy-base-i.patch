@@ -1,0 +1,41 @@
+From 62b964d58e5f573b0604bdba9bf320e8eef9f249 Mon Sep 17 00:00:00 2001
+From: M00nF1sh <yyyng@amazon.com>
+Date: Thu, 12 Aug 2021 15:25:50 -0700
+Subject: [PATCH] Revert "--EKS-PATCH-- Allow override of kube-proxy base
+ image"
+
+This reverts commit 224ddfedbddcbf372ac8f694cae3dd601735092c.
+---
+ build/common.sh | 5 ++---
+ 1 file changed, 2 insertions(+), 3 deletions(-)
+
+diff --git a/build/common.sh b/build/common.sh
+index 1276a9b0a3b..5e2e6aec877 100755
+--- a/build/common.sh
++++ b/build/common.sh
+@@ -44,7 +44,6 @@ readonly KUBE_BUILD_IMAGE_CROSS_TAG="$(cat "${KUBE_ROOT}/build/build-image/cross
+ 
+ readonly KUBE_DOCKER_REGISTRY="${KUBE_DOCKER_REGISTRY:-k8s.gcr.io}"
+ readonly KUBE_BASE_IMAGE_REGISTRY="${KUBE_BASE_IMAGE_REGISTRY:-k8s.gcr.io/build-image}"
+-readonly KUBE_PROXY_BASE_IMAGE_REGISTRY="${KUBE_PROXY_BASE_IMAGE_REGISTRY:-$KUBE_BASE_IMAGE_REGISTRY}"
+ 
+ # This version number is used to cause everyone to rebuild their data containers
+ # and build image.  This is especially useful for automated build systems like
+@@ -94,7 +93,7 @@ readonly KUBE_CONTAINER_RSYNC_PORT=8730
+ #
+ # $1 - server architecture
+ kube::build::get_docker_wrapped_binaries() {
+-  local debian_iptables_version="${KUBE_PROXY_BASE_IMAGE_VERSION:-buster-v1.6.5}"
++  local debian_iptables_version=buster-v1.6.5
+   local go_runner_version=v2.3.1-go1.15.15-buster.0
+   ### If you change any of these lists, please also update DOCKERIZED_BINARIES
+   ### in build/BUILD. And kube::golang::server_image_targets
+@@ -102,7 +101,7 @@ kube::build::get_docker_wrapped_binaries() {
+     "kube-apiserver,${KUBE_BASE_IMAGE_REGISTRY}/go-runner:${go_runner_version}"
+     "kube-controller-manager,${KUBE_BASE_IMAGE_REGISTRY}/go-runner:${go_runner_version}"
+     "kube-scheduler,${KUBE_BASE_IMAGE_REGISTRY}/go-runner:${go_runner_version}"
+-    "kube-proxy,${KUBE_PROXY_BASE_IMAGE_REGISTRY}/debian-iptables:${debian_iptables_version}"
++    "kube-proxy,${KUBE_BASE_IMAGE_REGISTRY}/debian-iptables:${debian_iptables_version}"
+   )
+ 
+   echo "${targets[@]}"
