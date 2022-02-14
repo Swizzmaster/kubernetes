@@ -40,18 +40,23 @@ function apply_patches {
 
   pushd "$KUBERNETES_DIR"
 
-  for FILE in "$PATCHES_DIR"/*.patch; do
-    if git am < "$FILE"; then
-      echo "Applying succeeded: $FILE"
-    else
-      echo "Applying failed: $FILE"
-      git am --skip
 
-      popd
+  if [[ -n "$(ls $PATCHES_DIR)" ]]; then
+    for FILE in "$PATCHES_DIR"/*.patch; do
+      if git am < "$FILE"; then
+        echo "Applying succeeded: $FILE"
+      else
+        echo "Applying failed: $FILE"
+        git am --skip
 
-      return 1
-    fi
-  done
+        popd
+
+        return 1
+      fi
+    done
+  else
+    echo "Nothing to apply in $PATCHES_DIR"
+  fi
 
   popd
 }
