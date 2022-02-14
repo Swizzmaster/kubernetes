@@ -138,7 +138,7 @@ function num_private() {
   local RANGE_END=$3
 
   pushd "$KUBERNETES_DIR"
-  echo "$(git rev-list --reverse --grep='--EKS-PRIVATE--' ${RANGE_START}..${RANGE_END})" | wc -l
+  git rev-list --reverse --grep='--EKS-PRIVATE--' ${RANGE_START}..${RANGE_END} | wc -l
   popd
 }
 
@@ -148,7 +148,7 @@ function num_public() {
   local RANGE_END=$3
 
   pushd "$KUBERNETES_DIR"
-  echo "$(git rev-list --reverse --invert-grep --grep='--EKS-PRIVATE--' ${RANGE_START}..${RANGE_END})" | wc -l
+  git rev-list --reverse --invert-grep --grep='--EKS-PRIVATE--' ${RANGE_START}..${RANGE_END} | wc -l
   popd
 }
 
@@ -168,5 +168,7 @@ function remove_patches() {
       exit 1
   fi
 
-  rm ${PATCHES_DIR}/*
+  if [[ -n "$(ls $PATCHES_DIR)" ]]; then
+      rm ${PATCHES_DIR}/*
+  fi
 }
