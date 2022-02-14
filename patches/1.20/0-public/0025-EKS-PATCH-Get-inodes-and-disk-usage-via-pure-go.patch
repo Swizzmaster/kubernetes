@@ -1,4 +1,4 @@
-From f88b84a3220a4f73ceb175becb5b2d42c98eadbd Mon Sep 17 00:00:00 2001
+From ff26429a19f41bc1e9dae602c9ddde5f80d8e524 Mon Sep 17 00:00:00 2001
 From: Manu Gupta <mgpta@amazon.com>
 Date: Tue, 12 Oct 2021 14:43:34 -0700
 Subject: [PATCH] --EKS-PATCH-- Get inodes and disk usage via pure go.

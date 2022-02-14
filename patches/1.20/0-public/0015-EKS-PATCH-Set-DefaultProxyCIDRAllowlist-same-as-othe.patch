@@ -1,8 +1,8 @@
-From a639dcb08f76815d6b0a12bcd746ddccbf2a1eda Mon Sep 17 00:00:00 2001
+From 29336c3d4b6b7e4f619b410facb49f1cadb16c84 Mon Sep 17 00:00:00 2001
 From: Sri Saran Balaji Vellore Rajakumar <srajakum@amazon.com>
 Date: Fri, 30 Jul 2021 16:51:01 -0700
-Subject: [PATCH] Set DefaultProxyCIDRAllowlist same as other existing K8s
- versions.
+Subject: [PATCH] --EKS-PATCH-- Set DefaultProxyCIDRAllowlist same as other
+ existing K8s versions.
 
 cr: https://code.amazon.com/reviews/CR-54623095
 ---

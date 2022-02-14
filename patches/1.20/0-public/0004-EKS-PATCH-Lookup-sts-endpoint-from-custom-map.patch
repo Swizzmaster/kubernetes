@@ -1,4 +1,4 @@
-From b50256fd1649a048ef78c0abf82bb97e30b01061 Mon Sep 17 00:00:00 2001
+From 0ab8ab27874512ef07de26eef1d5d67cc20c7685 Mon Sep 17 00:00:00 2001
 From: Aleksandr Melnik <melnikal@amazon.com>
 Date: Wed, 8 Jan 2020 17:23:06 -0800
 Subject: [PATCH] --EKS-PATCH-- Lookup sts endpoint from custom map

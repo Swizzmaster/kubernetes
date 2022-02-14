@@ -1,4 +1,4 @@
-From f09e9c562c3fc917f1aaa2c8c81bb2bc1f319ade Mon Sep 17 00:00:00 2001
+From b7f7e40cdd9e192f5d8d840e3ca6c1691af16468 Mon Sep 17 00:00:00 2001
 From: Micah Hausler <mhausler@amazon.com>
 Date: Thu, 17 Jan 2019 15:41:00 -0800
 Subject: [PATCH] --EKS-PATCH-- Added support for external JWT signing and
@@ -27,14 +27,10 @@ Date:      Thu Jan 17 15:41:00 2019 -0800
  pkg/serviceaccount/jwt_external_test.go       | 128 +++++++
  pkg/serviceaccount/jwt_test.go                | 162 ++++++---
  staging/src/k8s.io/client-go/util/cert/pem.go |   7 +-
- .../heketi/client/api/go-client/client.go     |  19 +-
- vendor/github.com/quobyte/api/quobyte.go      |  18 +-
- vendor/github.com/storageos/go-api/client.go  |   5 +-
- .../github.com/thecodeteam/goscaleio/api.go   |   9 -
  .../square/go-jose.v2/cryptosigner/BUILD      |  27 ++
  .../go-jose.v2/cryptosigner/cryptosigner.go   | 138 ++++++++
  vendor/modules.txt                            |   1 +
- 25 files changed, 1220 insertions(+), 113 deletions(-)
+ 21 files changed, 1216 insertions(+), 66 deletions(-)
  create mode 100755 hack/update-generated-externalsigner-dockerized.sh
  create mode 100755 hack/update-generated-externalsigner.sh
  create mode 100755 hack/verify-generated-externalsigner.sh
@@ -1492,156 +1488,6 @@ index c77512315ab..627e9ea9c05 100644
  	}
  	return certs, nil
  }
-diff --git a/vendor/github.com/heketi/heketi/client/api/go-client/client.go b/vendor/github.com/heketi/heketi/client/api/go-client/client.go
-index 78da4f1ca6a..c8fd50cb793 100644
---- a/vendor/github.com/heketi/heketi/client/api/go-client/client.go
-+++ b/vendor/github.com/heketi/heketi/client/api/go-client/client.go
-@@ -20,9 +20,7 @@ import (
- 	"encoding/hex"
- 	"fmt"
- 	"io/ioutil"
--	"k8s.io/kubernetes/pkg/proxy/util"
- 	"math/rand"
--	"net"
- 	"net/http"
- 	"strconv"
- 	"time"
-@@ -191,27 +189,12 @@ func (c *Client) doBasic(req *http.Request) (*http.Response, error) {
- 		<-c.throttle
- 	}()
- 
--	dialContext := (&net.Dialer{
--		Timeout:   30 * time.Second,
--		KeepAlive: 30 * time.Second,
--		DualStack: true,
--	}).DialContext
--
--	tr := &http.Transport{
--		DialContext:           util.NewSafeDialContext(dialContext),
--		MaxIdleConns:          100,
--		IdleConnTimeout:       90 * time.Second,
--		TLSHandshakeTimeout:   10 * time.Second,
--		ExpectContinueTimeout: 1 * time.Second,
--	}
--	httpClient := &http.Client{Transport: tr}
-+	httpClient := &http.Client{}
- 	if c.tlsClientConfig != nil {
- 		httpClient.Transport = &http.Transport{
--			DialContext:           util.NewSafeDialContext(dialContext),
- 			TLSClientConfig: c.tlsClientConfig,
- 		}
- 	}
--
- 	httpClient.CheckRedirect = c.checkRedirect
- 	return httpClient.Do(req)
- }
-diff --git a/vendor/github.com/quobyte/api/quobyte.go b/vendor/github.com/quobyte/api/quobyte.go
-index d54bffa243d..c5e36d7fc7b 100644
---- a/vendor/github.com/quobyte/api/quobyte.go
-+++ b/vendor/github.com/quobyte/api/quobyte.go
-@@ -2,11 +2,8 @@
- package quobyte
- 
- import (
--	"k8s.io/kubernetes/pkg/proxy/util"
--	"net"
- 	"net/http"
- 	"regexp"
--	"time"
- )
- 
- // retry policy codes
-@@ -41,21 +38,8 @@ func (client *QuobyteClient) SetTransport(t http.RoundTripper) {
- 
- // NewQuobyteClient creates a new Quobyte API client
- func NewQuobyteClient(url string, username string, password string) *QuobyteClient {
--	dialContext := (&net.Dialer{
--		Timeout:   30 * time.Second,
--		KeepAlive: 30 * time.Second,
--		DualStack: true,
--	}).DialContext
--	tr := &http.Transport{
--		DialContext:           util.NewSafeDialContext(dialContext),
--		MaxIdleConns:          100,
--		IdleConnTimeout:       90 * time.Second,
--		TLSHandshakeTimeout:   10 * time.Second,
--		ExpectContinueTimeout: 1 * time.Second,
--	}
--
- 	return &QuobyteClient{
--		client:         &http.Client{Transport: tr},
-+		client:         &http.Client{},
- 		url:            url,
- 		username:       username,
- 		password:       password,
-diff --git a/vendor/github.com/storageos/go-api/client.go b/vendor/github.com/storageos/go-api/client.go
-index 7fd12573f53..1a6dc0dcde4 100644
---- a/vendor/github.com/storageos/go-api/client.go
-+++ b/vendor/github.com/storageos/go-api/client.go
-@@ -8,7 +8,6 @@ import (
- 	"fmt"
- 	"io"
- 	"io/ioutil"
--	"k8s.io/kubernetes/pkg/proxy/util"
- 	"math/rand"
- 	"net"
- 	"net/http"
-@@ -108,7 +107,7 @@ func (c *Client) ClientVersion() string {
- // (net.Dialer fulfills this interface) and named pipes (a shim using
- // winio.DialPipe)
- type Dialer interface {
--	DialContext(ctx context.Context, network, addr string) (net.Conn, error)
-+	Dial(network, address string) (net.Conn, error)
- }
- 
- type dialContext = func(ctx context.Context, network, address string) (net.Conn, error)
-@@ -589,7 +588,7 @@ func (e *Error) Error() string {
- func defaultPooledTransport(dialer Dialer) *http.Transport {
- 	transport := &http.Transport{
- 		Proxy:               http.ProxyFromEnvironment,
--		DialContext:         util.NewSafeDialContext(dialer.DialContext),
-+		Dial:                dialer.Dial,
- 		TLSHandshakeTimeout: 5 * time.Second,
- 		DisableKeepAlives:   false,
- 		MaxIdleConnsPerHost: 1,
-diff --git a/vendor/github.com/thecodeteam/goscaleio/api.go b/vendor/github.com/thecodeteam/goscaleio/api.go
-index 5a6a6c1b800..2b17c8886c1 100644
---- a/vendor/github.com/thecodeteam/goscaleio/api.go
-+++ b/vendor/github.com/thecodeteam/goscaleio/api.go
-@@ -9,8 +9,6 @@ import (
- 	"fmt"
- 	"io"
- 	"io/ioutil"
--	"k8s.io/kubernetes/pkg/proxy/util"
--	"net"
- 	"net/http"
- 	"net/url"
- 	"os"
-@@ -325,16 +323,10 @@ func NewClientWithArgs(
- 			withFields(fields, "endpoint is required")
- 	}
- 
--	dialContext := (&net.Dialer{
--		Timeout:   30 * time.Second,
--		KeepAlive: 30 * time.Second,
--		DualStack: true,
--	}).DialContext
- 	client = &Client{
- 		SIOEndpoint: *uri,
- 		Http: http.Client{
- 			Transport: &http.Transport{
--				DialContext:           util.NewSafeDialContext(dialContext),
- 				TLSHandshakeTimeout: 120 * time.Second,
- 				TLSClientConfig: &tls.Config{
- 					InsecureSkipVerify: insecure,
-@@ -348,7 +340,6 @@ func NewClientWithArgs(
- 		pool.AppendCertsFromPEM(pemCerts)
- 
- 		client.Http.Transport = &http.Transport{
--			DialContext:           util.NewSafeDialContext(dialContext),
- 			TLSHandshakeTimeout: 120 * time.Second,
- 			TLSClientConfig: &tls.Config{
- 				RootCAs:            pool,
 diff --git a/vendor/gopkg.in/square/go-jose.v2/cryptosigner/BUILD b/vendor/gopkg.in/square/go-jose.v2/cryptosigner/BUILD
 new file mode 100644
 index 00000000000..c0a446b7caa

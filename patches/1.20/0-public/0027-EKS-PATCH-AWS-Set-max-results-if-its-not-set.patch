@@ -1,7 +1,7 @@
-From 3dfe3ebafc246b5e428e853c68f98d68d7f9f6b5 Mon Sep 17 00:00:00 2001
+From e2d18f1993d4d5737b2925589fb032b98297e849 Mon Sep 17 00:00:00 2001
 From: Nick Turner <nic@amazon.com>
 Date: Tue, 9 Nov 2021 18:50:19 +0000
-Subject: [PATCH] [AWS] Set max results if its not set
+Subject: [PATCH] --EKS-PATCH-- [AWS] Set max results if its not set
 
 * If max results is not set and instance IDs are not provided for the
   describe instances call in the aws cloud provider, set max results.

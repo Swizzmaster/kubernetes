@@ -1,7 +1,8 @@
-From d2a4387d7d086bef25c188e0829a0ff0eb8f18b4 Mon Sep 17 00:00:00 2001
+From ffac4a663f4e903f637f930558b16351dd74d428 Mon Sep 17 00:00:00 2001
 From: Mike Spreitzer <mspreitz@us.ibm.com>
 Date: Wed, 8 Sep 2021 00:34:52 -0400
-Subject: [PATCH] Refine locking in API Priority and Fairness config controller
+Subject: [PATCH] --EKS-PATCH-- Refine locking in API Priority and Fairness
+ config controller
 
 Instead of a plain `Mutex`, use an `RWMutex` so that the common
 operations can proceed in parallel.
