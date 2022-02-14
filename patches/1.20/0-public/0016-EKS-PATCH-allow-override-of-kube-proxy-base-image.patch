@@ -1,4 +1,4 @@
-From a3aa1dc9d5c14389bce794a827860517399bad13 Mon Sep 17 00:00:00 2001
+From 203e7881cec7990dc1678cc972103c5cef3d1468 Mon Sep 17 00:00:00 2001
 From: M00nF1sh <yyyng@amazon.com>
 Date: Thu, 12 Aug 2021 15:29:03 -0700
 Subject: [PATCH] --EKS-PATCH-- allow override of kube-proxy base image

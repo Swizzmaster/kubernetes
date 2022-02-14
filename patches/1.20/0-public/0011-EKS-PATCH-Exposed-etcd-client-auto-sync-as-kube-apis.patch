@@ -1,4 +1,4 @@
-From df46a5e761f3b68c20b9383b9c028ee748b76842 Mon Sep 17 00:00:00 2001
+From 2f7059acc5bb12366e7c09999ff1567ad8d1441f Mon Sep 17 00:00:00 2001
 From: Qing Ju <juqing@amazon.com>
 Date: Wed, 7 Apr 2021 17:50:46 -0700
 Subject: [PATCH] --EKS-PATCH-- Exposed etcd client auto-sync as kube-apiserver
