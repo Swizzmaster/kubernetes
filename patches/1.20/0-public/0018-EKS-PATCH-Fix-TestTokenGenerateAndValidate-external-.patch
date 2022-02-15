@@ -1,4 +1,4 @@
-From 99a6eef4da7bcdbeb4b2d9ca8a0dcb9943ce2c4e Mon Sep 17 00:00:00 2001
+From 4e126b25d309894c04b1b3a53c42821853d92460 Mon Sep 17 00:00:00 2001
 From: Matthew Wong <mattwon@amazon.com>
 Date: Thu, 26 Aug 2021 14:42:10 -0700
 Subject: [PATCH] --EKS-PATCH-- Fix TestTokenGenerateAndValidate external cases

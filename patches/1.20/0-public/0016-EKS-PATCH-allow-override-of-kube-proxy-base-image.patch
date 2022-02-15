@@ -1,4 +1,4 @@
-From 203e7881cec7990dc1678cc972103c5cef3d1468 Mon Sep 17 00:00:00 2001
+From 6f83eb4d7d8d61f5a9b79e19e392a53637830494 Mon Sep 17 00:00:00 2001
 From: M00nF1sh <yyyng@amazon.com>
 Date: Thu, 12 Aug 2021 15:29:03 -0700
 Subject: [PATCH] --EKS-PATCH-- allow override of kube-proxy base image
@@ -9,7 +9,7 @@ cr: https://code.amazon.com/reviews/CR-55335620
  1 file changed, 1 insertion(+), 1 deletion(-)
 
 diff --git a/build/common.sh b/build/common.sh
-index 5e2e6aec877..642b62840e3 100755
+index 7c2142119a6..26e6c1174ee 100755
 --- a/build/common.sh
 +++ b/build/common.sh
 @@ -101,7 +101,7 @@ kube::build::get_docker_wrapped_binaries() {
