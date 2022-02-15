@@ -1,8 +1,8 @@
-From 09c7485a6fb25689e32dd11c752ce497830c0828 Mon Sep 17 00:00:00 2001
+From 692ff2a12ac967499588a462306eead1710c1024 Mon Sep 17 00:00:00 2001
 From: Qing Ju <juqing@amazon.com>
 Date: Wed, 7 Apr 2021 17:50:46 -0700
-Subject: [PATCH] --EKS-PATCH-- Exposed etcd client auto-sync as kube-apiserver
- option
+Subject: [PATCH] --EKS-PRIVATE-- Exposed etcd client auto-sync as
+ kube-apiserver option
 
 Expose auto-sync option so that people can enable/disable auto-sync and
 change auto-sync interval by setting flag --etcd-auto-sync-interval

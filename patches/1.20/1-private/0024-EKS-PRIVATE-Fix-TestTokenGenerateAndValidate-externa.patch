@@ -1,7 +1,8 @@
-From 4e126b25d309894c04b1b3a53c42821853d92460 Mon Sep 17 00:00:00 2001
+From 56b0c0bf25e0d9a631cae9fc63b1ae026a442a49 Mon Sep 17 00:00:00 2001
 From: Matthew Wong <mattwon@amazon.com>
 Date: Thu, 26 Aug 2021 14:42:10 -0700
-Subject: [PATCH] --EKS-PATCH-- Fix TestTokenGenerateAndValidate external cases
+Subject: [PATCH] --EKS-PRIVATE-- Fix TestTokenGenerateAndValidate external
+ cases
 
 external JWT signing is a feature added by EKS to support IAM for SA
 ---

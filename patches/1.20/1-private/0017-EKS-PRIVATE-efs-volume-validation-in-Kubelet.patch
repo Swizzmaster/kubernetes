@@ -1,7 +1,7 @@
-From 832e7921f367d256866dfd7bfc2be8cc4d1f6996 Mon Sep 17 00:00:00 2001
+From 2a7da1aca2914c0708025e5948ca36b97d3fc380 Mon Sep 17 00:00:00 2001
 From: Prithvi Ramesh <pritrame@amazon.com>
 Date: Sun, 26 Jul 2020 22:25:54 -0700
-Subject: [PATCH] --EKS-PATCH-- efs volume validation in Kubelet
+Subject: [PATCH] --EKS-PRIVATE-- efs volume validation in Kubelet
 
 cr https://code.amazon.com/reviews/CR-30564575
 ---

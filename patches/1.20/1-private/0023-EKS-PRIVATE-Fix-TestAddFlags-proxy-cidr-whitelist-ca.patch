@@ -1,7 +1,7 @@
-From 0f8b565f55507bec3fcf4ad39ad04d0277d1e669 Mon Sep 17 00:00:00 2001
+From 0b010f791656a0cff8120c0dccf0d123fe4b6a95 Mon Sep 17 00:00:00 2001
 From: Matthew Wong <mattwon@amazon.com>
 Date: Thu, 26 Aug 2021 14:41:37 -0700
-Subject: [PATCH] --EKS-PATCH-- Fix TestAddFlags --proxy-cidr-whitelist case
+Subject: [PATCH] --EKS-PRIVATE-- Fix TestAddFlags --proxy-cidr-whitelist case
 
 --proxy-cidr-whitelist/--proxy-cidr-allowlist is a flag added by EKS
 ---
