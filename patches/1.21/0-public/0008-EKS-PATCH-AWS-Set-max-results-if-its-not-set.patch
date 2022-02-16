@@ -1,4 +1,4 @@
-From f81ca24afcd2f445db36e3bef783555c5d0f354b Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Nick Turner <nic@amazon.com>
 Date: Tue, 9 Nov 2021 18:50:19 +0000
 Subject: [PATCH] --EKS-PATCH-- [AWS] Set max results if its not set

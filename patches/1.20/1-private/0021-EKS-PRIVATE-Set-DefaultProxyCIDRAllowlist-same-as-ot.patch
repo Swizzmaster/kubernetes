@@ -1,4 +1,4 @@
-From 65b824b606dbb2cdba5298f3ec9c9f104f8344bf Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Sri Saran Balaji Vellore Rajakumar <srajakum@amazon.com>
 Date: Fri, 30 Jul 2021 16:51:01 -0700
 Subject: [PATCH] --EKS-PRIVATE-- Set DefaultProxyCIDRAllowlist same as other

@@ -1,4 +1,4 @@
-From 9ead4f165fc10c07440ad1bf63e25dec1a004fdb Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Angus Lees <gus@inodes.org>
 Date: Thu, 19 Nov 2020 17:34:07 +1100
 Subject: [PATCH] --EKS-PATCH-- AWS: Include IPv6 addresses in NodeAddresses

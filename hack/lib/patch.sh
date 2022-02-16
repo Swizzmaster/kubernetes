@@ -40,7 +40,6 @@ function apply_patches {
 
   pushd "$KUBERNETES_DIR"
 
-
   if [[ -n "$(ls $PATCHES_DIR)" ]]; then
     for FILE in "$PATCHES_DIR"/*.patch; do
       if git am < "$FILE"; then
@@ -97,6 +96,7 @@ function prepare_patches {
 
   pushd "$KUBERNETES_DIR"
   git format-patch \
+    --zero-commit \
     --no-numbered \
     --no-signature \
     --start-number "$START_NUM" \
@@ -169,11 +169,11 @@ function remove_patches() {
   local PATCHES_DIR=$1
 
   if [[ -z "${PATCHES_DIR}" ]]; then
-      echo "remove_patches: PATCHES_DIR cannot be empty."
-      exit 1
+    echo "remove_patches: PATCHES_DIR cannot be empty."
+    exit 1
   fi
 
   if [[ -n "$(ls $PATCHES_DIR)" ]]; then
-      rm ${PATCHES_DIR}/*
+    rm ${PATCHES_DIR}/*
   fi
 }

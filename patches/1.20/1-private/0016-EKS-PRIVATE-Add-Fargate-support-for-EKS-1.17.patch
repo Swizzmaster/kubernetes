@@ -1,4 +1,4 @@
-From 0d855021546eb9890a8f50b52f8de46058bd0b8b Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Gyuho Lee <leegyuho@amazon.com>
 Date: Thu, 2 Apr 2020 17:55:36 -0700
 Subject: [PATCH] --EKS-PRIVATE-- Add Fargate support for EKS 1.17

@@ -1,4 +1,4 @@
-From 9ec2c2552467300c0a689bf334fd93f99487c457 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Micah Hausler <mhausler@amazon.com>
 Date: Sun, 1 Nov 2020 09:24:08 -0800
 Subject: [PATCH] --EKS-PATCH-- Use GNU date

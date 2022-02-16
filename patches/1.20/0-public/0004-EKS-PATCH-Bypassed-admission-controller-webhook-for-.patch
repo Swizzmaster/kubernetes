@@ -1,4 +1,4 @@
-From 3d8157c30432c2a7ee9b9afa880659c17264a3ae Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Qing Ju <juqing@amazon.com>
 Date: Sun, 18 Oct 2020 10:31:39 -0700
 Subject: [PATCH] --EKS-PATCH-- Bypassed admission controller webhook for

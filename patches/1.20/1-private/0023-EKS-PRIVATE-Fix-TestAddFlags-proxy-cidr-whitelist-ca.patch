@@ -1,4 +1,4 @@
-From 0b010f791656a0cff8120c0dccf0d123fe4b6a95 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Matthew Wong <mattwon@amazon.com>
 Date: Thu, 26 Aug 2021 14:41:37 -0700
 Subject: [PATCH] --EKS-PRIVATE-- Fix TestAddFlags --proxy-cidr-whitelist case

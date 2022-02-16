@@ -1,4 +1,4 @@
-From 7f197d2adcd07c6c1ea51daf4134a39715b7a789 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Gyuho Lee <leegyuho@amazon.com>
 Date: Tue, 28 Sep 2021 19:38:47 +0000
 Subject: [PATCH] --EKS-PATCH-- apiserver/healthz: upper log verbosity for

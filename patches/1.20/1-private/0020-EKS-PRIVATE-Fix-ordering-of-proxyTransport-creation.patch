@@ -1,4 +1,4 @@
-From 64b8381fb98a263b208d0f0b7e6e1b8a721f7ba8 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Sri Saran Balaji Vellore Rajakumar <srajakum@amazon.com>
 Date: Fri, 30 Jul 2021 15:04:00 -0700
 Subject: [PATCH] --EKS-PRIVATE-- Fix ordering of proxyTransport creation

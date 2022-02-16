@@ -1,4 +1,4 @@
-From 168c776e994720b06b5dee0e846e15cd76b43946 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Prithvi Ramesh <pritrame@amazon.com>
 Date: Sun, 26 Jul 2020 22:25:54 -0700
 Subject: [PATCH] --EKS-PATCH-- efs volume validation in Kubelet

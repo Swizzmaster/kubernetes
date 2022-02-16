@@ -1,4 +1,4 @@
-From e008001ca3a293536e98049dabe3a8e225a5bd00 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Rasita Pai <prasita@amazon.com>
 Date: Wed, 13 Oct 2021 12:52:13 -0700
 Subject: [PATCH] --EKS-PATCH-- Add Fargate support for EKS 1.17

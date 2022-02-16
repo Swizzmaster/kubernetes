@@ -1,4 +1,4 @@
-From 56b0c0bf25e0d9a631cae9fc63b1ae026a442a49 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Matthew Wong <mattwon@amazon.com>
 Date: Thu, 26 Aug 2021 14:42:10 -0700
 Subject: [PATCH] --EKS-PRIVATE-- Fix TestTokenGenerateAndValidate external

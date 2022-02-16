@@ -1,4 +1,4 @@
-From 09a353392f1de8a765b6c7216f6986572fe4b6fd Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Matthew Wong <mattwon@amazon.com>
 Date: Fri, 10 Sep 2021 10:20:36 -0700
 Subject: [PATCH] --EKS-PRIVATE-- Add --proxy-cidr-allowlist integration test
