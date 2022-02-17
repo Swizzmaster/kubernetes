@@ -1,15 +1,13 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Micah Hausler <mhausler@amazon.com>
 Date: Thu, 17 Jan 2019 15:41:00 -0800
-Subject: [PATCH] --EKS-PATCH-- Added support for external JWT signing and
+Subject: [PATCH] --EKS-PRIVATE-- Added support for external JWT signing and
  verifying
 
 ref. https://github.com/micahhausler/kubernetes/commit/147f45449d6d750c848751eb7d17aba4a9b571be
 
 1.22: Support for multiple issuers was added, so that migration is
 possible from 1 issuer to another, so this patch needed to be rebased.
-
---EKS-PRIVATE--
 ---
  cmd/kube-apiserver/app/options/validation.go  |  25 ++
  cmd/kube-apiserver/app/server.go              |  20 ++

@@ -1,9 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Angus Lees <gus@inodes.org>
 Date: Thu, 19 Nov 2020 17:34:07 +1100
-Subject: [PATCH] --EKS-PATCH-- AWS: Include IPv6 addresses in NodeAddresses
-
---EKS-PRIVATE--
+Subject: [PATCH] --EKS-PRIVATE-- AWS: Include IPv6 addresses in NodeAddresses
 
 The change changes the in tree cloud provider code to append ipv6
 addresses to the Node object advertised by the kubelet.

@@ -6,15 +6,23 @@ Subject: [PATCH] --EKS-PATCH-- Parse ipv6 address before comparison (#107736)
 * Parse ipv6 address before comparison
 * Use node address from cloudprovider as is
 ---
- pkg/kubelet/nodestatus/setters.go      |  2 +-
+ pkg/kubelet/nodestatus/setters.go      |  3 ++-
  pkg/kubelet/nodestatus/setters_test.go | 14 ++++++++++++++
- 2 files changed, 15 insertions(+), 1 deletion(-)
+ 2 files changed, 16 insertions(+), 1 deletion(-)
 
 diff --git a/pkg/kubelet/nodestatus/setters.go b/pkg/kubelet/nodestatus/setters.go
-index 0ff7f6fced9..f23a3ee0525 100644
+index 0ff7f6fced9..0f4894a4a90 100644
 --- a/pkg/kubelet/nodestatus/setters.go
 +++ b/pkg/kubelet/nodestatus/setters.go
-@@ -125,7 +125,7 @@ func NodeAddress(nodeIPs []net.IP, // typically Kubelet.nodeIPs
+@@ -42,6 +42,7 @@ import (
+ 	kubecontainer "k8s.io/kubernetes/pkg/kubelet/container"
+ 	"k8s.io/kubernetes/pkg/kubelet/events"
+ 	"k8s.io/kubernetes/pkg/volume"
++	netutils "k8s.io/utils/net"
+ 
+ 	"k8s.io/klog/v2"
+ )
+@@ -125,7 +126,7 @@ func NodeAddress(nodeIPs []net.IP, // typically Kubelet.nodeIPs
  
  				nodeIPTypes := make(map[v1.NodeAddressType]bool)
  				for _, nodeAddress := range cloudNodeAddresses {
