@@ -11,18 +11,17 @@ this repo and applies the patches on top of upstream based on the GIT_TAG.
 ### Note About EKS Patches
 
 Patches are cherry-picks or custom commits that are applied to the upstream
-Kubernetes codebase before we build binaries used in EKS.  Every patch that is
-not present in upstream should have the marker --EKS-PATCH-- at the beginning
-of the first line of the commit message.
-
-Additionally, any patch that is not going to be published to
-[eks-distro](https://github.com/aws/eks-distro), should have the
---EKS-PRIVATE-- marker somewhere in the commit message (for readability, at the
-beginning of the second or last line).
+Kubernetes codebase before we build binaries used in EKS.  Every patch should
+have the marker `--EKS-PATCH--` at the beginning of the first line of the commit
+message.  If the commit is only present in our internal fork and not in
+[eks-distro](https://github.com/aws/eks-distro), it should have the
+`--EKS-PRIVATE--` marker at the beginning of the first line of the commit message.
 
 The public patches (those present in eks-distro) are applied first to upstream
 code, followed by our private patches.  This allows the public patch files to
 be used by eks-distro without modification.
+
+NOTE: Previously, the `--EKS-PRIVATE--` marker was used in addition to the `--EKS-PATCH--` marker, now it is used in place of it.  There may still be patches with both, they can safely be rebased to only have `--EKS-PRIVATE--` in the message.
 
 ### Setup
 
