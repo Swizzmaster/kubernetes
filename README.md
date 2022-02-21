@@ -164,3 +164,19 @@ patches don't apply, this step will fail.
 When you apply the patches you should expect a patch to fail in which case you
 must decide to edit or drop it. Submit a cr with the patch edited or dropped.
 Repeat this process until all patches succeed for the new GIT_TAG.
+
+
+## Build Components
+
+The possible components EKS builds are the following. Developers can build and test components from their own developer boxes and not depend on the EKSDataplaneCDK pipeline.
+```
+kube-apiserver
+kube-controller-manager
+kube-scheduler
+kubelet
+kube-proxy
+```
+
+Use the command `WHAT=kube-apiserver ./hack/build.sh ~/src/kubernetes` to build on local MAC/Linux dev boxes.
+The build will create image with tag `registry/kube-apiserver`. Developers can change the tag and push the images to their own ECR registry and pull on the CPI instances.
+Change the component name to build the one you need to test. 
