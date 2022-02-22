@@ -177,6 +177,18 @@ kubelet
 kube-proxy
 ```
 
-Use the command `WHAT=kube-apiserver ./hack/build.sh ~/src/kubernetes` to build on local MAC/Linux dev boxes.
-The build will create image with tag `registry/kube-apiserver`. Developers can change the tag and push the images to their own ECR registry and pull on the CPI instances.
+Use the command `WHAT=kube-apiserver ./hack/build.sh ~/workplace/EKSKubernetesPatches/src/EKSDataPlaneKubernetes/` to build on local MAC/Linux dev boxes.
 Change the component name to build the one you need to test. 
+The build will create image with tag `registry/kube-apiserver:latest`. 
+If the docker build fails due to 403, run the following
+```
+aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws
+aws ecr get-login-password --region us-west-2 | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.us-west-2.amazonaws.com
+```
+
+Use the following commands to push from local box and pull the image on CPI:
+ - `docker tag registry/kube-apiserver:latest $AWS_ACCOUNT_ID.dkr.ecr.us-west-2.amazonaws.com/kube-apiserver:latest`
+ - `docker push $AWS_ACCOUNT_ID.dkr.ecr.us-west-2.amazonaws.com/kube-apiserver:latest`
+ - On the CPI instance, edit `/etc/kubernetes/manifests/kube-apiserver.yaml` and replace the image with the newly pushed image.
+ - CPI kubelet will fail to download the docker image. You could manually pull the image on CPI using isengard credentials. Change the image in the manigest. ALso, change `imagePullPolicy: Never` , otherwise kubelet will fail to assume the role.
+

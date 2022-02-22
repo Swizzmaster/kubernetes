@@ -3,5 +3,6 @@ FROM public.ecr.aws/eks-distro/kubernetes/go-runner:v0.9.0-eks-1-21-4 as go-runn
 
 FROM public.ecr.aws/eks-distro-build-tooling/eks-distro-minimal-base:latest
 COPY --from=go-runner /usr/local/bin/go-runner /usr/local/bin/go-runner
+COPY --from=go-runner /usr/local/bin/go-runner /go-runner
 
-COPY _output/local/bin/linux/amd64/kube-apiserver /usr/local/bin
+COPY _output/local/bin/linux/amd64/$WHAT /usr/local/bin
