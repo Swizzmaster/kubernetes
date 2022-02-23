@@ -6,9 +6,9 @@ set -u
 KUBERNETES_DIR=$(realpath "$1")
 BASEPATH=$(dirname "$0")
 
-export CGO_ENABLED=0 GOLDFLAGS='-s -w -buildid=""' KUBE_BUILD_PLATFORMS="linux/amd64"
 pushd $KUBERNETES_DIR
-make generated_files
-hack/make-rules/build.sh -trimpath cmd/$WHAT
+make all WHAT="cmd/$WHAT" KUBE_BUILD_PLATFORMS="linux/amd64"
 popd
-docker build -t registry/kube-apiserver:latest -f $BASEPATH/Dockerfile "$KUBERNETES_DIR" --build-arg WHAT=$WHAT
+docker build -t registry/$WHAT:latest -f $BASEPATH/Dockerfile "$KUBERNETES_DIR" --build-arg WHAT=$WHAT
+echo "binary placed at _output/dockerized/bin/linux/amd64/$WHAT"
+echo "image created with tag registry/$WHAT:latest . Retag and publish to your favorite account."
