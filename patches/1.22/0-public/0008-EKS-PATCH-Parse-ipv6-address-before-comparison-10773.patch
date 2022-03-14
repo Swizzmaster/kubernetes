@@ -1,4 +1,4 @@
-From 5c8959e17a9860743044ca07a1305867c907cb70 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Jyoti Mahapatra <49211422+jyotimahapatra@users.noreply.github.com>
 Date: Wed, 26 Jan 2022 18:38:49 -0800
 Subject: [PATCH] --EKS-PATCH-- Parse ipv6 address before comparison (#107736)
@@ -66,6 +66,3 @@ index 0547446adba..601e123a89d 100644
  		{
  			name: "Dual-stack cloud, IPv4 first, no nodeIP",
  			nodeAddresses: []v1.NodeAddress{
--- 
-2.35.1
-
