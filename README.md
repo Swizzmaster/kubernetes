@@ -166,7 +166,9 @@ must decide to edit or drop it. Submit a cr with the patch edited or dropped.
 Repeat this process until all patches succeed for the new GIT_TAG.
 
 
-## Build Components
+## Build
+
+### Desktop build
 
 The possible components EKS builds are the following. Developers can build and test components from their own developer boxes and not depend on the EKSDataplaneCDK pipeline.
 ```
@@ -192,3 +194,14 @@ Use the following commands to push from local box and pull the image on CPI:
  - On the CPI instance, edit `/etc/kubernetes/manifests/kube-apiserver.yaml` and replace the image with the newly pushed image.
  - CPI kubelet will fail to download the docker image. You could manually pull the image on CPI using isengard credentials. Change the image in the manigest. ALso, change `imagePullPolicy: Never` , otherwise kubelet will fail to assume the role.
 
+### Code Pipeline build
+
+In order to simulate the code-pipeline build process use the following. This build uses docker and is not advisable to perform on mac. To test the command, use dev desktop.
+Docker is needed on dev-desktop https://builderhub.corp.amazon.com/docs/rde/cli-guide/setup-clouddesk.html#install-and-configure-docker
+```
+export REGISTRY=$AWS_ACCOUNT_ID.dkr.ecr.us-west-2.amazonaws.com
+export VERSION_TAG=v1.22.6
+export IMAGE_TAG=v1.22.6-eks-test
+export KUBE_BUILD_PLATFORMS="linux/amd64"
+./hack/build-pipeline.sh ~/workplace/EKSKubernetesPatches/src/EKSDataPlaneKubernetes/
+```
