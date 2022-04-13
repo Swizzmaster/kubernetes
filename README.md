@@ -29,8 +29,8 @@ Clone this repo and the gitfarm kubernetes repository.
 
 ```
 $ cd ~/workplace/
-$ brazil ws create -n EKSDataPlaneKubernetes
-$ cd EKSDataPlaneKubernetes/
+$ brazil ws create -n EKSKubernetesPatches
+$ cd EKSKubernetesPatches/
 $ brazil ws use -p EKSDataPlaneKubernetes
 $ brazil ws use -p EKSKubernetesPatches
 $ cd src/EKSKubernetesPatches/
