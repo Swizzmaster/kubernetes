@@ -2,6 +2,7 @@
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 source "$REPO_ROOT/hack/lib/util.sh"
+PATCH_NUM_FORMAT_LEN=4
 
 function check_dirty {
   local KUBERNETES_DIR=$1
@@ -10,9 +11,7 @@ function check_dirty {
 
   if ! git diff-index --quiet HEAD --; then
     echo "Your $KUBERNETES_DIR repository is in a dirty state.  Exiting.  Stash, commit or reset your in progress work."
-
     popd
-
     return 1
   fi
 
@@ -37,19 +36,20 @@ function checkout_kubernetes {
 function apply_patches {
   local PATCHES_DIR=$1
   local KUBERNETES_DIR=$2
+  local STARTING_PATCH_NUM=$3
 
   pushd "$KUBERNETES_DIR"
 
   if [[ -n "$(ls $PATCHES_DIR)" ]]; then
-    for FILE in "$PATCHES_DIR"/*.patch; do
-      if git am < "$FILE"; then
-        echo "Applying succeeded: $FILE"
+    local patches=$(get_patches ${PATCHES_DIR} ${STARTING_PATCH_NUM})
+    echo "Patches to apply: ${patches}"
+    for file in ${patches}; do
+      if git am < "$file"; then
+        echo "Applying succeeded: $file"
       else
-        echo "Applying failed: $FILE"
+        echo "Applying failed: $file"
         git am --skip
-
         popd
-
         return 1
       fi
     done
@@ -60,22 +60,59 @@ function apply_patches {
   popd
 }
 
+function get_patches {
+  local PATCHES_DIR=$1
+  local STARTING_PATCH_NUM=$2
+  declare -a patches
+
+  for file in "${PATCHES_DIR}"/*.patch; do
+    patch_number=$(get_patch_number $file)
+    if (( patch_number >= STARTING_PATCH_NUM )); then
+      patches+=($file)
+    fi
+  done
+  echo ${patches:-}
+}
+
+# Extract patch number from filename
+function get_patch_number {
+  local file=$1
+  local patch_number=$(basename $file | head -c $PATCH_NUM_FORMAT_LEN)
+  # remove leading 0's from patch number
+  echo "${patch_number}" | sed -E 's/^[0]+//g'
+}
+
+function validate_patch_number {
+  local patch_number=$1
+  if ! echo "${patch_number}" | grep -E "[[:digit:]]{1,4}" >/dev/null; then
+    echo "Invalid patch number"
+    return 1
+  fi
+}
+
 function apply_patches_all {
   local PARENT_PATCHES_DIR=$1
   local KUBERNETES_DIR=$2
+  local STARTING_PATCH=$3
   local PUBLIC_PATCHES_DIR="$PARENT_PATCHES_DIR/0-public"
   local PRIVATE_PATCHES_DIR="$PARENT_PATCHES_DIR/1-private"
 
   local VERSION=$(get_version "$PARENT_PATCHES_DIR")
-  echo "Checking out $VERSION in $KUBERNETES_DIR"
-  checkout_kubernetes "$VERSION" "$KUBERNETES_DIR"
-  echo "$VERSION checked out!"
+
+  if [[ $STARTING_PATCH == "0" ]]; then
+    echo "Checking out $VERSION in $KUBERNETES_DIR"
+    checkout_kubernetes "$VERSION" "$KUBERNETES_DIR"
+    echo "$VERSION checked out!"
+  else
+    echo "Starting from patch $STARTING_PATCH."
+    echo "Assuming previous patches are already applied in $KUBERNETES_DIR"
+  fi
 
   echo "Applying patches in $PARENT_PATCHES_DIR to $KUBERNETES_DIR..."
   echo "Applying public patches in $PUBLIC_PATCHES_DIR to $KUBERNETES_DIR..."
-  if apply_patches "$PUBLIC_PATCHES_DIR" "$KUBERNETES_DIR"; then
+  if apply_patches "$PUBLIC_PATCHES_DIR" "$KUBERNETES_DIR" "$STARTING_PATCH"; then
     echo "Applying private patches in $PRIVATE_PATCHES_DIR to $KUBERNETES_DIR..."
-    if apply_patches "$PRIVATE_PATCHES_DIR" "$KUBERNETES_DIR"; then
+    if apply_patches "$PRIVATE_PATCHES_DIR" "$KUBERNETES_DIR" "$STARTING_PATCH"; then
       echo "All patches succeeded!"
       echo "HEAD is at the last successful patch."
       return 0
