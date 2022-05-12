@@ -71,7 +71,7 @@ function get_patches {
       patches+=($file)
     fi
   done
-  echo ${patches:-}
+  echo ${patches[@]}
 }
 
 # Extract patch number from filename
