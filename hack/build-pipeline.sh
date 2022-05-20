@@ -48,7 +48,14 @@ docker tag $REGISTRY/kube-scheduler-amd64:$VERSION_TAG $REGISTRY/eks/kube-schedu
 
 # build pause
 pushd $KUBERNETES_DIR/build/pause
-PAUSE_TAG="$(grep "^TAG = " Makefile | awk '{print $NF}')"
+if (( KUBE_MINOR_VERSION < 23 )); then
+  PAUSE_TAG="$(grep "^TAG = " Makefile | awk '{print $NF}')"
+else
+  PAUSE_TAG="$(grep "^TAG ?= " Makefile | awk '{print $NF}')"
+fi
+if [ -z $PAUSE_TAG ]; then
+  echo "=== error parsing TAG from KUBERNETES_DIR/build/pause/Makefile, tag format different from expected ones (TAG ?= tagValue for v>=1.23 and TAG = tagValue for lower versions)  ==="
+fi
 # Notice the nuance in - and _ for the tags. The docker manifest upload code expects the _arch
 # https://code.amazon.com/packages/EKSDataPlaneCDK/blobs/mainline/--/eks_code_pipeline/build_deploy_scripts/upload.sh
 PAUSE_IMAGE_AMD64="pause:${PAUSE_TAG}-linux-amd64"
