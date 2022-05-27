@@ -79,9 +79,12 @@ $ popd
 ```
 
 Check the diff and commit patches accordingly.  For example:
-- if your intention was only to add one patch, it's not necessary to commit the
-  other patches whose commit hash changed but content did not. (Just make sure
-  all patches apply cleanly).
+- if your intention was only to add one private patch, it might not necessary
+  to commit the other patches whose commit hash changed but content did not.
+  (Just make sure all patches apply cleanly, and ensure that the patch is
+  correctly categorized as public or private.  Note that public patches are
+  always applied first, so if it is a public patch you should regenerate all
+  patches because private patches will be renumbered.)
 - if you dropped or reordered patches, then it's necessary to commit all
   patches because they need to be renamed.
 - if you edited a patch X that modifies a file also modified by a subsequent
@@ -100,6 +103,10 @@ The branch you're on doesn't track a GitFarm remote. Inferring your --parent to 
 ```
 
 You should choose yes when working on a change to patches.
+
+WARNING: In order for crux to display the diff, it must have the relavant
+commit information AND the base ref must exist, i.e. the tag that the patches
+are being applied to (for example: v1.23.6).
 
 ```
 $ popd
@@ -164,6 +171,17 @@ patches don't apply, this step will fail.
 When you apply the patches you should expect a patch to fail in which case you
 must decide to edit or drop it. Submit a cr with the patch edited or dropped.
 Repeat this process until all patches succeed for the new GIT_TAG.
+
+You can pass a third argument for the patch number to start at to
+`apply_patches.sh`, which allows you to fix a patch, go back into the
+EKSKubernetesPatches repository and attempt to apply the next patch.
+
+For example, in order skip checking out the upstream tag and instead
+immediately start applying the 4th patch:
+
+```
+./hack/apply_patches.sh patches/1.22 ~/workplace/EKSKubernetesPatches/src/EKSDataPlaneKubernetes/ 4
+```
 
 
 ## Build
