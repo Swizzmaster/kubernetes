@@ -9,6 +9,7 @@ set -u
 PARENT_PATCHES_DIR=$(realpath "$1")
 KUBERNETES_DIR=$(realpath "$2")
 STARTING_PATCH_NUM="${3:-0}"
+
 if echo "${STARTING_PATCH_NUM}" | grep -E "^0{1,4}$" > /dev/null; then
   STARTING_PATCH_NUM="0"
 else

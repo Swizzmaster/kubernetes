@@ -159,18 +159,21 @@ isn't a test for the patch, one should be added.
 
 For a new minor version, copy the preceding directory then edit the GIT_TAG to
 the new version you wish to rebase the patches on.  For a new patch version,
-find the existing directory then edit the GIT_TAG.  Commit these changes before
-you make any changes to patches.
+find the existing directory then edit the GIT_TAG or use
+`update_patches_base_version.sh` like:
+```
+hack/update_patches_base_version.sh patches/1.23/ ~/workplace/EKSKubernetesPatches/src/EKSDataPlaneKubernetes/
+```
+Commit these changes before you make any changes to patches.
 
 Then the process is the same as above.  You can run `apply_patches.sh` followed
-by `prepare_patches.sh` (which will always result in a diff, even if the
-patches apply cleanly), or you can attempt to run `cr`, making sure to run the
+by `prepare_patches.sh` or you can attempt to run `cr`, making sure to run the
 pre-cr hook to create a patch review cr against EKSDataPlaneKubernetes.  If the
 patches don't apply, this step will fail.
 
-When you apply the patches you should expect a patch to fail in which case you
-must decide to edit or drop it. Submit a cr with the patch edited or dropped.
-Repeat this process until all patches succeed for the new GIT_TAG.
+For every patch that fails you must decide to edit or drop it. Submit a cr with
+the patch edited or dropped. Repeat this process until all patches succeed for
+the new GIT_TAG.
 
 You can pass a third argument for the patch number to start at to
 `apply_patches.sh`, which allows you to fix a patch, go back into the
