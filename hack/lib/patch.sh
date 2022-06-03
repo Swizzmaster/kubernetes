@@ -18,6 +18,15 @@ function check_dirty {
   popd
 }
 
+function clone_kubernetes {
+  local KUBERNETES_DIR=$1
+
+  if [ ! "$(ls -A "$KUBERNETES_DIR")" ]; then
+    echo "Your $KUBERNETES_DIR repository is empty.  Cloning."
+    git clone https://github.com/kubernetes/kubernetes.git "$KUBERNETES_DIR" --origin upstream
+  fi
+}
+
 function checkout_kubernetes {
   local VERSION=$1
   local KUBERNETES_DIR=$2
@@ -67,7 +76,7 @@ function get_patches {
 
   for file in "${PATCHES_DIR}"/*.patch; do
     patch_number=$(get_patch_number $file)
-    if (( patch_number >= STARTING_PATCH_NUM )); then
+    if ((patch_number >= STARTING_PATCH_NUM)); then
       patches+=($file)
     fi
   done
@@ -84,7 +93,7 @@ function get_patch_number {
 
 function validate_patch_number {
   local patch_number=$1
-  if ! echo "${patch_number}" | grep -E "[[:digit:]]{1,4}" >/dev/null; then
+  if ! echo "${patch_number}" | grep -E "[[:digit:]]{1,4}" > /dev/null; then
     echo "Invalid patch number"
     return 1
   fi
