@@ -1,0 +1,64 @@
+image: bitnami/git
+
+before_script:
+  - git config --global user.email "mattwon@amazon.com"
+  - git config --global user.name "EKSKubernetesPatches pipeline"
+  - mkdir -p ./kubernetes/
+
+cache:
+  paths:
+    - kubernetes/
+
+.build_update_patches_base_version:
+  stage: build
+  script:
+    - ./hack/update_patches_base_version.sh ./patches/$MINOR_VERSION/ ./kubernetes/
+    - ./hack/create_gitlab_merge_request.sh ./patches/$MINOR_VERSION/ $MINOR_VERSION
+  only:
+    - schedules
+
+.test_apply_patches:
+  stage: test
+  script:
+    - pushd ./kubernetes/ && git reset --hard && git clean -df && popd
+    - ./hack/apply_patches.sh ./patches/$MINOR_VERSION/ ./kubernetes/
+
+build_1.20:
+  variables:
+    MINOR_VERSION: "1.20"
+  extends: .build_update_patches_base_version
+
+test_1.20:
+  variables:
+    MINOR_VERSION: "1.20"
+  extends: .test_apply_patches
+
+build_1.21:
+  variables:
+    MINOR_VERSION: "1.21"
+  extends: .build_update_patches_base_version
+
+test_1.21:
+  variables:
+    MINOR_VERSION: "1.21"
+  extends: .test_apply_patches
+
+build_1.22:
+  variables:
+    MINOR_VERSION: "1.22"
+  extends: .build_update_patches_base_version
+
+test_1.22:
+  variables:
+    MINOR_VERSION: "1.22"
+  extends: .test_apply_patches
+
+build_1.23:
+  variables:
+    MINOR_VERSION: "1.23"
+  extends: .build_update_patches_base_version
+
+test_1.23:
+  variables:
+    MINOR_VERSION: "1.23"
+  extends: .test_apply_patches

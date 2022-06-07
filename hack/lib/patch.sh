@@ -42,6 +42,53 @@ function checkout_kubernetes {
   popd
 }
 
+# gets the kubernetes version that patches in PATCHES_DIR apply to
+function get_patches_base_version {
+  local PATCHES_DIR=$1
+
+  pushd "$PATCHES_DIR"
+
+  VERSION=$(cat GIT_TAG)
+
+  popd
+
+  echo "$VERSION"
+}
+
+# gets the latest kubernetes version which patches in PATCHES_DIR *may* apply to
+function get_latest_patch_version_for_minor {
+  local PATCHES_DIR=$1
+  local KUBERNETES_DIR=$2
+
+  local VERSION=$(get_patches_base_version "$1")
+  local MINOR_VERSION=${VERSION%.*}
+
+  pushd "$KUBERNETES_DIR"
+
+  git fetch upstream --tags -f
+  local LATEST_VERSION=$(git tag --sort creatordate | grep "$MINOR_VERSION"'.[0-9]*$' | tail -n1)
+
+  popd
+
+  echo "$LATEST_VERSION"
+}
+
+function update_patches_base_version {
+  local PATCHES_DIR=$1
+  local KUBERNETES_DIR=$2
+
+  local LATEST_VERSION=$(get_latest_patch_version_for_minor "$1" "$2")
+  local MINOR_VERSION=${LATEST_VERSION%.*}
+
+  echo "$LATEST_VERSION" > "$PATCHES_DIR"/GIT_TAG
+
+  if git diff --exit-code "$PATCHES_DIR"/GIT_TAG; then
+    echo "No new $MINOR_VERSION patches base version found"
+  else
+    echo "New $MINOR_VERSION patches base version $LATEST_VERSION found"
+  fi
+}
+
 function apply_patches {
   local PATCHES_DIR=$1
   local KUBERNETES_DIR=$2
@@ -106,7 +153,7 @@ function apply_patches_all {
   local PUBLIC_PATCHES_DIR="$PARENT_PATCHES_DIR/0-public"
   local PRIVATE_PATCHES_DIR="$PARENT_PATCHES_DIR/1-private"
 
-  local VERSION=$(get_version "$PARENT_PATCHES_DIR")
+  local VERSION=$(get_patches_base_version "$PARENT_PATCHES_DIR")
 
   if [[ $STARTING_PATCH == "0" ]]; then
     echo "Checking out $VERSION in $KUBERNETES_DIR"
