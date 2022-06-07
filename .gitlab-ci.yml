@@ -1,7 +1,7 @@
 image: bitnami/git
 
 before_script:
-  - git config --global user.email "mattwon@amazon.com"
+  - git config --global user.email "eks-dataplane-team@amazon.com"
   - git config --global user.name "EKSKubernetesPatches pipeline"
   - mkdir -p ./kubernetes/
 
