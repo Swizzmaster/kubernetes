@@ -1,13 +1,20 @@
-image: bitnami/git
-
-before_script:
+.script_git_config: &script_git_config
   - git config --global user.email "eks-dataplane-team@amazon.com"
   - git config --global user.name "EKSKubernetesPatches pipeline"
   - mkdir -p ./kubernetes/
 
-cache:
-  paths:
-    - kubernetes/
+.script_apply_patches: &script_apply_patches
+  - pushd ./kubernetes/ && git reset --hard && git clean -df && popd
+  - ./hack/apply_patches.sh ./patches/$MINOR_VERSION/ ./kubernetes/
+
+default:
+  image: bitnami/git
+  before_script:
+    - *script_git_config
+  cache:
+    key: $MINOR_VERSION
+    paths:
+      - kubernetes/
 
 .build_update_patches_base_version:
   stage: build
@@ -20,45 +27,101 @@ cache:
 .test_apply_patches:
   stage: test
   script:
-    - pushd ./kubernetes/ && git reset --hard && git clean -df && popd
-    - ./hack/apply_patches.sh ./patches/$MINOR_VERSION/ ./kubernetes/
+    - *script_apply_patches
+
+.test_unit:
+  image: ubuntu:latest
+  before_script:
+    - apt-get update && apt-get install git -q -y
+    - *script_git_config
+  variables:
+    # GitLab CI uses the Kubernetes executor which sets these, but they
+    # interfere with tests like TestKubeConfigFile
+    KUBERNETES_SERVICE_HOST: ""
+    KUBERNETES_SERVICE_PORT: ""
+  stage: test
+  script:
+    - *script_apply_patches
+    - ./hack/install_unit_test_dependencies.sh ./kubernetes/
+    - export PATH=/usr/local/go/bin:$PATH
+    - pushd ./kubernetes/ && make test KUBE_RACE=-race KUBE_TIMEOUT=--timeout=300s && popd
 
 build_1.20:
-  variables:
-    MINOR_VERSION: "1.20"
   extends: .build_update_patches_base_version
-
-test_1.20:
   variables:
     MINOR_VERSION: "1.20"
+
+test_apply_patches_1.20:
   extends: .test_apply_patches
+  variables:
+    MINOR_VERSION: "1.20"
+
+test_unit_1.20:
+  extends: .test_unit
+  variables:
+    MINOR_VERSION: "1.20"
+  only:
+    refs:
+      - merge_requests
+    changes:
+      - patches/1.20/*
 
 build_1.21:
-  variables:
-    MINOR_VERSION: "1.21"
   extends: .build_update_patches_base_version
-
-test_1.21:
   variables:
     MINOR_VERSION: "1.21"
+
+test_apply_patches_1.21:
   extends: .test_apply_patches
+  variables:
+    MINOR_VERSION: "1.21"
+
+test_unit_1.21:
+  extends: .test_unit
+  variables:
+    MINOR_VERSION: "1.21"
+  only:
+    refs:
+      - merge_requests
+    changes:
+      - patches/1.21/*
 
 build_1.22:
-  variables:
-    MINOR_VERSION: "1.22"
   extends: .build_update_patches_base_version
-
-test_1.22:
   variables:
     MINOR_VERSION: "1.22"
+
+test_apply_patches_1.22:
   extends: .test_apply_patches
+  variables:
+    MINOR_VERSION: "1.22"
+
+test_unit_1.22:
+  extends: .test_unit
+  variables:
+    MINOR_VERSION: "1.22"
+  only:
+    refs:
+      - merge_requests
+    changes:
+      - patches/1.22/*
 
 build_1.23:
-  variables:
-    MINOR_VERSION: "1.23"
   extends: .build_update_patches_base_version
-
-test_1.23:
   variables:
     MINOR_VERSION: "1.23"
+
+test_apply_patches_1.23:
   extends: .test_apply_patches
+  variables:
+    MINOR_VERSION: "1.23"
+
+test_unit_1.23:
+  extends: .test_unit
+  variables:
+    MINOR_VERSION: "1.23"
+  only:
+    refs:
+      - merge_requests
+    changes:
+      - patches/1.23/*
