@@ -1,4 +1,4 @@
-From 8a551c4b4e5a9d726e0c284e66d1773f7df6c77c Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Josselin Costanzi <costanzj@amazon.com>
 Date: Wed, 8 Jun 2022 21:23:05 +0000
 Subject: [PATCH] --EKS-PRIVATE-- Add patch that limits http2 canonicalized
@@ -32,6 +32,3 @@ index 2aa859f76f9..3a8d3ecb504 100644
  	return cv
  }
  
--- 
-2.32.0
-
