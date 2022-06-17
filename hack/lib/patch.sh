@@ -236,7 +236,7 @@ function num_private() {
   local RANGE_END=$3
 
   pushd "$KUBERNETES_DIR"
-  git rev-list --reverse --grep='--EKS-PRIVATE--' ${RANGE_START}..${RANGE_END} | wc -l
+  git rev-list --reverse --grep='--EKS-PRIVATE--' ${RANGE_START}..${RANGE_END} | wc -l | sed 's/[[:space:]]*//'
   popd
 }
 
@@ -246,7 +246,7 @@ function num_public() {
   local RANGE_END=$3
 
   pushd "$KUBERNETES_DIR"
-  git rev-list --reverse --invert-grep --grep='--EKS-PRIVATE--' ${RANGE_START}..${RANGE_END} | wc -l
+  git rev-list --reverse --invert-grep --grep='--EKS-PRIVATE--' ${RANGE_START}..${RANGE_END} | wc -l | sed 's/[[:space:]]*//'
   popd
 }
 
