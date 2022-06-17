@@ -9,25 +9,23 @@ fails because device was in-use elsewhere, we should mark the
 device mount as uncertain because we can't use the global
 mount point at this point.
 ---
- pkg/volume/util/operationexecutor/operation_generator.go | 8 +++++++-
- 1 file changed, 7 insertions(+), 1 deletion(-)
+ pkg/volume/util/operationexecutor/operation_generator.go | 6 ++++++
+ 1 file changed, 6 insertions(+)
 
 diff --git a/pkg/volume/util/operationexecutor/operation_generator.go b/pkg/volume/util/operationexecutor/operation_generator.go
-index b9bf446c1cf..2a296224173 100644
+index b9bf446c1cf..a61c3de0140 100644
 --- a/pkg/volume/util/operationexecutor/operation_generator.go
 +++ b/pkg/volume/util/operationexecutor/operation_generator.go
-@@ -883,7 +883,13 @@ func (og *operationGenerator) GenerateUnmountDeviceFunc(
+@@ -883,6 +883,12 @@ func (og *operationGenerator) GenerateUnmountDeviceFunc(
  		}
  		// The device is still in use elsewhere. Caller will log and retry.
  		if deviceOpened {
--			return deviceToDetach.GenerateError(
 +			// Mark the device as uncertain, so MountDevice is called for new pods.
 +			markDeviceUncertainErr := actualStateOfWorld.MarkDeviceAsUncertain(deviceToDetach.VolumeName, deviceToDetach.DevicePath, deviceMountPath)
 +			if markDeviceUncertainErr != nil {
 +				// There is nothing else we can do. Hope that UnmountDevice will be re-tried shortly.
-+				klog.Errorf(deviceToDetach.GenerateErrorDetailed("UnmountDevice.MarkDeviceAsUncertain failed", markDeviceUncertainErr).Error())
++				klog.Errorf(deviceToDetach.GenerateErrorDetailed("UnmountDevice.MarkDeviceAsUncertain failed", markDeviceUncertainErr))
 +			}
-+			eventErr, detailedErr := deviceToDetach.GenerateError(
+ 			return deviceToDetach.GenerateError(
  				"UnmountDevice failed",
  				goerrors.New("the device is in use when it was no longer expected to be in use"))
- 		}
