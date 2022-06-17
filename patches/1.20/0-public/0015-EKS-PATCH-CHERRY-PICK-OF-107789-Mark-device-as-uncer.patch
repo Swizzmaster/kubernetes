@@ -24,7 +24,7 @@ index b9bf446c1cf..a61c3de0140 100644
 +			markDeviceUncertainErr := actualStateOfWorld.MarkDeviceAsUncertain(deviceToDetach.VolumeName, deviceToDetach.DevicePath, deviceMountPath)
 +			if markDeviceUncertainErr != nil {
 +				// There is nothing else we can do. Hope that UnmountDevice will be re-tried shortly.
-+				klog.Errorf(deviceToDetach.GenerateErrorDetailed("UnmountDevice.MarkDeviceAsUncertain failed", markDeviceUncertainErr))
++				klog.Errorf(deviceToDetach.GenerateErrorDetailed("UnmountDevice.MarkDeviceAsUncertain failed", markDeviceUncertainErr).Error())
 +			}
  			return deviceToDetach.GenerateError(
  				"UnmountDevice failed",
