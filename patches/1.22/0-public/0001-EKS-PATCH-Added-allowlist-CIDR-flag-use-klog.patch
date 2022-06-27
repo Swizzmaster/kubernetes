@@ -27,10 +27,9 @@ Signed-off-by: Nick Turner <nic@amazon.com>
  pkg/kubeapiserver/options/ipnetslice.go       |  93 +++++
  pkg/kubeapiserver/options/ipnetslice_test.go  |  36 ++
  pkg/kubeapiserver/options/options.go          |   1 +
- pkg/proxy/util/utils.go                       |   2 +-
  pkg/registry/core/node/strategy.go            |  25 +-
  .../apiserver/proxy_cidr_allowlist_test.go    | 388 ++++++++++++++++++
- 12 files changed, 632 insertions(+), 6 deletions(-)
+ 11 files changed, 631 insertions(+), 5 deletions(-)
  create mode 100644 cmd/kube-apiserver/app/dialer.go
  create mode 100644 cmd/kube-apiserver/app/options/allowlist.go
  create mode 100644 pkg/kubeapiserver/options/ipnetslice.go
@@ -364,19 +363,6 @@ index 1314e52c05f..818b7061566 100644
  // DefaultEtcdPathPrefix is the default key prefix of etcd for API Server
  const DefaultEtcdPathPrefix = "/registry"
 +var DefaultProxyCIDRAllowlist IPNetSlice = NewIPNetSlice()
-diff --git a/pkg/proxy/util/utils.go b/pkg/proxy/util/utils.go
-index c1286029a01..3d7f75f74e8 100644
---- a/pkg/proxy/util/utils.go
-+++ b/pkg/proxy/util/utils.go
-@@ -96,7 +96,7 @@ func IsProxyableIP(ip string) error {
- }
- 
- func isProxyableIP(ip net.IP) error {
--	if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsInterfaceLocalMulticast() {
-+	if !ip.IsGlobalUnicast() {
- 		return ErrAddressNotAllowed
- 	}
- 	return nil
 diff --git a/pkg/registry/core/node/strategy.go b/pkg/registry/core/node/strategy.go
 index 496a860d0c7..479a5aa1bba 100644
 --- a/pkg/registry/core/node/strategy.go
