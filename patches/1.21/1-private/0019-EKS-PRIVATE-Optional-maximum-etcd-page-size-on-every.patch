@@ -692,10 +692,10 @@ index 1036be45404..76136e6573b 100644
  }
  
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/factory/etcd3.go b/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/factory/etcd3.go
-index 455b93dea0f..64133457068 100644
+index 83aa620ddce..2c12d10143c 100644
 --- a/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/factory/etcd3.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/factory/etcd3.go
-@@ -255,7 +255,8 @@ func newETCD3Storage(c storagebackend.Config, newFunc func() runtime.Object) (st
+@@ -260,7 +260,8 @@ func newETCD3Storage(c storagebackend.Config, newFunc func() runtime.Object) (st
  	if transformer == nil {
  		transformer = value.IdentityTransformer
  	}
