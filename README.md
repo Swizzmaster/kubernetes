@@ -51,31 +51,50 @@ applied to the appropriate git tag in the EKSDataPlaneKubernetes repository.
 Make sure the EKSDataPlaneKubernetes repository is clean because the script
 will modify it.
 
-```
-$ pushd ~/workplace/EKSKubernetesPatches/src/EKSKubernetesPatches/
-$ cat patches/1.22/GIT_TAG
-v1.22.4
-$ ./hack/apply_patches.sh patches/1.22 ~/workplace/EKSKubernetesPatches/src/EKSDataPlaneKubernetes/
-$ popd
-```
+1. Make sure the EKSKubernetesPatches and Kubernetes repos are...
+   * up-to-date with the upstream repos
+   * on their mainline (EKSKubernetesPatches) or master (Kubernetes) branches, less there is a reason why they're not
+   * clean
+2. OPTIONAL: to make your life easier, set the following variables to the 
+   correct ones for your environment and the version of Kubernetes you’re 
+   working on. `PATCHES_ROOT` and `K8S_ROOT` should be absolute paths to the 
+   root directories for those packages.
+```shell
+# For fish
+set PATCHES_ROOT ""
+set K8S_ROOT ""
+set K8S_GIT_TAG "v1.XX.YY"
+set K8S_MINOR_VERSION="1.XX"
 
-Now that they are applied to the appropriate tag, you can add, edit, drop, or
-reorder patches with `git rebase -i`, `git cherry-pick`, etc.
-
+# For bash, zsh, and other such garbage
+PATCHES_ROOT=""
+K8S_ROOT=""
+K8S_GIT_TAG="v1.XX.YY"
+K8S_MINOR_VERSION="1.XX"
 ```
-$ pushd ~/workplace/EKSKubernetesPatches/src/EKSDataPlaneKubernetes/
-$ git cherry-pick <patch 1234 sha>
-$ git checkout -b patch-1234
-$ popd
+3. Apply the current patches
+```shell
+cd $K8S_ROOT
+pushd $PATCHES_ROOT
+cat patches/$K8S_MINOR_VERSION/GIT_TAG # optional sanity check
+./hack/apply_patches.sh patches/$K8S_MINOR_VERSION/ $K8S_ROOT
+popd
 ```
-
-Next, you must create new patch files from the commits you modified. Make sure
-the EKSKubernetesPatches repository is clean because the script will modify it.
-
+4. Now that they are applied to the appropriate tag, you can add, edit, drop, or
+   reorder patches with `git rebase -i`, `git cherry-pick`, etc.
+```shell
+pushd $K8S_ROOT
+git log --pretty=oneline HEAD...$K8S_GIT_TAG # optional sanity check
+# git rebase -i $K8S_GIT_TAG or whatever else you want to do
+git checkout -b some-branch # when you're done making changes
+popd
 ```
-$ pushd ~/workplace/EKSKubernetesPatches/src/EKSKubernetesPatches/
-$ ./hack/prepare_patches.sh ~/workplace/EKSKubernetesPatches/src/EKSDataPlaneKubernetes/ patches/1.22/
-$ popd
+5. Next, you must create new patch files from the commits you modified. Make sure
+   the EKSKubernetesPatches repo is clean because the script will modify it.
+```shell
+pushd $PATCHES_ROOT
+./hack/prepare_patches.sh $K8S_ROOT patches/$K8S_MINOR_VERSION/
+popd
 ```
 
 Check the diff and commit patches accordingly.  For example:
@@ -91,26 +110,6 @@ Check the diff and commit patches accordingly.  For example:
   patch Y then it's necessary to commit both patch X and Y.  Submit a CR with
   the prepared patches.
 
-```
-$ pushd ~/workplace/EKSKubernetesPatches/src/EKSKubernetesPatches/
-$ git diff
-$ git add patches/1.22/private/0099-PATCH-1234
-$ cr
-The branch you're on doesn't track a GitFarm remote. Inferring your --parent to be '201ccfcfb' on branch 'mainline'.
- Running pre-cr hook /home/ANT.AMAZON.COM/nic/workspace/EKSKubernetesPatches/src/EKSKubernetesPatches/pre-cr
- Apply patches and create an EKSDataPlaneKubernetes CR too? It will be easier to review your EKSDataPlanePatches CR
- with a corresponding EKSDataPlaneKubernetes CR showing the applied patches. y/n?
-```
-
-You should choose yes when working on a change to patches.
-
-WARNING: In order for crux to display the diff, it must have the relavant
-commit information AND the base ref must exist, i.e. the tag that the patches
-are being applied to (for example: v1.23.6).
-
-```
-$ popd
-```
 
 ### Using Interactive Rebase to Reorder Commits
 
