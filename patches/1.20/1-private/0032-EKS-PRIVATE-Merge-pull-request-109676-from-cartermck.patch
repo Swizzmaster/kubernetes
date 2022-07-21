@@ -8,13 +8,13 @@ Skip mount point checks when possible during mount cleanup.
 ---
  .../src/k8s.io/mount-utils/fake_mounter.go    | 14 +++-
  staging/src/k8s.io/mount-utils/mount.go       |  4 ++
- .../k8s.io/mount-utils/mount_helper_common.go | 57 +++++++++++-----
+ .../k8s.io/mount-utils/mount_helper_common.go | 69 ++++++++++++-------
  .../k8s.io/mount-utils/mount_helper_test.go   | 44 +++++++++---
- staging/src/k8s.io/mount-utils/mount_linux.go | 53 +++++++++++++--
- .../k8s.io/mount-utils/mount_linux_test.go    | 67 +++++++++++++++++++
+ staging/src/k8s.io/mount-utils/mount_linux.go | 53 ++++++++++++--
+ .../k8s.io/mount-utils/mount_linux_test.go    | 67 ++++++++++++++++++
  .../k8s.io/mount-utils/mount_unsupported.go   |  5 ++
  .../src/k8s.io/mount-utils/mount_windows.go   |  5 ++
- 8 files changed, 216 insertions(+), 33 deletions(-)
+ 8 files changed, 223 insertions(+), 38 deletions(-)
 
 diff --git a/staging/src/k8s.io/mount-utils/fake_mounter.go b/staging/src/k8s.io/mount-utils/fake_mounter.go
 index 55ea5e2986b..51e21980527 100644
@@ -71,7 +71,7 @@ index 9e2d5d9569d..17378dd0716 100644
  	// paths. Pathname can be a mountpoint path or a normal	directory
  	// (for bind mount). On Linux, pathname is excluded from the slice.
 diff --git a/staging/src/k8s.io/mount-utils/mount_helper_common.go b/staging/src/k8s.io/mount-utils/mount_helper_common.go
-index 63e2dfbc193..58206fd4847 100644
+index 63e2dfbc193..57833ce0713 100644
 --- a/staging/src/k8s.io/mount-utils/mount_helper_common.go
 +++ b/staging/src/k8s.io/mount-utils/mount_helper_common.go
 @@ -29,8 +29,8 @@ import (
@@ -85,7 +85,7 @@ index 63e2dfbc193..58206fd4847 100644
  		return nil
  	}
  	corruptedMnt := IsCorruptedMnt(pathErr)
-@@ -46,33 +46,43 @@ func CleanupMountPoint(mountPath string, mounter Interface, extensiveMountPointC
+@@ -46,50 +46,62 @@ func CleanupMountPoint(mountPath string, mounter Interface, extensiveMountPointC
  // IsNotMountPoint will be called instead of IsLikelyNotMountPoint.
  // IsNotMountPoint is more expensive but properly handles bind mounts within the same fs.
  // if corruptedMnt is true, it means that the mountPath is a corrupted mountpoint, and the mount point check
@@ -145,7 +145,31 @@ index 63e2dfbc193..58206fd4847 100644
  	if extensiveMountPointCheck {
  		notMnt, err = IsNotMountPoint(mounter, mountPath)
  	} else {
-@@ -105,3 +115,14 @@ func PathExists(path string) (bool, error) {
+ 		notMnt, err = mounter.IsLikelyNotMountPoint(mountPath)
+ 	}
++
+ 	if err != nil {
+ 		if os.IsNotExist(err) {
+ 			klog.V(4).Infof("%q does not exist", mountPath)
+-			return nil
++			return true, nil
+ 		}
+-		return err
++		return notMnt, err
+ 	}
++
+ 	if notMnt {
+-		klog.V(4).Infof("%q is unmounted, deleting the directory", mountPath)
+-		return os.Remove(mountPath)
++		klog.Warningf("Warning: %q is not a mountpoint, deleting", mountPath)
++		return notMnt, os.Remove(mountPath)
+ 	}
+-	return fmt.Errorf("Failed to unmount path %v", mountPath)
++	return notMnt, nil
+ }
+ 
+ // PathExists returns true if the specified path exists.
+@@ -105,3 +117,14 @@ func PathExists(path string) (bool, error) {
  	}
  	return false, err
  }
