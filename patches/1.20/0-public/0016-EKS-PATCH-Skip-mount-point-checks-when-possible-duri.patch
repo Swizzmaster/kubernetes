@@ -1,20 +1,25 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Kubernetes Prow Robot <k8s-ci-robot@users.noreply.github.com>
 Date: Thu, 14 Jul 2022 03:02:57 -0700
-Subject: [PATCH] --EKS-PRIVATE-- Merge pull request #109676 from
- cartermckinnon/optimize-unmounts
+Subject: [PATCH] --EKS-PATCH-- Skip mount point checks when possible during
+ mount cleanup.
 
-Skip mount point checks when possible during mount cleanup.
+Cherry-pick of upstream Kubernetes PR #109676
+(https://github.com/kubernetes/kubernetes/pull/109676), which has been
+merged into upstream Kubernetes and Kubernetes currently
+intends to include it in the 1.25 release. This patch may change in
+future EKS-D releases as to stay aligned with any relevant modification
+to the upstream.
 ---
  .../src/k8s.io/mount-utils/fake_mounter.go    | 14 +++-
  staging/src/k8s.io/mount-utils/mount.go       |  4 ++
- .../k8s.io/mount-utils/mount_helper_common.go | 69 ++++++++++++-------
+ .../k8s.io/mount-utils/mount_helper_common.go | 65 ++++++++++++------
  .../k8s.io/mount-utils/mount_helper_test.go   | 44 +++++++++---
- staging/src/k8s.io/mount-utils/mount_linux.go | 53 ++++++++++++--
- .../k8s.io/mount-utils/mount_linux_test.go    | 67 ++++++++++++++++++
+ staging/src/k8s.io/mount-utils/mount_linux.go | 53 +++++++++++++--
+ .../k8s.io/mount-utils/mount_linux_test.go    | 67 +++++++++++++++++++
  .../k8s.io/mount-utils/mount_unsupported.go   |  5 ++
  .../src/k8s.io/mount-utils/mount_windows.go   |  5 ++
- 8 files changed, 223 insertions(+), 38 deletions(-)
+ 8 files changed, 221 insertions(+), 36 deletions(-)
 
 diff --git a/staging/src/k8s.io/mount-utils/fake_mounter.go b/staging/src/k8s.io/mount-utils/fake_mounter.go
 index 55ea5e2986b..51e21980527 100644
@@ -71,20 +76,9 @@ index 9e2d5d9569d..17378dd0716 100644
  	// paths. Pathname can be a mountpoint path or a normal	directory
  	// (for bind mount). On Linux, pathname is excluded from the slice.
 diff --git a/staging/src/k8s.io/mount-utils/mount_helper_common.go b/staging/src/k8s.io/mount-utils/mount_helper_common.go
-index 63e2dfbc193..57833ce0713 100644
+index 63e2dfbc193..c4b89613863 100644
 --- a/staging/src/k8s.io/mount-utils/mount_helper_common.go
 +++ b/staging/src/k8s.io/mount-utils/mount_helper_common.go
-@@ -29,8 +29,8 @@ import (
- // but properly handles bind mounts within the same fs.
- func CleanupMountPoint(mountPath string, mounter Interface, extensiveMountPointCheck bool) error {
- 	pathExists, pathErr := PathExists(mountPath)
--	if !pathExists {
--		klog.Warningf("Warning: Unmount skipped because path does not exist: %v", mountPath)
-+	if !pathExists && pathErr == nil {
-+		klog.Warningf("Warning: mount cleanup skipped because path does not exist: %v", mountPath)
- 		return nil
- 	}
- 	corruptedMnt := IsCorruptedMnt(pathErr)
 @@ -46,50 +46,62 @@ func CleanupMountPoint(mountPath string, mounter Interface, extensiveMountPointC
  // IsNotMountPoint will be called instead of IsLikelyNotMountPoint.
  // IsNotMountPoint is more expensive but properly handles bind mounts within the same fs.
