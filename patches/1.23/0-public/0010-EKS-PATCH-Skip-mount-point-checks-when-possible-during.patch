@@ -1,10 +1,14 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Kubernetes Prow Robot <k8s-ci-robot@users.noreply.github.com>
 Date: Thu, 14 Jul 2022 03:02:57 -0700
-Subject: [PATCH] --EKS-PRIVATE-- Merge pull request #109676 from
- cartermckinnon/optimize-unmounts
+Subject: [PATCH] --EKS-PATCH-- Skip mount point checks when possible during mount cleanup.
 
-Skip mount point checks when possible during mount cleanup.
+Cherry-pick of upstream Kubernetes PR #109676
+(https://github.com/kubernetes/kubernetes/pull/109676), which has been
+merged into upstream Kubernetes and Kubernetes currently
+intends to include it in the 1.25 release. This patch may change in
+future EKS-D releases as to stay aligned with any relevant modification
+to the upstream.
 ---
  .../src/k8s.io/mount-utils/fake_mounter.go    | 14 +++-
  staging/src/k8s.io/mount-utils/mount.go       |  4 ++
