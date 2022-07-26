@@ -62,7 +62,7 @@ test_unit_1.20:
     MINOR_VERSION: "1.20"
   only:
     changes:
-      - patches/1.20/*
+      - patches/1.20/**/*
 
 build_1.21:
   extends: .build_update_patches_base_version
@@ -80,7 +80,7 @@ test_unit_1.21:
     MINOR_VERSION: "1.21"
   only:
     changes:
-      - patches/1.21/*
+      - patches/1.21/**/*
 
 build_1.22:
   extends: .build_update_patches_base_version
@@ -98,7 +98,7 @@ test_unit_1.22:
     MINOR_VERSION: "1.22"
   only:
     changes:
-      - patches/1.22/*
+      - patches/1.22/**/*
 
 build_1.23:
   extends: .build_update_patches_base_version
@@ -116,4 +116,4 @@ test_unit_1.23:
     MINOR_VERSION: "1.23"
   only:
     changes:
-      - patches/1.23/*
+      - patches/1.23/**/*
