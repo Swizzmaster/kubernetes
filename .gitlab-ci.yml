@@ -61,8 +61,6 @@ test_unit_1.20:
   variables:
     MINOR_VERSION: "1.20"
   only:
-    refs:
-      - merge_requests
     changes:
       - patches/1.20/*
 
@@ -81,8 +79,6 @@ test_unit_1.21:
   variables:
     MINOR_VERSION: "1.21"
   only:
-    refs:
-      - merge_requests
     changes:
       - patches/1.21/*
 
@@ -101,8 +97,6 @@ test_unit_1.22:
   variables:
     MINOR_VERSION: "1.22"
   only:
-    refs:
-      - merge_requests
     changes:
       - patches/1.22/*
 
@@ -121,7 +115,5 @@ test_unit_1.23:
   variables:
     MINOR_VERSION: "1.23"
   only:
-    refs:
-      - merge_requests
     changes:
       - patches/1.23/*
