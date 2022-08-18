@@ -117,3 +117,21 @@ test_unit_1.23:
   only:
     changes:
       - patches/1.23/**/*
+
+build_1.24:
+  extends: .build_update_patches_base_version
+  variables:
+    MINOR_VERSION: "1.24"
+
+test_apply_patches_1.24:
+  extends: .test_apply_patches
+  variables:
+    MINOR_VERSION: "1.24"
+
+test_unit_1.24:
+  extends: .test_unit
+  variables:
+    MINOR_VERSION: "1.24"
+  only:
+    changes:
+      - patches/1.24/**/*
