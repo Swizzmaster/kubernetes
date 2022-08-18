@@ -111,10 +111,10 @@ index 00000000000..d10ec4ebdda
 +	ProxyCIDRAllowlist kubeoptions.IPNetSlice = kubeoptions.DefaultProxyCIDRAllowlist
 +)
 diff --git a/cmd/kube-apiserver/app/options/options.go b/cmd/kube-apiserver/app/options/options.go
-index 32c777c192f..6e80adf62a1 100644
+index 9672b18766a..f0cc9c6a3b1 100644
 --- a/cmd/kube-apiserver/app/options/options.go
 +++ b/cmd/kube-apiserver/app/options/options.go
-@@ -66,6 +66,7 @@ type ServerRunOptions struct {
+@@ -61,6 +61,7 @@ type ServerRunOptions struct {
  	KubeletConfig             kubeletclient.KubeletClientConfig
  	KubernetesServiceNodePort int
  	MaxConnectionBytesPerSec  int64
@@ -122,7 +122,7 @@ index 32c777c192f..6e80adf62a1 100644
  	// ServiceClusterIPRange is mapped to input provided by user
  	ServiceClusterIPRanges string
  	// PrimaryServiceClusterIPRange and SecondaryServiceClusterIPRange are the results
-@@ -138,6 +139,8 @@ func NewServerRunOptions() *ServerRunOptions {
+@@ -133,6 +134,8 @@ func NewServerRunOptions() *ServerRunOptions {
  		},
  		ServiceNodePortRange: kubeoptions.DefaultServiceNodePortRange,
  	}
@@ -131,7 +131,7 @@ index 32c777c192f..6e80adf62a1 100644
  
  	// Overwrite the default for storage data format.
  	s.Etcd.DefaultStorageMediaType = "application/vnd.kubernetes.protobuf"
-@@ -224,6 +227,12 @@ func (s *ServerRunOptions) Flags() (fss cliflag.NamedFlagSets) {
+@@ -199,6 +202,12 @@ func (s *ServerRunOptions) Flags() (fss cliflag.NamedFlagSets) {
  		"A CIDR notation IP range from which to assign service cluster IPs. This must not "+
  		"overlap with any IP ranges assigned to nodes or pods. Max of two dual-stack CIDRs is allowed.")
  
@@ -145,7 +145,7 @@ index 32c777c192f..6e80adf62a1 100644
  		"A port range to reserve for services with NodePort visibility. "+
  		"Example: '30000-32767'. Inclusive at both ends of the range.")
 diff --git a/cmd/kube-apiserver/app/options/options_test.go b/cmd/kube-apiserver/app/options/options_test.go
-index 09214ae41db..81a8443f24d 100644
+index 26eb6a959d1..b6e3b9623c0 100644
 --- a/cmd/kube-apiserver/app/options/options_test.go
 +++ b/cmd/kube-apiserver/app/options/options_test.go
 @@ -113,6 +113,7 @@ func TestAddFlags(t *testing.T) {
@@ -198,10 +198,10 @@ index 38250a7a819..4bf416d6961 100644
  	errs = append(errs, validateServiceNodePort(s)...)
  	errs = append(errs, validateAPIPriorityAndFairness(s)...)
 diff --git a/cmd/kube-apiserver/app/server.go b/cmd/kube-apiserver/app/server.go
-index 411567a4175..b9b694701fc 100644
+index 0887d9124ba..e265f03c8d9 100644
 --- a/cmd/kube-apiserver/app/server.go
 +++ b/cmd/kube-apiserver/app/server.go
-@@ -252,7 +252,10 @@ func CreateKubeAPIServerConfig(s completedServerRunOptions) (
+@@ -240,7 +240,10 @@ func CreateKubeAPIServerConfig(s completedServerRunOptions) (
  	[]admission.PluginInitializer,
  	error,
  ) {
