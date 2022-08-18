@@ -549,7 +549,7 @@ index c2969a51126..1f5edaee902 100644
 +	return currentCpuQuota
 +}
 diff --git a/staging/src/k8s.io/legacy-cloud-providers/aws/aws.go b/staging/src/k8s.io/legacy-cloud-providers/aws/aws.go
-index ff180e7f61e..226681862ea 100644
+index 0723f6776c6..7f3e4fe6680 100644
 --- a/staging/src/k8s.io/legacy-cloud-providers/aws/aws.go
 +++ b/staging/src/k8s.io/legacy-cloud-providers/aws/aws.go
 @@ -249,6 +249,9 @@ const volumeAttachmentStuck = "VolumeAttachmentStuck"
