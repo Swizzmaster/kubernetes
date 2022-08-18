@@ -39,18 +39,18 @@ cr https://code.amazon.com/reviews/CR-30564575
  create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator_testdata/valid-volumes.yaml
 
 diff --git a/pkg/kubelet/kubelet.go b/pkg/kubelet/kubelet.go
-index 65aa21bde42..071d94aa683 100644
+index e173b17c463..778c19e6882 100644
 --- a/pkg/kubelet/kubelet.go
 +++ b/pkg/kubelet/kubelet.go
-@@ -851,7 +851,7 @@ func NewMainKubelet(kubeCfg *kubeletconfiginternal.KubeletConfiguration,
+@@ -806,7 +806,7 @@ func NewMainKubelet(kubeCfg *kubeletconfiginternal.KubeletConfiguration,
  		klet.softAdmitHandlers.AddPodAdmitHandler(lifecycle.NewAppArmorAdmitHandler(klet.appArmorValidator))
  	}
  	if utilfeature.DefaultFeatureGate.Enabled(features.PodSecurityValidator) {
 -		klet.admitHandlers.AddPodAdmitHandler(lifecycle.NewFargatePodAdmitHandler())
 +		klet.admitHandlers.AddPodAdmitHandler(lifecycle.NewFargatePodAdmitHandler(klet.kubeClient))
  	}
- 	klet.softAdmitHandlers.AddPodAdmitHandler(lifecycle.NewNoNewPrivsAdmitHandler(klet.containerRuntime))
- 	klet.softAdmitHandlers.AddPodAdmitHandler(lifecycle.NewProcMountAdmitHandler(klet.containerRuntime))
+ 
+ 	leaseDuration := time.Duration(kubeCfg.NodeLeaseDurationSeconds) * time.Second
 diff --git a/pkg/kubelet/lifecycle/fargate_pod_admit_handler.go b/pkg/kubelet/lifecycle/fargate_pod_admit_handler.go
 index b058b342349..dda6d97448d 100644
 --- a/pkg/kubelet/lifecycle/fargate_pod_admit_handler.go
