@@ -1,6 +1,6 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: Rasita Pai <prasita@amazon.com>
-Date: Wed, 13 Oct 2021 12:52:13 -0700
+From: Gyuho Lee <leegyuho@amazon.com>
+Date: Thu, 2 Apr 2020 17:55:36 -0700
 Subject: [PATCH] --EKS-PRIVATE-- Add Fargate support for EKS 1.17
 
 // owner: @saranbalaji90
@@ -8,10 +8,13 @@ Subject: [PATCH] --EKS-PRIVATE-- Add Fargate support for EKS 1.17
 //
 // Enables kubelet to validate and restrict pods based on security contexts.
 PodSecurityValidator featuregate.Feature = "PodSecurityValidator"
-ref. https://code.amazon.com/packages/EKSDataPlaneKubernetes/logs/heads/release-1.16.8-eks
+
+ref.
+https://code.amazon.com/packages/EKSDataPlaneKubernetes/logs/heads/release-1.16.8-eks
 
 Sri Saran Balaji Vellore Rajakumar
-Adding fargate support to aws cloud provider https://code.amazon.com/packages/EKSDataPlaneKubernetes/commits/cceb46f3b6a2228fabd0e3ca79bdc3b5caf43f76#
+Adding fargate support to aws cloud provider
+https://code.amazon.com/packages/EKSDataPlaneKubernetes/commits/cceb46f3b6a2228fabd0e3ca79bdc3b5caf43f76#
 
 Sri Saran Balaji Vellore Rajakumar
 Adding PodCPULimit check for fargate pods
@@ -27,31 +30,59 @@ https://code.amazon.com/packages/EKSDataPlaneKubernetes/commits/b0e0580a0225c5af
 
 Signed-off-by: Jyoti Mahapatra<jyotima@amazon.com>
 ---
+ cmd/kubelet/app/server.go                     |   4 +-
  pkg/features/kube_features.go                 |   7 +
- pkg/kubelet/apis/config/fuzzer/fuzzer.go      |   3 +-
+ pkg/kubelet/apis/config/fuzzer/fuzzer.go      |   1 +
+ pkg/kubelet/apis/config/helpers_test.go       |   1 +
+ .../KubeletConfiguration/after/v1beta1.yaml   |   1 +
+ .../roundtrip/default/v1beta1.yaml            |   1 +
+ pkg/kubelet/apis/config/types.go              |   4 +-
+ pkg/kubelet/apis/config/v1beta1/defaults.go   |   3 +
+ .../config/v1beta1/zz_generated.conversion.go |   6 +
+ pkg/kubelet/cm/BUILD                          |   2 +
  pkg/kubelet/cm/helpers_linux.go               |  12 +-
- pkg/kubelet/kubelet.go                        |   3 +
+ pkg/kubelet/kubelet.go                        |   9 +-
+ pkg/kubelet/kuberuntime/BUILD                 |   2 +
  .../kuberuntime_container_linux.go            |   3 +
+ pkg/kubelet/lifecycle/BUILD                   |   2 +
  .../lifecycle/fargate_pod_admit_handler.go    |  45 +++
  .../lifecycle/fargate_pod_validator.go        | 271 +++++++++++++++
- pkg/kubelet/server/server.go                  |   3 +-
+ pkg/kubelet/server/server.go                  |  51 ++-
+ pkg/kubelet/server/server_test.go             |   1 +
  pkg/kubelet/util/util.go                      |  20 +-
- .../k8s.io/legacy-cloud-providers/aws/aws.go  | 318 ++++++++++++++----
+ .../k8s.io/kubelet/config/v1beta1/types.go    |   8 +
+ .../config/v1beta1/zz_generated.deepcopy.go   |   5 +
+ .../k8s.io/legacy-cloud-providers/aws/aws.go  | 312 ++++++++++++++----
  .../legacy-cloud-providers/aws/aws_fakes.go   |  29 ++
  .../legacy-cloud-providers/aws/aws_routes.go  |   6 +-
  .../legacy-cloud-providers/aws/aws_test.go    |  62 +++-
  .../legacy-cloud-providers/aws/instances.go   |  14 +-
- 14 files changed, 708 insertions(+), 88 deletions(-)
+ 27 files changed, 778 insertions(+), 104 deletions(-)
  create mode 100644 pkg/kubelet/lifecycle/fargate_pod_admit_handler.go
  create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator.go
 
+diff --git a/cmd/kubelet/app/server.go b/cmd/kubelet/app/server.go
+index ff7e05feec1..5ec86c1d4de 100644
+--- a/cmd/kubelet/app/server.go
++++ b/cmd/kubelet/app/server.go
+@@ -1184,9 +1184,7 @@ func startKubelet(k kubelet.Bootstrap, podCfg *config.PodConfig, kubeCfg *kubele
+ 
+ 	// start the kubelet server
+ 	if enableServer {
+-		go k.ListenAndServe(net.ParseIP(kubeCfg.Address), uint(kubeCfg.Port), kubeDeps.TLSOptions, kubeDeps.Auth,
+-			enableCAdvisorJSONEndpoints, kubeCfg.EnableDebuggingHandlers, kubeCfg.EnableContentionProfiling, kubeCfg.EnableSystemLogHandler)
+-
++		go k.ListenAndServe(net.ParseIP(kubeCfg.Address), uint(kubeCfg.Port), kubeDeps.TLSOptions, kubeDeps.Auth, enableCAdvisorJSONEndpoints, kubeCfg.EnableDebuggingHandlers, kubeCfg.EnableContentionProfiling, kubeCfg.EnableProfiling, kubeCfg.EnableSystemLogHandler)
+ 	}
+ 	if kubeCfg.ReadOnlyPort > 0 {
+ 		go k.ListenAndServeReadOnly(net.ParseIP(kubeCfg.Address), uint(kubeCfg.ReadOnlyPort), enableCAdvisorJSONEndpoints)
 diff --git a/pkg/features/kube_features.go b/pkg/features/kube_features.go
-index 61db14afc44..2fa74fc6707 100644
+index 35d261f29b6..c961a6dca52 100644
 --- a/pkg/features/kube_features.go
 +++ b/pkg/features/kube_features.go
-@@ -392,6 +392,12 @@ const (
- 	// NodePublishVolume calls.
- 	DelegateFSGroupToCSIDriver featuregate.Feature = "DelegateFSGroupToCSIDriver"
+@@ -472,6 +472,12 @@ const (
+ 	// Enables support for running container entrypoints as different usernames than their default ones.
+ 	WindowsRunAsUserName featuregate.Feature = "WindowsRunAsUserName"
  
 +	// owner: @saranbalaji90
 +	// alpha: TBD
@@ -59,51 +90,141 @@ index 61db14afc44..2fa74fc6707 100644
 +	// Enables kubelet to validate and restrict pods based on security contexts.
 +	PodSecurityValidator featuregate.Feature = "PodSecurityValidator"
 +
- 	// owner: @RobertKrawitz, @derekwaynecarr
- 	// beta: v1.15
- 	// GA: v1.20
-@@ -922,6 +928,7 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
- 	MemoryQoS:                                      {Default: false, PreRelease: featuregate.Alpha},
- 	CPUManagerPolicyOptions:                        {Default: false, PreRelease: featuregate.Alpha},
- 	ControllerManagerLeaderMigration:               {Default: true, PreRelease: featuregate.Beta},
+ 	// owner: @adisky
+ 	// alpha: v1.14
+ 	// beta: v1.18
+@@ -835,6 +841,7 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
+ 	GracefulNodeShutdown:                           {Default: false, PreRelease: featuregate.Alpha},
+ 	ServiceLBNodePortControl:                       {Default: false, PreRelease: featuregate.Alpha},
+ 	MixedProtocolLBService:                         {Default: false, PreRelease: featuregate.Alpha},
 +	PodSecurityValidator:                           {Default: false, PreRelease: featuregate.Alpha},
  
  	// inherited features from generic apiserver, relisted here to get a conflict if it is changed
  	// unintentionally on either side:
 diff --git a/pkg/kubelet/apis/config/fuzzer/fuzzer.go b/pkg/kubelet/apis/config/fuzzer/fuzzer.go
-index 5d7ebb9cd58..f1eede94c5e 100644
+index 104d8215526..3734c631dc6 100644
 --- a/pkg/kubelet/apis/config/fuzzer/fuzzer.go
 +++ b/pkg/kubelet/apis/config/fuzzer/fuzzer.go
-@@ -20,7 +20,7 @@ import (
- 	"math/rand"
- 	"time"
- 
--	"github.com/google/gofuzz"
-+	fuzz "github.com/google/gofuzz"
- 
- 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
- 	runtimeserializer "k8s.io/apimachinery/pkg/runtime/serializer"
-@@ -108,6 +108,7 @@ func Funcs(codecs runtimeserializer.CodecFactory) []interface{} {
+@@ -104,6 +104,7 @@ func Funcs(codecs runtimeserializer.CodecFactory) []interface{} {
  			if obj.Logging.Format == "" {
  				obj.Logging.Format = "text"
  			}
-+			obj.EnableProfilingHandler = true
++			obj.EnableProfiling = true
  			obj.EnableSystemLogHandler = true
- 			obj.MemoryThrottlingFactor = utilpointer.Float64Ptr(rand.Float64())
  		},
+ 	}
+diff --git a/pkg/kubelet/apis/config/helpers_test.go b/pkg/kubelet/apis/config/helpers_test.go
+index aee4ba83ff5..376f0011d0d 100644
+--- a/pkg/kubelet/apis/config/helpers_test.go
++++ b/pkg/kubelet/apis/config/helpers_test.go
+@@ -168,6 +168,7 @@ var (
+ 		"EnableDebuggingHandlers",
+ 		"EnableServer",
+ 		"EnableSystemLogHandler",
++		"EnableProfiling",
+ 		"EnforceNodeAllocatable[*]",
+ 		"EventBurst",
+ 		"EventRecordQPS",
+diff --git a/pkg/kubelet/apis/config/scheme/testdata/KubeletConfiguration/after/v1beta1.yaml b/pkg/kubelet/apis/config/scheme/testdata/KubeletConfiguration/after/v1beta1.yaml
+index 364c43416ae..e725e50bb4b 100644
+--- a/pkg/kubelet/apis/config/scheme/testdata/KubeletConfiguration/after/v1beta1.yaml
++++ b/pkg/kubelet/apis/config/scheme/testdata/KubeletConfiguration/after/v1beta1.yaml
+@@ -24,6 +24,7 @@ cpuManagerPolicy: none
+ cpuManagerReconcilePeriod: 10s
+ enableControllerAttachDetach: true
+ enableDebuggingHandlers: true
++enableProfiling: true
+ enableServer: true
+ enableSystemLogHandler: true
+ enforceNodeAllocatable:
+diff --git a/pkg/kubelet/apis/config/scheme/testdata/KubeletConfiguration/roundtrip/default/v1beta1.yaml b/pkg/kubelet/apis/config/scheme/testdata/KubeletConfiguration/roundtrip/default/v1beta1.yaml
+index 364c43416ae..e725e50bb4b 100644
+--- a/pkg/kubelet/apis/config/scheme/testdata/KubeletConfiguration/roundtrip/default/v1beta1.yaml
++++ b/pkg/kubelet/apis/config/scheme/testdata/KubeletConfiguration/roundtrip/default/v1beta1.yaml
+@@ -24,6 +24,7 @@ cpuManagerPolicy: none
+ cpuManagerReconcilePeriod: 10s
+ enableControllerAttachDetach: true
+ enableDebuggingHandlers: true
++enableProfiling: true
+ enableServer: true
+ enableSystemLogHandler: true
+ enforceNodeAllocatable:
+diff --git a/pkg/kubelet/apis/config/types.go b/pkg/kubelet/apis/config/types.go
+index d518a6cf412..98480cbe723 100644
+--- a/pkg/kubelet/apis/config/types.go
++++ b/pkg/kubelet/apis/config/types.go
+@@ -373,7 +373,9 @@ type KubeletConfiguration struct {
+ 	// Logging specifies the options of logging.
+ 	// Refer [Logs Options](https://github.com/kubernetes/component-base/blob/master/logs/options.go) for more information.
+ 	Logging componentbaseconfig.LoggingConfiguration
+-	// EnableSystemLogHandler enables /logs handler.
++	// EnableProfiling enables profiling on the kubelet.
++	EnableProfiling bool
++	// EnableSystemLogHandler enables system logs on the kubelet.
+ 	EnableSystemLogHandler bool
+ 	// ShutdownGracePeriod specifies the total duration that the node should delay the shutdown and total grace period for pod termination during a node shutdown.
+ 	// Defaults to 30 seconds, requires GracefulNodeShutdown feature gate to be enabled.
+diff --git a/pkg/kubelet/apis/config/v1beta1/defaults.go b/pkg/kubelet/apis/config/v1beta1/defaults.go
+index 3b46d4164b3..56223bd984c 100644
+--- a/pkg/kubelet/apis/config/v1beta1/defaults.go
++++ b/pkg/kubelet/apis/config/v1beta1/defaults.go
+@@ -242,4 +242,7 @@ func SetDefaults_KubeletConfiguration(obj *kubeletconfigv1beta1.KubeletConfigura
+ 	if obj.EnableSystemLogHandler == nil {
+ 		obj.EnableSystemLogHandler = utilpointer.BoolPtr(true)
+ 	}
++	if obj.EnableProfiling == nil {
++		obj.EnableProfiling = utilpointer.BoolPtr(true)
++	}
+ }
+diff --git a/pkg/kubelet/apis/config/v1beta1/zz_generated.conversion.go b/pkg/kubelet/apis/config/v1beta1/zz_generated.conversion.go
+index 09aae527ecc..622c6cca776 100644
+--- a/pkg/kubelet/apis/config/v1beta1/zz_generated.conversion.go
++++ b/pkg/kubelet/apis/config/v1beta1/zz_generated.conversion.go
+@@ -347,6 +347,9 @@ func autoConvert_v1beta1_KubeletConfiguration_To_config_KubeletConfiguration(in
+ 	if err := v1alpha1.Convert_v1alpha1_LoggingConfiguration_To_config_LoggingConfiguration(&in.Logging, &out.Logging, s); err != nil {
+ 		return err
+ 	}
++	if err := v1.Convert_Pointer_bool_To_bool(&in.EnableProfiling, &out.EnableProfiling, s); err != nil {
++		return err
++	}
+ 	if err := v1.Convert_Pointer_bool_To_bool(&in.EnableSystemLogHandler, &out.EnableSystemLogHandler, s); err != nil {
+ 		return err
+ 	}
+@@ -500,6 +503,9 @@ func autoConvert_config_KubeletConfiguration_To_v1beta1_KubeletConfiguration(in
+ 	if err := v1alpha1.Convert_config_LoggingConfiguration_To_v1alpha1_LoggingConfiguration(&in.Logging, &out.Logging, s); err != nil {
+ 		return err
+ 	}
++	if err := v1.Convert_bool_To_Pointer_bool(&in.EnableProfiling, &out.EnableProfiling, s); err != nil {
++		return err
++	}
+ 	if err := v1.Convert_bool_To_Pointer_bool(&in.EnableSystemLogHandler, &out.EnableSystemLogHandler, s); err != nil {
+ 		return err
+ 	}
+diff --git a/pkg/kubelet/cm/BUILD b/pkg/kubelet/cm/BUILD
+index 6935ba92d09..d8c66347254 100644
+--- a/pkg/kubelet/cm/BUILD
++++ b/pkg/kubelet/cm/BUILD
+@@ -63,6 +63,7 @@ go_library(
+             "//pkg/kubelet/qos:go_default_library",
+             "//pkg/kubelet/stats/pidlimit:go_default_library",
+             "//pkg/kubelet/types:go_default_library",
++            "//pkg/kubelet/util:go_default_library",
+             "//pkg/util/oom:go_default_library",
+             "//pkg/util/procfs:go_default_library",
+             "//pkg/util/sysctl:go_default_library",
+@@ -124,6 +125,7 @@ go_library(
+             "//pkg/kubelet/qos:go_default_library",
+             "//pkg/kubelet/stats/pidlimit:go_default_library",
+             "//pkg/kubelet/types:go_default_library",
++            "//pkg/kubelet/util:go_default_library",
+             "//pkg/util/oom:go_default_library",
+             "//pkg/util/procfs:go_default_library",
+             "//pkg/util/sysctl:go_default_library",
 diff --git a/pkg/kubelet/cm/helpers_linux.go b/pkg/kubelet/cm/helpers_linux.go
-index 33b14e31a35..d4e870043cd 100644
+index 9b115ab5380..63014c8d1b2 100644
 --- a/pkg/kubelet/cm/helpers_linux.go
 +++ b/pkg/kubelet/cm/helpers_linux.go
-@@ -25,14 +25,15 @@ import (
- 
- 	libcontainercgroups "github.com/opencontainers/runc/libcontainer/cgroups"
- 
--	"k8s.io/api/core/v1"
-+	v1 "k8s.io/api/core/v1"
- 	"k8s.io/apimachinery/pkg/types"
- 	utilfeature "k8s.io/apiserver/pkg/util/feature"
- 	"k8s.io/kubernetes/pkg/api/v1/resource"
+@@ -34,7 +34,8 @@ import (
  	v1helper "k8s.io/kubernetes/pkg/apis/core/v1/helper"
  	v1qos "k8s.io/kubernetes/pkg/apis/core/v1/helper/qos"
  	kubefeatures "k8s.io/kubernetes/pkg/features"
@@ -113,7 +234,7 @@ index 33b14e31a35..d4e870043cd 100644
  )
  
  const (
-@@ -133,6 +134,7 @@ func ResourceConfigForPod(pod *v1.Pod, enforceCPULimits bool, cpuPeriod uint64,
+@@ -135,6 +136,7 @@ func ResourceConfigForPod(pod *v1.Pod, enforceCPULimits bool, cpuPeriod uint64)
  	// convert to CFS values
  	cpuShares := MilliCPUToShares(cpuRequests)
  	cpuQuota := MilliCPUToQuota(cpuLimits, int64(cpuPeriod))
@@ -121,8 +242,17 @@ index 33b14e31a35..d4e870043cd 100644
  
  	// track if limits were applied for each resource.
  	memoryLimitsDeclared := true
-@@ -241,10 +243,10 @@ func getCgroupSubsystemsV2() (*CgroupSubsystems, error) {
- 	mounts := []libcontainercgroups.Mount{}
+@@ -214,7 +216,7 @@ func getCgroupSubsystemsV1() (*CgroupSubsystems, error) {
+ 
+ // getCgroupSubsystemsV2 returns information about the enabled cgroup v2 subsystems
+ func getCgroupSubsystemsV2() (*CgroupSubsystems, error) {
+-	content, err := ioutil.ReadFile(filepath.Join(util.CgroupRoot, "cgroup.controllers"))
++	content, err := ioutil.ReadFile(filepath.Join(cmutil.CgroupRoot, "cgroup.controllers"))
+ 	if err != nil {
+ 		return nil, err
+ 	}
+@@ -223,10 +225,10 @@ func getCgroupSubsystemsV2() (*CgroupSubsystems, error) {
+ 	controllers := strings.Fields(string(content))
  	mountPoints := make(map[string]string, len(controllers))
  	for _, controller := range controllers {
 -		mountPoints[controller] = util.CgroupRoot
@@ -136,10 +266,19 @@ index 33b14e31a35..d4e870043cd 100644
  		}
  		mounts = append(mounts, m)
 diff --git a/pkg/kubelet/kubelet.go b/pkg/kubelet/kubelet.go
-index d7bc7c2cb79..b3f73e76f67 100644
+index f32f51b90a1..ea489181940 100644
 --- a/pkg/kubelet/kubelet.go
 +++ b/pkg/kubelet/kubelet.go
-@@ -851,6 +851,9 @@ func NewMainKubelet(kubeCfg *kubeletconfiginternal.KubeletConfiguration,
+@@ -192,7 +192,7 @@ type Bootstrap interface {
+ 	GetConfiguration() kubeletconfiginternal.KubeletConfiguration
+ 	BirthCry()
+ 	StartGarbageCollection()
+-	ListenAndServe(address net.IP, port uint, tlsOptions *server.TLSOptions, auth server.AuthInterface, enableCAdvisorJSONEndpoints, enableDebuggingHandlers, enableContentionProfiling, enableSystemLogHandler bool)
++	ListenAndServe(address net.IP, port uint, tlsOptions *server.TLSOptions, auth server.AuthInterface, enableCAdvisorJSONEndpoints, enableDebuggingHandlers, enableContentionProfiling, enableProfiling, enableSystemLogHander bool)
+ 	ListenAndServeReadOnly(address net.IP, port uint, enableCAdvisorJSONEndpoints bool)
+ 	ListenAndServePodResources()
+ 	Run(<-chan kubetypes.PodUpdate)
+@@ -797,6 +797,9 @@ func NewMainKubelet(kubeCfg *kubeletconfiginternal.KubeletConfiguration,
  		klet.appArmorValidator = apparmor.NewValidator(containerRuntime)
  		klet.softAdmitHandlers.AddPodAdmitHandler(lifecycle.NewAppArmorAdmitHandler(klet.appArmorValidator))
  	}
@@ -149,19 +288,48 @@ index d7bc7c2cb79..b3f73e76f67 100644
  	klet.softAdmitHandlers.AddPodAdmitHandler(lifecycle.NewNoNewPrivsAdmitHandler(klet.containerRuntime))
  	klet.softAdmitHandlers.AddPodAdmitHandler(lifecycle.NewProcMountAdmitHandler(klet.containerRuntime))
  
+@@ -2217,8 +2220,8 @@ func (kl *Kubelet) ResyncInterval() time.Duration {
+ }
+ 
+ // ListenAndServe runs the kubelet HTTP server.
+-func (kl *Kubelet) ListenAndServe(address net.IP, port uint, tlsOptions *server.TLSOptions, auth server.AuthInterface, enableCAdvisorJSONEndpoints, enableDebuggingHandlers, enableContentionProfiling, enableSystemLogHandler bool) {
+-	server.ListenAndServeKubeletServer(kl, kl.resourceAnalyzer, address, port, tlsOptions, auth, enableCAdvisorJSONEndpoints, enableDebuggingHandlers, enableContentionProfiling, enableSystemLogHandler)
++func (kl *Kubelet) ListenAndServe(address net.IP, port uint, tlsOptions *server.TLSOptions, auth server.AuthInterface, enableCAdvisorJSONEndpoints, enableDebuggingHandlers, enableContentionProfiling, enableProfiling, enableSystemLogHandler bool) {
++	server.ListenAndServeKubeletServer(kl, kl.resourceAnalyzer, address, port, tlsOptions, auth, enableCAdvisorJSONEndpoints, enableDebuggingHandlers, enableContentionProfiling, enableProfiling, enableSystemLogHandler)
+ }
+ 
+ // ListenAndServeReadOnly runs the kubelet HTTP server in read-only mode.
+diff --git a/pkg/kubelet/kuberuntime/BUILD b/pkg/kubelet/kuberuntime/BUILD
+index 6827346f5d1..55537c945aa 100644
+--- a/pkg/kubelet/kuberuntime/BUILD
++++ b/pkg/kubelet/kuberuntime/BUILD
+@@ -81,11 +81,13 @@ go_library(
+             "//pkg/apis/core/v1/helper:go_default_library",
+             "//pkg/kubelet/qos:go_default_library",
+             "//vendor/github.com/opencontainers/runc/libcontainer/cgroups/fs:go_default_library",
++            "//pkg/kubelet/util:go_default_library",
+         ],
+         "@io_bazel_rules_go//go/platform:linux": [
+             "//pkg/apis/core/v1/helper:go_default_library",
+             "//pkg/kubelet/qos:go_default_library",
+             "//vendor/github.com/opencontainers/runc/libcontainer/cgroups/fs:go_default_library",
++            "//pkg/kubelet/util:go_default_library",
+         ],
+         "@io_bazel_rules_go//go/platform:windows": [
+             "//pkg/kubelet/apis:go_default_library",
 diff --git a/pkg/kubelet/kuberuntime/kuberuntime_container_linux.go b/pkg/kubelet/kuberuntime/kuberuntime_container_linux.go
-index ecea5f70e1a..5e6a8609454 100644
+index 0f4fab34c04..226291635e1 100644
 --- a/pkg/kubelet/kuberuntime/kuberuntime_container_linux.go
 +++ b/pkg/kubelet/kuberuntime/kuberuntime_container_linux.go
-@@ -34,6 +34,7 @@ import (
+@@ -30,6 +30,7 @@ import (
+ 	kubefeatures "k8s.io/kubernetes/pkg/features"
  	kubecontainer "k8s.io/kubernetes/pkg/kubelet/container"
  	"k8s.io/kubernetes/pkg/kubelet/qos"
- 	kubelettypes "k8s.io/kubernetes/pkg/kubelet/types"
 +	"k8s.io/kubernetes/pkg/kubelet/util"
  )
  
  // applyPlatformSpecificContainerConfig applies platform specific configurations to runtimeapi.ContainerConfig.
-@@ -94,6 +95,8 @@ func (m *kubeGenericRuntimeManager) generateLinuxContainerConfig(container *v1.C
+@@ -83,6 +84,8 @@ func (m *kubeGenericRuntimeManager) generateLinuxContainerConfig(container *v1.C
  			cpuPeriod = int64(m.cpuCFSQuotaPeriod.Duration / time.Microsecond)
  		}
  		cpuQuota := milliCPUToQuota(cpuLimit.MilliValue(), cpuPeriod)
@@ -170,6 +338,19 @@ index ecea5f70e1a..5e6a8609454 100644
  		lc.Resources.CpuQuota = cpuQuota
  		lc.Resources.CpuPeriod = cpuPeriod
  	}
+diff --git a/pkg/kubelet/lifecycle/BUILD b/pkg/kubelet/lifecycle/BUILD
+index d08f5ee1d94..a1e7640b3ab 100644
+--- a/pkg/kubelet/lifecycle/BUILD
++++ b/pkg/kubelet/lifecycle/BUILD
+@@ -11,6 +11,8 @@ go_library(
+     srcs = [
+         "admission_failure_handler_stub.go",
+         "doc.go",
++        "fargate_pod_admit_handler.go",
++        "fargate_pod_validator.go",
+         "handlers.go",
+         "interfaces.go",
+         "predicate.go",
 diff --git a/pkg/kubelet/lifecycle/fargate_pod_admit_handler.go b/pkg/kubelet/lifecycle/fargate_pod_admit_handler.go
 new file mode 100644
 index 00000000000..b058b342349
@@ -499,10 +680,53 @@ index 00000000000..aca39d8c6f5
 +	return true, ""
 +}
 diff --git a/pkg/kubelet/server/server.go b/pkg/kubelet/server/server.go
-index 67e9469ad30..25e0272d8dc 100644
+index 237342421b5..cb7495b9439 100644
 --- a/pkg/kubelet/server/server.go
 +++ b/pkg/kubelet/server/server.go
-@@ -476,8 +476,7 @@ func (s *Server) InstallDebuggingHandlers() {
+@@ -144,9 +144,10 @@ func ListenAndServeKubeletServer(
+ 	enableCAdvisorJSONEndpoints,
+ 	enableDebuggingHandlers,
+ 	enableContentionProfiling,
++	enableProfiling,
+ 	enableSystemLogHandler bool) {
+ 	klog.Infof("Starting to listen on %s:%d", address, port)
+-	handler := NewServer(host, resourceAnalyzer, auth, enableCAdvisorJSONEndpoints, enableDebuggingHandlers, enableContentionProfiling, enableSystemLogHandler)
++	handler := NewServer(host, resourceAnalyzer, auth, enableCAdvisorJSONEndpoints, enableDebuggingHandlers, enableContentionProfiling, enableProfiling, enableSystemLogHandler)
+ 	s := &http.Server{
+ 		Addr:           net.JoinHostPort(address.String(), strconv.FormatUint(uint64(port), 10)),
+ 		Handler:        &handler,
+@@ -169,7 +170,7 @@ func ListenAndServeKubeletServer(
+ // ListenAndServeKubeletReadOnlyServer initializes a server to respond to HTTP network requests on the Kubelet.
+ func ListenAndServeKubeletReadOnlyServer(host HostInterface, resourceAnalyzer stats.ResourceAnalyzer, address net.IP, port uint, enableCAdvisorJSONEndpoints bool) {
+ 	klog.V(1).Infof("Starting to listen read-only on %s:%d", address, port)
+-	s := NewServer(host, resourceAnalyzer, nil, enableCAdvisorJSONEndpoints, false, false, false)
++	s := NewServer(host, resourceAnalyzer, nil, enableCAdvisorJSONEndpoints, false, false, false, false)
+ 
+ 	server := &http.Server{
+ 		Addr:           net.JoinHostPort(address.String(), strconv.FormatUint(uint64(port), 10)),
+@@ -227,6 +228,7 @@ func NewServer(
+ 	enableCAdvisorJSONEndpoints,
+ 	enableDebuggingHandlers,
+ 	enableContentionProfiling,
++	enableProfiling,
+ 	enableSystemLogHandler bool) Server {
+ 	server := Server{
+ 		host:                 host,
+@@ -245,8 +247,11 @@ func NewServer(
+ 		// To maintain backward compatibility serve logs only when enableDebuggingHandlers is also enabled
+ 		// see https://github.com/kubernetes/kubernetes/pull/87273
+ 		server.InstallSystemLogHandler(enableSystemLogHandler)
+-		if enableContentionProfiling {
+-			goruntime.SetBlockProfileRate(1)
++		if enableProfiling {
++			server.InstallProfilingHandlers()
++			if enableContentionProfiling {
++				goruntime.SetBlockProfileRate(1)
++			}
+ 		}
+ 	} else {
+ 		server.InstallDebuggingDisabledHandlers()
+@@ -481,8 +486,7 @@ func (s *Server) InstallDebuggingHandlers() {
  
  	s.addMetricsBucketMatcher("containerLogs")
  	ws = new(restful.WebService)
@@ -512,6 +736,76 @@ index 67e9469ad30..25e0272d8dc 100644
  	ws.Route(ws.GET("/{podNamespace}/{podID}/{containerName}").
  		To(s.getContainerLogs).
  		Operation("getContainerLogs"))
+@@ -491,6 +495,20 @@ func (s *Server) InstallDebuggingHandlers() {
+ 	s.addMetricsBucketMatcher("configz")
+ 	configz.InstallHandler(s.restfulCont)
+ 
++	// The /runningpods endpoint is used for testing only.
++	s.addMetricsBucketMatcher("runningpods")
++	ws = new(restful.WebService)
++	ws.
++		Path("/runningpods/").
++		Produces(restful.MIME_JSON)
++	ws.Route(ws.GET("").
++		To(s.getRunningPods).
++		Operation("getRunningPods"))
++	s.restfulCont.Add(ws)
++}
++
++// InstallProfilingHandlers registers the HTTP request patterns that provide profiling webservice
++func (s *Server) InstallProfilingHandlers() {
+ 	s.addMetricsBucketMatcher("debug")
+ 	handlePprofEndpoint := func(req *restful.Request, resp *restful.Response) {
+ 		name := strings.TrimPrefix(req.Request.URL.Path, pprofBasePath)
+@@ -508,7 +526,7 @@ func (s *Server) InstallDebuggingHandlers() {
+ 		}
+ 	}
+ 	// Setup pprof handlers.
+-	ws = new(restful.WebService).Path(pprofBasePath)
++	ws := new(restful.WebService).Path(pprofBasePath)
+ 	ws.Route(ws.GET("/{subpath:*}").To(func(req *restful.Request, resp *restful.Response) {
+ 		handlePprofEndpoint(req, resp)
+ 	})).Doc("pprof endpoint")
+@@ -517,16 +535,19 @@ func (s *Server) InstallDebuggingHandlers() {
+ 	// Setup flags handlers.
+ 	// so far, only logging related endpoints are considered valid to add for these debug flags.
+ 	s.restfulCont.Handle("/debug/flags/v", routes.StringFlagPutHandler(logs.GlogSetter))
++}
+ 
+-	// The /runningpods endpoint is used for testing only.
+-	s.addMetricsBucketMatcher("runningpods")
+-	ws = new(restful.WebService)
+-	ws.
+-		Path("/runningpods/").
+-		Produces(restful.MIME_JSON)
++func (s *Server) InstallSystemLogHandlers() {
++	s.addMetricsBucketMatcher("logs")
++	ws := new(restful.WebService)
++	ws.Path(logsPath)
+ 	ws.Route(ws.GET("").
+-		To(s.getRunningPods).
+-		Operation("getRunningPods"))
++		To(s.getLogs).
++		Operation("getLogs"))
++	ws.Route(ws.GET("/{logpath:*}").
++		To(s.getLogs).
++		Operation("getLogs").
++		Param(ws.PathParameter("logpath", "path to the log").DataType("string")))
+ 	s.restfulCont.Add(ws)
+ }
+ 
+diff --git a/pkg/kubelet/server/server_test.go b/pkg/kubelet/server/server_test.go
+index 263e9c9ac8a..37e74a29ba2 100644
+--- a/pkg/kubelet/server/server_test.go
++++ b/pkg/kubelet/server/server_test.go
+@@ -343,6 +343,7 @@ func newServerTestWithDebuggingHandlers(enableDebugging, enableSystemLogHandler
+ 		true,
+ 		enableDebugging,
+ 		false,
++		enableDebugging,
+ 		enableSystemLogHandler)
+ 	fw.serverUnderTest = &server
+ 	fw.testHTTPServer = httptest.NewServer(fw.serverUnderTest)
 diff --git a/pkg/kubelet/util/util.go b/pkg/kubelet/util/util.go
 index c2969a51126..1f5edaee902 100644
 --- a/pkg/kubelet/util/util.go
@@ -548,11 +842,47 @@ index c2969a51126..1f5edaee902 100644
 +	}
 +	return currentCpuQuota
 +}
+diff --git a/staging/src/k8s.io/kubelet/config/v1beta1/types.go b/staging/src/k8s.io/kubelet/config/v1beta1/types.go
+index 2c35b1f2403..8c143a4d2c5 100644
+--- a/staging/src/k8s.io/kubelet/config/v1beta1/types.go
++++ b/staging/src/k8s.io/kubelet/config/v1beta1/types.go
+@@ -811,7 +811,15 @@ type KubeletConfiguration struct {
+ 	//   Format: text
+ 	// + optional
+ 	Logging componentbaseconfigv1alpha1.LoggingConfiguration `json:"logging,omitempty"`
++	// enableProfiling enables profiling via web interface host:port/debug/pprof/
++	// Dynamic Kubelet Config (beta): If dynamically updating this field, consider that
++	// enabling it may carry a performance impact.
++	// Default: true
++	// +optional
++	EnableProfiling *bool `json:"enableProfiling,omitempty"`
+ 	// enableSystemLogHandler enables system logs via web interface host:port/logs/
++	// Dynamic Kubelet Config (beta): If dynamically updating this field, consider that
++	// enabling it may carry a performance impact.
+ 	// Default: true
+ 	// +optional
+ 	EnableSystemLogHandler *bool `json:"enableSystemLogHandler,omitempty"`
+diff --git a/staging/src/k8s.io/kubelet/config/v1beta1/zz_generated.deepcopy.go b/staging/src/k8s.io/kubelet/config/v1beta1/zz_generated.deepcopy.go
+index a6ad075c9ad..9adfbeda06d 100644
+--- a/staging/src/k8s.io/kubelet/config/v1beta1/zz_generated.deepcopy.go
++++ b/staging/src/k8s.io/kubelet/config/v1beta1/zz_generated.deepcopy.go
+@@ -296,6 +296,11 @@ func (in *KubeletConfiguration) DeepCopyInto(out *KubeletConfiguration) {
+ 		copy(*out, *in)
+ 	}
+ 	out.Logging = in.Logging
++	if in.EnableProfiling != nil {
++		in, out := &in.EnableProfiling, &out.EnableProfiling
++		*out = new(bool)
++		**out = **in
++	}
+ 	if in.EnableSystemLogHandler != nil {
+ 		in, out := &in.EnableSystemLogHandler, &out.EnableSystemLogHandler
+ 		*out = new(bool)
 diff --git a/staging/src/k8s.io/legacy-cloud-providers/aws/aws.go b/staging/src/k8s.io/legacy-cloud-providers/aws/aws.go
-index ff180e7f61e..226681862ea 100644
+index 9e2c5d84e67..35333b8a249 100644
 --- a/staging/src/k8s.io/legacy-cloud-providers/aws/aws.go
 +++ b/staging/src/k8s.io/legacy-cloud-providers/aws/aws.go
-@@ -249,6 +249,9 @@ const volumeAttachmentStuck = "VolumeAttachmentStuck"
+@@ -251,6 +251,9 @@ const volumeAttachmentStuck = "VolumeAttachmentStuck"
  // Indicates that a node has volumes stuck in attaching state and hence it is not fit for scheduling more pods
  const nodeWithImpairedVolumes = "NodeWithImpairedVolumes"
  
@@ -562,7 +892,7 @@ index ff180e7f61e..226681862ea 100644
  const (
  	// volumeAttachmentConsecutiveErrorLimit is the number of consecutive errors we will ignore when waiting for a volume to attach/detach
  	volumeAttachmentStatusConsecutiveErrorLimit = 10
-@@ -281,6 +284,20 @@ const (
+@@ -283,6 +286,20 @@ const (
  	// Number of node names that can be added to a filter. The AWS limit is 200
  	// but we are using a lower limit on purpose
  	filterNodeLimit = 150
@@ -583,7 +913,7 @@ index ff180e7f61e..226681862ea 100644
  )
  
  const (
-@@ -365,6 +382,8 @@ type EC2 interface {
+@@ -367,6 +384,8 @@ type EC2 interface {
  	ModifyInstanceAttribute(request *ec2.ModifyInstanceAttributeInput) (*ec2.ModifyInstanceAttributeOutput, error)
  
  	DescribeVpcs(input *ec2.DescribeVpcsInput) (*ec2.DescribeVpcsOutput, error)
@@ -592,7 +922,7 @@ index ff180e7f61e..226681862ea 100644
  }
  
  // ELB is a simple pass-through of AWS' ELB client interface, which allows for testing
-@@ -632,6 +651,18 @@ type CloudConfig struct {
+@@ -634,6 +653,18 @@ type CloudConfig struct {
  		//yourself in an non-AWS cloud and open an issue, please indicate that in the
  		//issue body.
  		DisableStrictZoneCheck bool
@@ -611,7 +941,7 @@ index ff180e7f61e..226681862ea 100644
  	}
  	// [ServiceOverride "1"]
  	//  Service = s3
-@@ -1176,6 +1207,15 @@ func (s *awsSdkEC2) DescribeVpcs(request *ec2.DescribeVpcsInput) (*ec2.DescribeV
+@@ -1208,6 +1239,15 @@ func (s *awsSdkEC2) DescribeVpcs(request *ec2.DescribeVpcsInput) (*ec2.DescribeV
  	return s.ec2.DescribeVpcs(request)
  }
  
@@ -627,37 +957,25 @@ index ff180e7f61e..226681862ea 100644
  func init() {
  	registerMetrics()
  	cloudprovider.RegisterCloudProvider(ProviderName, func(config io.Reader) (cloudprovider.Interface, error) {
-@@ -1228,9 +1268,11 @@ func getRegionFromMetadata(cfg *CloudConfig) (string, error) {
- 		return "", fmt.Errorf("error creating AWS metadata client: %q", err)
- 	}
- 
--	err = updateConfigZone(cfg, metadata)
--	if err != nil {
--		return "", fmt.Errorf("unable to determine AWS zone from cloud provider config or EC2 instance metadata: %v", err)
-+	if cfg.Global.ComputeType != computeTypeFargate {
-+		err = updateConfigZone(cfg, metadata)
-+		if err != nil {
-+			return "", fmt.Errorf("unable to determine AWS zone from cloud provider config or EC2 instance metadata: %v", err)
-+		}
- 	}
- 
- 	zone := cfg.Global.Zone
-@@ -1311,9 +1353,11 @@ func newAWSCloud(cfg CloudConfig, awsServices Services) (*Cloud, error) {
+@@ -1292,10 +1332,14 @@ func newAWSCloud(cfg CloudConfig, awsServices Services) (*Cloud, error) {
+ 	if err != nil {
  		return nil, fmt.Errorf("error creating AWS metadata client: %q", err)
  	}
- 
 -	err = updateConfigZone(&cfg, metadata)
 -	if err != nil {
 -		return nil, fmt.Errorf("unable to determine AWS zone from cloud provider config or EC2 instance metadata: %v", err)
++
 +	if cfg.Global.ComputeType != computeTypeFargate {
 +		err = updateConfigZone(&cfg, metadata)
 +		if err != nil {
 +			return nil, fmt.Errorf("unable to determine AWS zone from cloud provider config or EC2 instance metadata: %v", err)
 +		}
  	}
- 
++
  	zone := cfg.Global.Zone
-@@ -1397,8 +1441,8 @@ func newAWSCloud(cfg CloudConfig, awsServices Services) (*Cloud, error) {
+ 	regionName, err := azToRegion(zone)
+ 	if err != nil {
+@@ -1374,8 +1418,8 @@ func newAWSCloud(cfg CloudConfig, awsServices Services) (*Cloud, error) {
  		if err := awsCloud.tagging.init(cfg.Global.KubernetesClusterTag, cfg.Global.KubernetesClusterID); err != nil {
  			return nil, err
  		}
@@ -668,8 +986,8 @@ index ff180e7f61e..226681862ea 100644
  		info, err := awsCloud.selfAWSInstance.describeInstance()
  		if err != nil {
  			return nil, err
-@@ -1506,11 +1550,24 @@ func isAWSNotFound(err error) bool {
- 	return false
+@@ -1472,11 +1516,24 @@ func (c *Cloud) HasClusterID() bool {
+ 	return len(c.tagging.clusterID()) > 0
  }
  
 +// getNodeAddressesForFargateNode generates list of Node addresses for Fargate node.
@@ -694,7 +1012,7 @@ index ff180e7f61e..226681862ea 100644
  		macs, err := c.metadata.GetMetadata("network/interfaces/macs/")
  		if err != nil {
  			return nil, fmt.Errorf("error querying AWS metadata for %q: %q", "network/interfaces/macs", err)
-@@ -1615,11 +1672,11 @@ func (c *Cloud) NodeAddresses(ctx context.Context, name types.NodeName) ([]v1.No
+@@ -1560,11 +1617,11 @@ func (c *Cloud) NodeAddresses(ctx context.Context, name types.NodeName) ([]v1.No
  		return addresses, nil
  	}
  
@@ -709,7 +1027,7 @@ index ff180e7f61e..226681862ea 100644
  }
  
  // parseMetadataLocalHostname parses the output of "local-hostname" metadata.
-@@ -1722,6 +1779,14 @@ func (c *Cloud) NodeAddressesByProviderID(ctx context.Context, providerID string
+@@ -1648,6 +1705,14 @@ func (c *Cloud) NodeAddressesByProviderID(ctx context.Context, providerID string
  		return nil, err
  	}
  
@@ -724,7 +1042,7 @@ index ff180e7f61e..226681862ea 100644
  	instance, err := describeInstance(c.ec2, instanceID)
  	if err != nil {
  		return nil, err
-@@ -1738,6 +1803,11 @@ func (c *Cloud) InstanceExistsByProviderID(ctx context.Context, providerID strin
+@@ -1664,6 +1729,11 @@ func (c *Cloud) InstanceExistsByProviderID(ctx context.Context, providerID strin
  		return false, err
  	}
  
@@ -736,7 +1054,7 @@ index ff180e7f61e..226681862ea 100644
  	request := &ec2.DescribeInstancesInput{
  		InstanceIds: []*string{instanceID.awsString()},
  	}
-@@ -1773,6 +1843,11 @@ func (c *Cloud) InstanceShutdownByProviderID(ctx context.Context, providerID str
+@@ -1699,6 +1769,11 @@ func (c *Cloud) InstanceShutdownByProviderID(ctx context.Context, providerID str
  		return false, err
  	}
  
@@ -748,7 +1066,7 @@ index ff180e7f61e..226681862ea 100644
  	request := &ec2.DescribeInstancesInput{
  		InstanceIds: []*string{instanceID.awsString()},
  	}
-@@ -1809,15 +1884,15 @@ func (c *Cloud) InstanceID(ctx context.Context, nodeName types.NodeName) (string
+@@ -1735,15 +1810,15 @@ func (c *Cloud) InstanceID(ctx context.Context, nodeName types.NodeName) (string
  	if c.selfAWSInstance.nodeName == nodeName {
  		return "/" + c.selfAWSInstance.availabilityZone + "/" + c.selfAWSInstance.awsID, nil
  	}
@@ -767,7 +1085,7 @@ index ff180e7f61e..226681862ea 100644
  }
  
  // InstanceTypeByProviderID returns the cloudprovider instance type of the node with the specified unique providerID
-@@ -1829,6 +1904,10 @@ func (c *Cloud) InstanceTypeByProviderID(ctx context.Context, providerID string)
+@@ -1755,6 +1830,10 @@ func (c *Cloud) InstanceTypeByProviderID(ctx context.Context, providerID string)
  		return "", err
  	}
  
@@ -778,7 +1096,7 @@ index ff180e7f61e..226681862ea 100644
  	instance, err := describeInstance(c.ec2, instanceID)
  	if err != nil {
  		return "", err
-@@ -1842,11 +1921,11 @@ func (c *Cloud) InstanceType(ctx context.Context, nodeName types.NodeName) (stri
+@@ -1768,11 +1847,11 @@ func (c *Cloud) InstanceType(ctx context.Context, nodeName types.NodeName) (stri
  	if c.selfAWSInstance.nodeName == nodeName {
  		return c.selfAWSInstance.instanceType, nil
  	}
@@ -793,7 +1111,7 @@ index ff180e7f61e..226681862ea 100644
  }
  
  // GetCandidateZonesForDynamicVolume retrieves  a list of all the zones in which nodes are running
-@@ -1933,6 +2012,14 @@ func (c *Cloud) GetZoneByProviderID(ctx context.Context, providerID string) (clo
+@@ -1859,6 +1938,14 @@ func (c *Cloud) GetZoneByProviderID(ctx context.Context, providerID string) (clo
  	if err != nil {
  		return cloudprovider.Zone{}, err
  	}
@@ -808,7 +1126,7 @@ index ff180e7f61e..226681862ea 100644
  	instance, err := c.getInstanceByID(string(instanceID))
  	if err != nil {
  		return cloudprovider.Zone{}, err
-@@ -1950,12 +2037,12 @@ func (c *Cloud) GetZoneByProviderID(ctx context.Context, providerID string) (clo
+@@ -1876,12 +1963,12 @@ func (c *Cloud) GetZoneByProviderID(ctx context.Context, providerID string) (clo
  // This is particularly useful in external cloud providers where the kubelet
  // does not initialize node data.
  func (c *Cloud) GetZoneByNodeName(ctx context.Context, nodeName types.NodeName) (cloudprovider.Zone, error) {
@@ -823,7 +1141,7 @@ index ff180e7f61e..226681862ea 100644
  		Region:        c.region,
  	}
  
-@@ -2001,25 +2088,37 @@ type awsInstance struct {
+@@ -1927,25 +2014,37 @@ type awsInstance struct {
  
  	// instance type
  	instanceType string
@@ -871,7 +1189,7 @@ index ff180e7f61e..226681862ea 100644
  }
  
  // Gets the full information about this instance from the EC2 API
-@@ -2032,13 +2131,12 @@ func (i *awsInstance) describeInstance() (*ec2.Instance, error) {
+@@ -1958,13 +2057,12 @@ func (i *awsInstance) describeInstance() (*ec2.Instance, error) {
  // Otherwise the mountDevice is assigned by finding the first available mountDevice, and it is returned with alreadyAttached=false.
  func (c *Cloud) getMountDevice(
  	i *awsInstance,
@@ -886,7 +1204,7 @@ index ff180e7f61e..226681862ea 100644
  		name := aws.StringValue(blockDevice.DeviceName)
  		name = strings.TrimPrefix(name, "/dev/sd")
  		name = strings.TrimPrefix(name, "/dev/xvd")
-@@ -2409,12 +2507,17 @@ func (d *awsDisk) deleteVolume() (bool, error) {
+@@ -2335,12 +2433,17 @@ func (d *awsDisk) deleteVolume() (bool, error) {
  	return true, nil
  }
  
@@ -905,7 +1223,7 @@ index ff180e7f61e..226681862ea 100644
  	instanceID, err := c.metadata.GetMetadata("instance-id")
  	if err != nil {
  		return nil, fmt.Errorf("error fetching instance-id from ec2 metadata service: %q", err)
-@@ -2432,7 +2535,7 @@ func (c *Cloud) buildSelfAWSInstance() (*awsInstance, error) {
+@@ -2358,7 +2461,7 @@ func (c *Cloud) buildSelfAWSInstance() (*awsInstance, error) {
  	if err != nil {
  		return nil, fmt.Errorf("error finding instance %s: %q", instanceID, err)
  	}
@@ -914,7 +1232,7 @@ index ff180e7f61e..226681862ea 100644
  }
  
  // wrapAttachError wraps the error returned by an AttachVolume request with
-@@ -2464,7 +2567,7 @@ func (c *Cloud) AttachDisk(diskName KubernetesVolumeID, nodeName types.NodeName)
+@@ -2390,7 +2493,7 @@ func (c *Cloud) AttachDisk(diskName KubernetesVolumeID, nodeName types.NodeName)
  		return "", err
  	}
  
@@ -923,7 +1241,7 @@ index ff180e7f61e..226681862ea 100644
  	if err != nil {
  		return "", fmt.Errorf("error finding instance %s: %q", nodeName, err)
  	}
-@@ -2485,7 +2588,7 @@ func (c *Cloud) AttachDisk(diskName KubernetesVolumeID, nodeName types.NodeName)
+@@ -2411,7 +2514,7 @@ func (c *Cloud) AttachDisk(diskName KubernetesVolumeID, nodeName types.NodeName)
  		}
  	}()
  
@@ -932,7 +1250,7 @@ index ff180e7f61e..226681862ea 100644
  	if err != nil {
  		return "", err
  	}
-@@ -2576,9 +2679,12 @@ func (c *Cloud) DetachDisk(diskName KubernetesVolumeID, nodeName types.NodeName)
+@@ -2502,9 +2605,12 @@ func (c *Cloud) DetachDisk(diskName KubernetesVolumeID, nodeName types.NodeName)
  		return "", nil
  	}
  
@@ -947,7 +1265,7 @@ index ff180e7f61e..226681862ea 100644
  	if err != nil {
  		return "", err
  	}
-@@ -2916,7 +3022,7 @@ func (c *Cloud) DisksAreAttached(nodeDisks map[types.NodeName][]KubernetesVolume
+@@ -2842,7 +2948,7 @@ func (c *Cloud) DisksAreAttached(nodeDisks map[types.NodeName][]KubernetesVolume
  		for _, diskName := range diskNames {
  			setNodeDisk(attached, diskName, nodeName, false)
  		}
@@ -956,7 +1274,7 @@ index ff180e7f61e..226681862ea 100644
  	}
  
  	// Note that we get instances regardless of state.
-@@ -5001,12 +5107,6 @@ func (c *Cloud) describeInstances(filters []*ec2.Filter) ([]*ec2.Instance, error
+@@ -4927,12 +5033,6 @@ func (c *Cloud) describeInstances(filters []*ec2.Filter) ([]*ec2.Instance, error
  	return matches, nil
  }
  
@@ -969,7 +1287,7 @@ index ff180e7f61e..226681862ea 100644
  // mapInstanceToNodeName maps a EC2 instance to a k8s NodeName, by extracting the PrivateDNSName
  func mapInstanceToNodeName(i *ec2.Instance) types.NodeName {
  	return types.NodeName(aws.StringValue(i.PrivateDnsName))
-@@ -5020,12 +5120,15 @@ var aliveFilter = []string{
+@@ -4946,12 +5046,15 @@ var aliveFilter = []string{
  	ec2.InstanceStateNameStopped,
  }
  
@@ -989,7 +1307,7 @@ index ff180e7f61e..226681862ea 100644
  		// exclude instances in "terminated" state
  		newEc2Filter("instance-state-name", aliveFilter...),
  	}
-@@ -5041,13 +5144,13 @@ func (c *Cloud) findInstanceByNodeName(nodeName types.NodeName) (*ec2.Instance,
+@@ -4967,13 +5070,13 @@ func (c *Cloud) findInstanceByNodeName(nodeName types.NodeName) (*ec2.Instance,
  	if len(instances) > 1 {
  		return nil, fmt.Errorf("multiple instances found for name: %s", nodeName)
  	}
@@ -1007,7 +1325,7 @@ index ff180e7f61e..226681862ea 100644
  
  	// we leverage node cache to try to retrieve node's provider id first, as
  	// get instance by provider id is way more efficient than by filters in
-@@ -5055,9 +5158,14 @@ func (c *Cloud) getInstanceByNodeName(nodeName types.NodeName) (*ec2.Instance, e
+@@ -4981,9 +5084,14 @@ func (c *Cloud) getInstanceByNodeName(nodeName types.NodeName) (*ec2.Instance, e
  	awsID, err := c.nodeNameToProviderID(nodeName)
  	if err != nil {
  		klog.V(3).Infof("Unable to convert node name %q to aws instanceID, fall back to findInstanceByNodeName: %v", nodeName, err)
@@ -1024,7 +1342,7 @@ index ff180e7f61e..226681862ea 100644
  	}
  	if err == nil && instance == nil {
  		return nil, cloudprovider.InstanceNotFound
-@@ -5065,17 +5173,16 @@ func (c *Cloud) getInstanceByNodeName(nodeName types.NodeName) (*ec2.Instance, e
+@@ -4991,17 +5099,16 @@ func (c *Cloud) getInstanceByNodeName(nodeName types.NodeName) (*ec2.Instance, e
  	return instance, err
  }
  
@@ -1049,9 +1367,9 @@ index ff180e7f61e..226681862ea 100644
  }
  
  func (c *Cloud) nodeNameToProviderID(nodeName types.NodeName) (InstanceID, error) {
-@@ -5131,3 +5238,88 @@ func getInitialAttachDetachDelay(status string) time.Duration {
+@@ -5091,3 +5198,88 @@ func constructStsEndpoint(arnString, region string) (string, error) {
  	}
- 	return volumeAttachmentStatusInitialDelay
+ 	return fmt.Sprintf("sts.%s.%s", region, suffix), nil
  }
 +
 +// isFargateNode returns true if given node runs on Fargate compute
@@ -1139,10 +1457,10 @@ index ff180e7f61e..226681862ea 100644
 +	return eni.NetworkInterfaces[0], nil
 +}
 diff --git a/staging/src/k8s.io/legacy-cloud-providers/aws/aws_fakes.go b/staging/src/k8s.io/legacy-cloud-providers/aws/aws_fakes.go
-index 500a81a696a..8a5eda69d38 100644
+index 0113c55554f..b0662072f43 100644
 --- a/staging/src/k8s.io/legacy-cloud-providers/aws/aws_fakes.go
 +++ b/staging/src/k8s.io/legacy-cloud-providers/aws/aws_fakes.go
-@@ -311,6 +311,35 @@ func (ec2i *FakeEC2Impl) DescribeVpcs(request *ec2.DescribeVpcsInput) (*ec2.Desc
+@@ -310,6 +310,35 @@ func (ec2i *FakeEC2Impl) DescribeVpcs(request *ec2.DescribeVpcsInput) (*ec2.Desc
  	return &ec2.DescribeVpcsOutput{Vpcs: []*ec2.Vpc{{CidrBlock: aws.String("172.20.0.0/16")}}}, nil
  }
  
@@ -1209,10 +1527,10 @@ index ed6e276cb22..cdbe1f1664c 100644
  
  	_, err = c.ec2.CreateRoute(request)
 diff --git a/staging/src/k8s.io/legacy-cloud-providers/aws/aws_test.go b/staging/src/k8s.io/legacy-cloud-providers/aws/aws_test.go
-index ad7de16331f..1834c4e5d7c 100644
+index bc6cb1b18ac..d0d05d76603 100644
 --- a/staging/src/k8s.io/legacy-cloud-providers/aws/aws_test.go
 +++ b/staging/src/k8s.io/legacy-cloud-providers/aws/aws_test.go
-@@ -1528,20 +1528,20 @@ func TestFindInstanceByNodeNameExcludesTerminatedInstances(t *testing.T) {
+@@ -1516,20 +1516,20 @@ func TestFindInstanceByNodeNameExcludesTerminatedInstances(t *testing.T) {
  			return
  		}
  
@@ -1237,7 +1555,7 @@ index ad7de16331f..1834c4e5d7c 100644
  				return
  			}
  		}
-@@ -3528,3 +3528,57 @@ func Test_parseStringSliceAnnotation(t *testing.T) {
+@@ -3538,3 +3538,57 @@ func Test_parseStringSliceAnnotation(t *testing.T) {
  		})
  	}
  }

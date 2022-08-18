@@ -1,7 +1,8 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Prateek Gogia <pgogia@amazon.com>
 Date: Thu, 14 Jul 2022 19:13:22 -0500
-Subject: [PATCH] --EKS-PATCH-- Add rate limiting when calling STS assume role API
+Subject: [PATCH] --EKS-PATCH-- Add rate limiting when calling STS assume role
+ API
 
 Cherry-pick of upstream Kubernetes PR # 110706
 The upstream PR is merged and should be available in future k/k releases.
@@ -36,7 +37,7 @@ index 172952369d5..9e2c5d84e67 100644
  	sdkProvider.creds = creds
 diff --git a/staging/src/k8s.io/legacy-cloud-providers/aws/aws_assumerole_provider.go b/staging/src/k8s.io/legacy-cloud-providers/aws/aws_assumerole_provider.go
 new file mode 100644
-index 00000000000..2ff7d6afc49
+index 00000000000..0cbff6ce2b3
 --- /dev/null
 +++ b/staging/src/k8s.io/legacy-cloud-providers/aws/aws_assumerole_provider.go
 @@ -0,0 +1,62 @@

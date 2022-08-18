@@ -1,16 +1,17 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Rasita Pai <prasita@amazon.com>
 Date: Wed, 13 Oct 2021 12:52:13 -0700
-Subject: [PATCH] --EKS-PATCH-- Add Fargate support for EKS 1.17 // owner:
- @saranbalaji90 // alpha: TBD // // Enables kubelet to validate and restrict
- pods based on security contexts. PodSecurityValidator featuregate.Feature =
- PodSecurityValidator ref.
- https://code.amazon.com/packages/EKSDataPlaneKubernetes/logs/heads/release-1.16.8-eks
- Sri Saran Balaji Vellore Rajakumar Adding fargate support to aws cloud
- provider
- https://code.amazon.com/packages/EKSDataPlaneKubernetes/commits/cceb46f3b6a2228fabd0e3ca79bdc3b5caf43f76#
+Subject: [PATCH] --EKS-PRIVATE-- Add Fargate support for EKS 1.17
 
---EKS-PRIVATE--
+// owner: @saranbalaji90
+// alpha: TBD
+//
+// Enables kubelet to validate and restrict pods based on security contexts.
+PodSecurityValidator featuregate.Feature = "PodSecurityValidator"
+ref. https://code.amazon.com/packages/EKSDataPlaneKubernetes/logs/heads/release-1.16.8-eks
+
+Sri Saran Balaji Vellore Rajakumar
+Adding fargate support to aws cloud provider https://code.amazon.com/packages/EKSDataPlaneKubernetes/commits/cceb46f3b6a2228fabd0e3ca79bdc3b5caf43f76#
 
 Sri Saran Balaji Vellore Rajakumar
 Adding PodCPULimit check for fargate pods
@@ -45,12 +46,12 @@ Signed-off-by: Jyoti Mahapatra<jyotima@amazon.com>
  create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator.go
 
 diff --git a/pkg/features/kube_features.go b/pkg/features/kube_features.go
-index 3bb8a7af0e2..e20fde0a858 100644
+index 61db14afc44..2fa74fc6707 100644
 --- a/pkg/features/kube_features.go
 +++ b/pkg/features/kube_features.go
-@@ -411,6 +411,12 @@ const (
- 	// Disables the vSphere in-tree driver.
- 	InTreePluginvSphereUnregister featuregate.Feature = "InTreePluginvSphereUnregister"
+@@ -392,6 +392,12 @@ const (
+ 	// NodePublishVolume calls.
+ 	DelegateFSGroupToCSIDriver featuregate.Feature = "DelegateFSGroupToCSIDriver"
  
 +	// owner: @saranbalaji90
 +	// alpha: TBD
@@ -58,23 +59,23 @@ index 3bb8a7af0e2..e20fde0a858 100644
 +	// Enables kubelet to validate and restrict pods based on security contexts.
 +	PodSecurityValidator featuregate.Feature = "PodSecurityValidator"
 +
- 	// owner: @adisky
- 	// alpha: v1.14
- 	// beta: v1.18
-@@ -876,6 +882,7 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
- 	KubeletPodResourcesGetAllocatable:              {Default: false, PreRelease: featuregate.Alpha},
- 	NamespaceDefaultLabelName:                      {Default: true, PreRelease: featuregate.Beta}, // graduate to GA and lock to default in 1.22, remove in 1.24
- 	CSIVolumeHealth:                                {Default: false, PreRelease: featuregate.Alpha},
+ 	// owner: @RobertKrawitz, @derekwaynecarr
+ 	// beta: v1.15
+ 	// GA: v1.20
+@@ -922,6 +928,7 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
+ 	MemoryQoS:                                      {Default: false, PreRelease: featuregate.Alpha},
+ 	CPUManagerPolicyOptions:                        {Default: false, PreRelease: featuregate.Alpha},
+ 	ControllerManagerLeaderMigration:               {Default: true, PreRelease: featuregate.Beta},
 +	PodSecurityValidator:                           {Default: false, PreRelease: featuregate.Alpha},
  
  	// inherited features from generic apiserver, relisted here to get a conflict if it is changed
  	// unintentionally on either side:
 diff --git a/pkg/kubelet/apis/config/fuzzer/fuzzer.go b/pkg/kubelet/apis/config/fuzzer/fuzzer.go
-index b5192d333de..410f08947cb 100644
+index 5d7ebb9cd58..f1eede94c5e 100644
 --- a/pkg/kubelet/apis/config/fuzzer/fuzzer.go
 +++ b/pkg/kubelet/apis/config/fuzzer/fuzzer.go
-@@ -19,7 +19,7 @@ package fuzzer
- import (
+@@ -20,7 +20,7 @@ import (
+ 	"math/rand"
  	"time"
  
 -	"github.com/google/gofuzz"
@@ -82,19 +83,27 @@ index b5192d333de..410f08947cb 100644
  
  	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
  	runtimeserializer "k8s.io/apimachinery/pkg/runtime/serializer"
-@@ -105,6 +105,7 @@ func Funcs(codecs runtimeserializer.CodecFactory) []interface{} {
+@@ -108,6 +108,7 @@ func Funcs(codecs runtimeserializer.CodecFactory) []interface{} {
  			if obj.Logging.Format == "" {
  				obj.Logging.Format = "text"
  			}
 +			obj.EnableProfilingHandler = true
  			obj.EnableSystemLogHandler = true
+ 			obj.MemoryThrottlingFactor = utilpointer.Float64Ptr(rand.Float64())
  		},
- 	}
 diff --git a/pkg/kubelet/cm/helpers_linux.go b/pkg/kubelet/cm/helpers_linux.go
-index aa5c37639dc..daec4119772 100644
+index 33b14e31a35..d4e870043cd 100644
 --- a/pkg/kubelet/cm/helpers_linux.go
 +++ b/pkg/kubelet/cm/helpers_linux.go
-@@ -34,7 +34,8 @@ import (
+@@ -25,14 +25,15 @@ import (
+ 
+ 	libcontainercgroups "github.com/opencontainers/runc/libcontainer/cgroups"
+ 
+-	"k8s.io/api/core/v1"
++	v1 "k8s.io/api/core/v1"
+ 	"k8s.io/apimachinery/pkg/types"
+ 	utilfeature "k8s.io/apiserver/pkg/util/feature"
+ 	"k8s.io/kubernetes/pkg/api/v1/resource"
  	v1helper "k8s.io/kubernetes/pkg/apis/core/v1/helper"
  	v1qos "k8s.io/kubernetes/pkg/apis/core/v1/helper/qos"
  	kubefeatures "k8s.io/kubernetes/pkg/features"
@@ -104,7 +113,7 @@ index aa5c37639dc..daec4119772 100644
  )
  
  const (
-@@ -135,6 +136,7 @@ func ResourceConfigForPod(pod *v1.Pod, enforceCPULimits bool, cpuPeriod uint64)
+@@ -133,6 +134,7 @@ func ResourceConfigForPod(pod *v1.Pod, enforceCPULimits bool, cpuPeriod uint64,
  	// convert to CFS values
  	cpuShares := MilliCPUToShares(cpuRequests)
  	cpuQuota := MilliCPUToQuota(cpuLimits, int64(cpuPeriod))
@@ -112,17 +121,8 @@ index aa5c37639dc..daec4119772 100644
  
  	// track if limits were applied for each resource.
  	memoryLimitsDeclared := true
-@@ -222,7 +224,7 @@ func getCgroupSubsystemsV1() (*CgroupSubsystems, error) {
- 
- // getCgroupSubsystemsV2 returns information about the enabled cgroup v2 subsystems
- func getCgroupSubsystemsV2() (*CgroupSubsystems, error) {
--	content, err := ioutil.ReadFile(filepath.Join(util.CgroupRoot, "cgroup.controllers"))
-+	content, err := ioutil.ReadFile(filepath.Join(cmutil.CgroupRoot, "cgroup.controllers"))
- 	if err != nil {
- 		return nil, err
- 	}
-@@ -231,10 +233,10 @@ func getCgroupSubsystemsV2() (*CgroupSubsystems, error) {
- 	controllers := strings.Fields(string(content))
+@@ -241,10 +243,10 @@ func getCgroupSubsystemsV2() (*CgroupSubsystems, error) {
+ 	mounts := []libcontainercgroups.Mount{}
  	mountPoints := make(map[string]string, len(controllers))
  	for _, controller := range controllers {
 -		mountPoints[controller] = util.CgroupRoot
@@ -136,10 +136,10 @@ index aa5c37639dc..daec4119772 100644
  		}
  		mounts = append(mounts, m)
 diff --git a/pkg/kubelet/kubelet.go b/pkg/kubelet/kubelet.go
-index 5eedf7c66e2..d02ecd13fe5 100644
+index d7bc7c2cb79..b3f73e76f67 100644
 --- a/pkg/kubelet/kubelet.go
 +++ b/pkg/kubelet/kubelet.go
-@@ -811,6 +811,9 @@ func NewMainKubelet(kubeCfg *kubeletconfiginternal.KubeletConfiguration,
+@@ -851,6 +851,9 @@ func NewMainKubelet(kubeCfg *kubeletconfiginternal.KubeletConfiguration,
  		klet.appArmorValidator = apparmor.NewValidator(containerRuntime)
  		klet.softAdmitHandlers.AddPodAdmitHandler(lifecycle.NewAppArmorAdmitHandler(klet.appArmorValidator))
  	}
@@ -150,18 +150,18 @@ index 5eedf7c66e2..d02ecd13fe5 100644
  	klet.softAdmitHandlers.AddPodAdmitHandler(lifecycle.NewProcMountAdmitHandler(klet.containerRuntime))
  
 diff --git a/pkg/kubelet/kuberuntime/kuberuntime_container_linux.go b/pkg/kubelet/kuberuntime/kuberuntime_container_linux.go
-index 85ad47772e8..b7a6bd89a30 100644
+index ecea5f70e1a..5e6a8609454 100644
 --- a/pkg/kubelet/kuberuntime/kuberuntime_container_linux.go
 +++ b/pkg/kubelet/kuberuntime/kuberuntime_container_linux.go
-@@ -30,6 +30,7 @@ import (
- 	kubefeatures "k8s.io/kubernetes/pkg/features"
+@@ -34,6 +34,7 @@ import (
  	kubecontainer "k8s.io/kubernetes/pkg/kubelet/container"
  	"k8s.io/kubernetes/pkg/kubelet/qos"
+ 	kubelettypes "k8s.io/kubernetes/pkg/kubelet/types"
 +	"k8s.io/kubernetes/pkg/kubelet/util"
  )
  
  // applyPlatformSpecificContainerConfig applies platform specific configurations to runtimeapi.ContainerConfig.
-@@ -83,6 +84,8 @@ func (m *kubeGenericRuntimeManager) generateLinuxContainerConfig(container *v1.C
+@@ -94,6 +95,8 @@ func (m *kubeGenericRuntimeManager) generateLinuxContainerConfig(container *v1.C
  			cpuPeriod = int64(m.cpuCFSQuotaPeriod.Duration / time.Microsecond)
  		}
  		cpuQuota := milliCPUToQuota(cpuLimit.MilliValue(), cpuPeriod)
@@ -499,7 +499,7 @@ index 00000000000..aca39d8c6f5
 +	return true, ""
 +}
 diff --git a/pkg/kubelet/server/server.go b/pkg/kubelet/server/server.go
-index a6e55947f80..19121550ee7 100644
+index 67e9469ad30..25e0272d8dc 100644
 --- a/pkg/kubelet/server/server.go
 +++ b/pkg/kubelet/server/server.go
 @@ -476,8 +476,7 @@ func (s *Server) InstallDebuggingHandlers() {
@@ -549,7 +549,7 @@ index c2969a51126..1f5edaee902 100644
 +	return currentCpuQuota
 +}
 diff --git a/staging/src/k8s.io/legacy-cloud-providers/aws/aws.go b/staging/src/k8s.io/legacy-cloud-providers/aws/aws.go
-index ff180e7f61e..2a5fe901100 100644
+index 0723f6776c6..7f3e4fe6680 100644
 --- a/staging/src/k8s.io/legacy-cloud-providers/aws/aws.go
 +++ b/staging/src/k8s.io/legacy-cloud-providers/aws/aws.go
 @@ -249,6 +249,9 @@ const volumeAttachmentStuck = "VolumeAttachmentStuck"
@@ -668,8 +668,8 @@ index ff180e7f61e..2a5fe901100 100644
  		info, err := awsCloud.selfAWSInstance.describeInstance()
  		if err != nil {
  			return nil, err
-@@ -1495,6 +1539,16 @@ func (c *Cloud) HasClusterID() bool {
- 	return len(c.tagging.clusterID()) > 0
+@@ -1506,11 +1550,24 @@ func isAWSNotFound(err error) bool {
+ 	return false
  }
  
 +// getNodeAddressesForFargateNode generates list of Node addresses for Fargate node.
@@ -682,10 +682,6 @@ index ff180e7f61e..2a5fe901100 100644
 +	return addresses
 +}
 +
- // isAWSNotFound returns true if the error was caused by an AWS API 404 response.
- func isAWSNotFound(err error) bool {
- 	if err != nil {
-@@ -1509,8 +1563,11 @@ func isAWSNotFound(err error) bool {
  // NodeAddresses is an implementation of Instances.NodeAddresses.
  func (c *Cloud) NodeAddresses(ctx context.Context, name types.NodeName) ([]v1.NodeAddress, error) {
  	if c.selfAWSInstance.nodeName == name || len(name) == 0 {
