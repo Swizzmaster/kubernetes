@@ -21,7 +21,7 @@ Signed-off-by: Gyuho Lee <leegyuho@amazon.com>
  2 files changed, 7 insertions(+), 3 deletions(-)
 
 diff --git a/staging/src/k8s.io/apiserver/pkg/server/healthz/healthz.go b/staging/src/k8s.io/apiserver/pkg/server/healthz/healthz.go
-index e19505e9c1f..682a9c8e212 100644
+index 3a7280f6798..43de02fed27 100644
 --- a/staging/src/k8s.io/apiserver/pkg/server/healthz/healthz.go
 +++ b/staging/src/k8s.io/apiserver/pkg/server/healthz/healthz.go
 @@ -248,8 +248,12 @@ func handleRootHealth(name string, firstTimeHealthy func(), checks ...HealthChec

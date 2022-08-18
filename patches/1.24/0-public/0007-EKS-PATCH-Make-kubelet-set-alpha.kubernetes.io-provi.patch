@@ -31,10 +31,10 @@ From the original PR description:
  2 files changed, 89 insertions(+), 18 deletions(-)
 
 diff --git a/pkg/kubelet/nodestatus/setters.go b/pkg/kubelet/nodestatus/setters.go
-index d09e992e0a6..60c03244d8b 100644
+index 984cad5a619..94ffc94172e 100644
 --- a/pkg/kubelet/nodestatus/setters.go
 +++ b/pkg/kubelet/nodestatus/setters.go
-@@ -93,14 +93,28 @@ func NodeAddress(nodeIPs []net.IP, // typically Kubelet.nodeIPs
+@@ -94,14 +94,28 @@ func NodeAddress(nodeIPs []net.IP, // typically Kubelet.nodeIPs
  			klog.V(4).InfoS("Using secondary node IP", "IP", secondaryNodeIP.String())
  		}
  

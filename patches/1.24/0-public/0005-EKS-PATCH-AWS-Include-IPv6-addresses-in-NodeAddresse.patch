@@ -107,10 +107,10 @@ index 2a5f44356e6..280e3d830a5 100644
  	publicIPAddress := aws.StringValue(instance.PublicIpAddress)
  	if publicIPAddress != "" {
 diff --git a/staging/src/k8s.io/legacy-cloud-providers/aws/aws_fakes.go b/staging/src/k8s.io/legacy-cloud-providers/aws/aws_fakes.go
-index 06fdc92493b..fac9ac12795 100644
+index c970a6aaa02..de39d4eb63b 100644
 --- a/staging/src/k8s.io/legacy-cloud-providers/aws/aws_fakes.go
 +++ b/staging/src/k8s.io/legacy-cloud-providers/aws/aws_fakes.go
-@@ -40,6 +40,7 @@ type FakeAWSServices struct {
+@@ -41,6 +41,7 @@ type FakeAWSServices struct {
  	selfInstance                *ec2.Instance
  	networkInterfacesMacs       []string
  	networkInterfacesPrivateIPs [][]string
@@ -118,7 +118,7 @@ index 06fdc92493b..fac9ac12795 100644
  	networkInterfacesVpcIDs     []string
  
  	ec2      FakeEC2
-@@ -375,6 +376,13 @@ func (m *FakeMetadata) GetMetadata(key string) (string, error) {
+@@ -376,6 +377,13 @@ func (m *FakeMetadata) GetMetadata(key string) (string, error) {
  				}
  			}
  		}
