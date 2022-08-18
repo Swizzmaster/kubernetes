@@ -16,10 +16,10 @@ cr: https://code.amazon.com/reviews/CR-51146892
  3 files changed, 6 insertions(+), 1 deletion(-)
 
 diff --git a/staging/src/k8s.io/apiserver/pkg/server/options/etcd.go b/staging/src/k8s.io/apiserver/pkg/server/options/etcd.go
-index dfadadbcadf..be4950b7304 100644
+index 41075fea247..1ff41c6bcb9 100644
 --- a/staging/src/k8s.io/apiserver/pkg/server/options/etcd.go
 +++ b/staging/src/k8s.io/apiserver/pkg/server/options/etcd.go
-@@ -155,6 +155,9 @@ func (s *EtcdOptions) AddFlags(fs *pflag.FlagSet) {
+@@ -151,6 +151,9 @@ func (s *EtcdOptions) AddFlags(fs *pflag.FlagSet) {
  	fs.StringSliceVar(&s.StorageConfig.Transport.ServerList, "etcd-servers", s.StorageConfig.Transport.ServerList,
  		"List of etcd servers to connect with (scheme://ip:port), comma separated.")
  
@@ -44,12 +44,12 @@ index aa4163877fa..ec201787e46 100644
  	KeyFile       string
  	CertFile      string
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/factory/etcd3.go b/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/factory/etcd3.go
-index 63e18699d6b..6cdb8575f4d 100644
+index a849d93b595..07b24553c18 100644
 --- a/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/factory/etcd3.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/factory/etcd3.go
-@@ -173,6 +173,7 @@ func newETCD3Client(c storagebackend.TransportConfig) (*clientv3.Client, error)
- 		dialOptions = append(dialOptions, grpc.WithContextDialer(dialer))
+@@ -211,6 +211,7 @@ func newETCD3Client(c storagebackend.TransportConfig) (*clientv3.Client, error)
  	}
+ 
  	cfg := clientv3.Config{
 +		AutoSyncInterval:     c.AutoSyncInterval,
  		DialTimeout:          dialTimeout,
