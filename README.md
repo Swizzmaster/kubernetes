@@ -154,37 +154,86 @@ isn't a test for the patch, one should be added.
 
 ### Rebasing Patches on a New Kubernetes Version
 
-**Note: only create a CR for one version at a time.**
+#### New patch version
 
-For a new minor version, copy the preceding directory then edit the GIT_TAG to
-the new version you wish to rebase the patches on.  For a new patch version,
-find the existing directory then edit the GIT_TAG or use
-`update_patches_base_version.sh` like:
+A GitLab pipeline automatically finds new Kubernetes patch versions from GitHub
+  and create MRs like
+  https://gitlab.aws.dev/eks-dataplane/eks-kubernetes-patches/-/merge_requests/34.
+  which automatically merge if tests pass
+
+If tests fail, for example because one of our patches encountered conflicts and
+failed to apply, then somebody needs to checkout the branch and resolve
+conflicts.
+
+#### New minor version
+
+**Note: only create a MR for one version at a time.**
+
+Say the last EKS version was based on kubernetes minor version "A" like 1.23
+and you have a new kubernetes minor version "B" like 1.24 (`set
+K8S_MINOR_VERSION_A 1.23; set K8S_MINOR_VERSION_B 1.24`).
+
+1. Apply patches from A. (This is necessary for git to do 3 way merges later.)
+```shell
+./hack/apply_patches.sh patches/$K8S_MINOR_VERSION_A/ $K8S_ROOT
 ```
-hack/update_patches_base_version.sh patches/1.23/ ~/workplace/EKSKubernetesPatches/src/EKSDataPlaneKubernetes/
+2. Copy patches from A to B.
+```shell
+cp -r patches/$K8S_MINOR_VERSION_A patches/$K8S_MINOR_VERSION_B
 ```
-Commit these changes before you make any changes to patches.
-
-Then the process is the same as above.  You can run `apply_patches.sh` followed
-by `prepare_patches.sh` or you can attempt to run `cr`, making sure to run the
-pre-cr hook to create a patch review cr against EKSDataPlaneKubernetes.  If the
-patches don't apply, this step will fail.
-
-For every patch that fails you must decide to edit or drop it. Submit a cr with
-the patch edited or dropped. Repeat this process until all patches succeed for
-the new GIT_TAG.
-
-You can pass a third argument for the patch number to start at to
-`apply_patches.sh`, which allows you to fix a patch, go back into the
-EKSKubernetesPatches repository and attempt to apply the next patch.
-
-For example, in order skip checking out the upstream tag and instead
-immediately start applying the 4th patch:
-
+3. Update B's GIT_TAG (`set GIT_TAG v1.24.3`).
+```shell
+echo $GIT_TAG > patches/$K8S_MINOR_VERSION_B
 ```
-./hack/apply_patches.sh patches/1.22 ~/workplace/EKSKubernetesPatches/src/EKSDataPlaneKubernetes/ 4
+4. Commit changes so far.
+```shell
+git add patches/$K8S_MINOR_VERSION_B
+git commit -m "Bootstrap $K8S_MINOR_VERSION_B"
 ```
-
+5. Apply patches from B.
+```shell
+./hack/apply_patches.sh patches/$K8S_MINOR_VERSION_B/ $K8S_ROOT
+```
+6. If a patch fails (`set BAD_PATCH $PWD/patches/$K8S_MINOR_VERSION_B/0-public/0005`):
+    1. Decide if it can be dropped, for example because it is already applied in
+       the new minor version.
+    2. If so, delete the patch from the patches folder, commit the delete,
+       then move on to the next patch.
+       ```shell
+       rm $BAD_PATCH
+       git add $BAD_PATCH
+       git commit -m "Drop patch 0005"`
+       ```
+    3. If not, apply the patch with 3-way merge and resolve conflicts manually.
+       ```shell
+       pushd $K8S_ROOT
+       git am --3way $BAD_PATCH
+       ```
+    4. Once conflicts are resolved and the new version of the patch is committed
+       at the HEAD of your $K8S_ROOT repository, replace the old version of the
+       patch with the new, commit the change, then move on to the next patch.
+       ```shell
+       git format-patch --zero-commit --no-numbered --no-signature HEAD^
+       mv ./000*.patch $BAD_PATCH
+       ```
+7. Apply patches from B starting from the patch that failed (`set BAD_PATCH_NUM
+   5`).
+```shell
+./hack/apply_patches.sh patches/$K8S_MINOR_VERSION_B/ $K8S_ROOT $BAD_PATCH_NUM
+```
+8. Repeat 6-7 until all patches apply successfully.
+9. Regenerate all patches.
+```shell
+./hack/apply_patches.sh patches/$K8S_MINOR_VERSION_B/ $K8S_ROOT
+./hack/prepare_patches.sh $K8S_ROOT patches/$K8S_MINOR_VERSION_B/
+```
+10. Add the new minor version to CI.
+```shell
+vim .gitlab-ci.yaml
+git add .gitlab-ci.yaml
+git commit -m "Add $K8S_MINOR_VERSION_B to CI
+```
+11. Create an MR.
 
 ## Build
 
