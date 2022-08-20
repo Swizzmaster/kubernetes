@@ -185,16 +185,22 @@ cp -r patches/$K8S_MINOR_VERSION_A patches/$K8S_MINOR_VERSION_B
 ```shell
 echo $GIT_TAG > patches/$K8S_MINOR_VERSION_B
 ```
-4. Commit changes so far.
+4. Commit patches.
 ```shell
 git add patches/$K8S_MINOR_VERSION_B
-git commit -m "Bootstrap $K8S_MINOR_VERSION_B"
+git commit -m "Bootstrap $K8S_MINOR_VERSION_B patches"
 ```
-5. Apply patches from B.
+5. Add B to CI.
+```shell
+vim .gitlab-ci.yaml
+git add .gitlab-ci.yaml
+git commit -m "Add $K8S_MINOR_VERSION_B to CI
+```
+6. Apply patches from B.
 ```shell
 ./hack/apply_patches.sh patches/$K8S_MINOR_VERSION_B/ $K8S_ROOT
 ```
-6. If a patch fails (`set BAD_PATCH $PWD/patches/$K8S_MINOR_VERSION_B/0-public/0005`):
+7. If a patch fails (`set BAD_PATCH $PWD/patches/$K8S_MINOR_VERSION_B/0-public/0005`):
     1. Decide if it can be dropped, for example because it is already applied in
        the new minor version.
     2. If so, delete the patch from the patches folder, commit the delete,
@@ -215,23 +221,19 @@ git commit -m "Bootstrap $K8S_MINOR_VERSION_B"
        ```shell
        git format-patch --zero-commit --no-numbered --no-signature HEAD^
        mv ./000*.patch $BAD_PATCH
+       git add $BAD_PATCH
+       git commit -m "Resolve patch 0005"`
        ```
-7. Apply patches from B starting from the patch that failed (`set BAD_PATCH_NUM
-   5`).
+8. Apply patches from B starting from the patch after the patch that failed
+   (`set NEXT_PATCH_NUM 6`).
 ```shell
-./hack/apply_patches.sh patches/$K8S_MINOR_VERSION_B/ $K8S_ROOT $BAD_PATCH_NUM
+./hack/apply_patches.sh patches/$K8S_MINOR_VERSION_B/ $K8S_ROOT $NEXT_PATCH_NUM
 ```
-8. Repeat 6-7 until all patches apply successfully.
-9. Regenerate all patches.
+9. Repeat 7-8 until all patches apply successfully.
+10. Regenerate all patches.
 ```shell
 ./hack/apply_patches.sh patches/$K8S_MINOR_VERSION_B/ $K8S_ROOT
 ./hack/prepare_patches.sh $K8S_ROOT patches/$K8S_MINOR_VERSION_B/
-```
-10. Add the new minor version to CI.
-```shell
-vim .gitlab-ci.yaml
-git add .gitlab-ci.yaml
-git commit -m "Add $K8S_MINOR_VERSION_B to CI
 ```
 11. Create an MR.
 
