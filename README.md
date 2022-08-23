@@ -1,4 +1,4 @@
-# EKSKubernetesPatches
+# eks-kubernetes-patches
 
 ## Summary
 
@@ -25,35 +25,32 @@ NOTE: Previously, the `--EKS-PRIVATE--` marker was used in addition to the `--EK
 
 ### Setup
 
-Clone this repo and the gitfarm kubernetes repository.
+Clone this repo.
 
 ```
 $ cd ~/workplace/
-$ brazil ws create -n EKSKubernetesPatches
-$ cd EKSKubernetesPatches/
-$ brazil ws use -p EKSDataPlaneKubernetes
-$ brazil ws use -p EKSKubernetesPatches
-$ cd src/EKSKubernetesPatches/
+$ git clone git@ssh.gitlab.aws.dev:eks-dataplane/eks-kubernetes-patches.git
+$ cd eks-kubernetes-patches
 ```
 
 Note: kubernetes is a large repository.  If you are on a slow internet
-connection, and already have EKSDataPlaneKubernetes cloned, you can soft
+connection, and already have kubernetes cloned, you can soft
 link it to the desired location:
 
 ```
-$ ln -s ~/workplace/EKSDataPlaneKubernetes/src/EKSDataPlaneKubernetes ~/workplace/EKSKubernetesPatches/src/EKSDataPlaneKubernetes
+$ ln -s ~/go/src/k8s.io/kubernetes ~/workplace/eks-kubernetes-patches/kubernetes
 ```
 
-### Modify Existing Patches in EKSKubernetesPatches
+### Modify Existing Patches in eks-kubernetes-patches
 
-In order to modify existing patches in EKSKubernetesPatches, first they must be
-applied to the appropriate git tag in the EKSDataPlaneKubernetes repository.
-Make sure the EKSDataPlaneKubernetes repository is clean because the script
+In order to modify existing patches in eks-kubernetes-patches, first they must be
+applied to the appropriate git tag in the kubernetes repository.
+Make sure the kubernetes repository is clean because the script
 will modify it.
 
-1. Make sure the EKSKubernetesPatches and Kubernetes repos are...
+1. Make sure the eks-kubernetes-patches and Kubernetes repos are...
    * up-to-date with the upstream repos
-   * on their mainline (EKSKubernetesPatches) or master (Kubernetes) branches, less there is a reason why they're not
+   * on their mainline (eks-kubernetes-patches) or master (Kubernetes) branches, less there is a reason why they're not
    * clean
 2. OPTIONAL: to make your life easier, set the following variables to the 
    correct ones for your environment and the version of Kubernetes you’re 
@@ -90,7 +87,7 @@ git checkout -b some-branch # when you're done making changes
 popd
 ```
 5. Next, you must create new patch files from the commits you modified. Make sure
-   the EKSKubernetesPatches repo is clean because the script will modify it.
+   the eks-kubernetes-patches repo is clean because the script will modify it.
 ```shell
 pushd $PATCHES_ROOT
 ./hack/prepare_patches.sh $K8S_ROOT patches/$K8S_MINOR_VERSION/
@@ -114,14 +111,14 @@ Check the diff and commit patches accordingly.  For example:
 ### Using Interactive Rebase to Reorder Commits
 
 An interactive rebase can be used to reorder, squash or edit commits that have
-been applied.  After running `apply_patches.sh`, the EKSDataPlaneKubernetes
+been applied.  After running `apply_patches.sh`, the kubernetes
 repository will have the patches in a detached HEAD state, applied to the tag
 specified in GIT_TAG.  In order to begin an interactive rebase, navigate to
-EKSDataPlaneKubernetes and run an interactive rebase targeting the tag in
+kubernetes and run an interactive rebase targeting the tag in
 GIT_TAG.
 
 ```
-git rebase -i "$(cat ~/workspace/EKSKubernetesPatches/src/EKSKubernetesPatches/patches/1.21/GIT_TAG)"
+git rebase -i "$(cat ~/workspace/eks-kubernetes-patches/src/eks-kubernetes-patches/patches/1.21/GIT_TAG)"
 ```
 
 ### When Patches Fail to Apply
@@ -131,8 +128,8 @@ One possibility is that the is already applied in the new version.  In order to
 determine if this is the case, you can try applying the failed patch again:
 
 ```
-$ pushd ~/workplace/EKSKubernetesPatches/src/EKSDataPlaneKubernetes/
-$ git am --3way ~/workplace/EKSKubernetesPatches/src/EKSKubernetesPatches/patches/1.21/0-public/0009-EKS-PATCH
+$ pushd ~/workplace/eks-kubernetes-patches/src/kubernetes/
+$ git am --3way ~/workplace/eks-kubernetes-patches/src/eks-kubernetes-patches/patches/1.21/0-public/0009-EKS-PATCH
 ```
 
 and you'll see output like:
@@ -237,9 +234,56 @@ git commit -m "Add $K8S_MINOR_VERSION_B to CI
 ```
 11. Create an MR.
 
-## Build
+## Building
 
-### Desktop build
+### Automated Code Pipeline build (what happens after patches merge)
+
+Say you want to your new patches or patch changes to be shipped in the next EKS
+platform version (i.e. the next "EKS manifest" or "EKS fleet patch" because,
+internally, platform version maps roughly to an EKS manifest).
+
+1. Get the latest commit hash (7 digit prefix):
+   ```
+   git checkout mainline
+   git pull
+   # For fish
+   set GIT_HASH (git rev-parse HEAD | cut -c1-7)
+   # For others
+   GIT_HASH=$(git rev-parse HEAD | cut -c1-7)
+   ```
+2. Submit an MR to https://gitlab.aws.dev/eks-dataplane/eks-kubernetes-patches
+   to update kubernetes_tag in
+   https://gitlab.aws.dev/eks-dataplane/eks-kcp-ami-config/-/blob/mainline/configuration/global.yml
+   for all kubernetes minor versions. kubernetes_tag has format
+   $GIT_TAG-eks-$GIT_HASH like v1.22.12-eks-d6b66fe where GIT_TAG depends on
+   the kubernetes minor version.
+   ```
+   # For fish
+   set GIT_TAG_122 (cat ./patches/1.22/GIT_TAG)
+   set KUBERNETES_TAG_122 $EKS_TAG_122-eks-$GIT_HASH
+   # For others
+   GIT_TAG_122=$(cat ./patches/1.22/GIT_TAG)
+   KUBERNETES_TAG_122=$EKS_TAG_122-eks-$GIT_HASH
+   ```
+
+#### Implementation details
+
+After a commit is made in this repository, it is mirrored to CodeCommit in the
+dataplane-build account.
+
+Commits to CodeCommit trigger CodePipelines defined by
+https://code.amazon.com/packages/EKSDataPlaneCDK/trees/mainline. There is one
+CodePipeline per kubernetes minor version
+https://tiny.amazon.com/gkhle64r/IsenLink.
+
+Each CodePipeline builds and pushes kubernetes images to ECR in every AWS
+partition including kube-apiserver https://tiny.amazon.com/1di4q344x/IsenLink.
+
+Then these images get built/embedded/cached in the EKS KCP AMI (or sometimes
+pulled at runtime), hence the need to specify the tag of the images in
+eks-kcp-ami-config.
+
+### (OPTIONAL) Manual Desktop build
 
 The possible components EKS builds are the following. Developers can build and test components from their own developer boxes and not depend on the EKSDataplaneCDK pipeline.
 ```
@@ -250,7 +294,7 @@ kubelet
 kube-proxy
 ```
 
-Use the command `WHAT=kube-apiserver ./hack/build.sh ~/workplace/EKSKubernetesPatches/src/EKSDataPlaneKubernetes/` to build on local MAC/Linux dev boxes.
+Use the command `WHAT=kube-apiserver ./hack/build.sh ~/workplace/eks-kubernetes-patches/kubernetes/` to build on local MAC/Linux dev boxes.
 Change the component name to build the one you need to test. 
 The build will create image with tag `registry/kube-apiserver:latest`. 
 If the docker build fails due to 403, run the following
@@ -265,7 +309,7 @@ Use the following commands to push from local box and pull the image on CPI:
  - On the CPI instance, edit `/etc/kubernetes/manifests/kube-apiserver.yaml` and replace the image with the newly pushed image.
  - CPI kubelet will fail to download the docker image. You could manually pull the image on CPI using isengard credentials. Change the image in the manigest. ALso, change `imagePullPolicy: Never` , otherwise kubelet will fail to assume the role.
 
-### Code Pipeline build
+### (OPTIONAL) Manual Code Pipeline build
 
 In order to simulate the code-pipeline build process use the following. This build uses docker and is not advisable to perform on mac. To test the command, use dev desktop.
 Docker is needed on dev-desktop https://builderhub.corp.amazon.com/docs/rde/cli-guide/setup-clouddesk.html#install-and-configure-docker
@@ -274,5 +318,5 @@ export REGISTRY=$AWS_ACCOUNT_ID.dkr.ecr.us-west-2.amazonaws.com
 export VERSION_TAG=v1.22.6
 export IMAGE_TAG=v1.22.6-eks-test
 export KUBE_BUILD_PLATFORMS="linux/amd64"
-./hack/build-pipeline.sh ~/workplace/EKSKubernetesPatches/src/EKSDataPlaneKubernetes/
+./hack/build-pipeline.sh ~/workplace/eks-kubernetes-patches
 ```
