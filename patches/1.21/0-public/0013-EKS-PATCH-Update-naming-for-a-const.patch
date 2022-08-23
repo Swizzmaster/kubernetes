@@ -5,11 +5,9 @@ Subject: [PATCH] --EKS-PATCH-- Update naming for a const
 
 Cherry-pick of upstream Kubernetes PR # 110706
 The upstream PR is merged and should be available in future k/k releases.
-However we need the STS throttling fix for 1.19-1.23 EKS versions internally.
+However, we need the STS throttling fix for this version of Kubernetes.
 
-We can remove this patch from version 1.22-1.23 versions once the upstream cherry-picks for this patch get merged.
-1.22 - upstream cherry-pick PR # 111260
-1.23 - upstream cherry-pick PR # 111261
+This patch is related to other patch ("Add rate limiting when calling STS assume role API")
 ---
  .../aws/aws_assumerole_provider.go            | 12 ++---
  .../aws/aws_assumerole_provider_test.go       | 48 +++++++++----------
