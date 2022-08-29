@@ -61,7 +61,7 @@ will modify it.
 set PATCHES_ROOT ""
 set K8S_ROOT ""
 set K8S_GIT_TAG "v1.XX.YY"
-set K8S_MINOR_VERSION="1.XX"
+set K8S_MINOR_VERSION "1.XX"
 
 # For bash, zsh, and other such garbage
 PATCHES_ROOT=""
