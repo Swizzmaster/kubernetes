@@ -4,7 +4,19 @@ Date: Mon, 19 Jul 2021 12:31:37 -0700
 Subject: [PATCH] --EKS-PATCH-- Ignore 'wait: no child processes' error when
  calling mount/umount
 
-cr: https://code.amazon.com/reviews/CR-58770861
+Cherry-pick of upstream Kubernetes:
+https://github.com/kubernetes/kubernetes/pull/103780, which was
+included in Kubernetes 1.23.
+
+This change fixes an issue related to a race condition. See this issue:
+https://github.com/kubernetes/kubernetes/issues/103753
+
+From the original PR description:
+    I've only fixed the exec commands that are part of Mount() and
+    Unmount() functions and that too in the linux mount helper. Not
+    touching others, since I'm not sure about the implications.
+
+Signed-off-by: Kirsten Schumy <ksschumy@amazon.com>
 ---
  staging/src/k8s.io/mount-utils/mount_linux.go | 18 ++++++++++++++++++
  1 file changed, 18 insertions(+)

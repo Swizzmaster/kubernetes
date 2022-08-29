@@ -1,0 +1,31 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Sri Saran Balaji Vellore Rajakumar <srajakum@amazon.com>
+Date: Fri, 30 Jul 2021 15:04:00 -0700
+Subject: [PATCH] --EKS-PRIVATE-- Fix ordering of proxyTransport creation
+
+cr: https://code.amazon.com/reviews/CR-54617087
+---
+ cmd/kube-apiserver/app/server.go | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/cmd/kube-apiserver/app/server.go b/cmd/kube-apiserver/app/server.go
+index e31bcb6a432..2abd544b9f8 100644
+--- a/cmd/kube-apiserver/app/server.go
++++ b/cmd/kube-apiserver/app/server.go
+@@ -201,13 +201,13 @@ func CreateServerChain(completedOptions completedServerRunOptions, stopCh <-chan
+ 		return nil, err
+ 	}
+ 
+-	kubeAPIServerConfig, serviceResolver, pluginInitializer, err := CreateKubeAPIServerConfig(completedOptions, nodeTunneler, proxyTransport)
++	// This will likely break node dialer, any good ideas for how to mitigate that?
++	proxyTransport, err = CreateOutboundDialer(completedOptions)
+ 	if err != nil {
+ 		return nil, err
+ 	}
+ 
+-	// This will likely break node dialer, any good ideas for how to mitigate that?
+-	proxyTransport, err = CreateOutboundDialer(completedOptions)
++	kubeAPIServerConfig, serviceResolver, pluginInitializer, err := CreateKubeAPIServerConfig(completedOptions, nodeTunneler, proxyTransport)
+ 	if err != nil {
+ 		return nil, err
+ 	}

@@ -1,0 +1,206 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Matthew Wong <mattwon@amazon.com>
+Date: Wed, 16 Feb 2022 11:51:45 -0800
+Subject: [PATCH] --EKS-PRIVATE-- Check token issuer before calling key-server
+ to avoid pointless calls for aws-iam-authenticator token
+
+---
+ pkg/serviceaccount/jwt.go               |  2 +-
+ pkg/serviceaccount/jwt_external.go      | 36 ++++++++++++
+ pkg/serviceaccount/jwt_external_test.go |  4 +-
+ pkg/serviceaccount/jwt_test.go          | 74 +++++++++++++++----------
+ 4 files changed, 86 insertions(+), 30 deletions(-)
+
+diff --git a/pkg/serviceaccount/jwt.go b/pkg/serviceaccount/jwt.go
+index cd5635728be..7e04d2a63f2 100644
+--- a/pkg/serviceaccount/jwt.go
++++ b/pkg/serviceaccount/jwt.go
+@@ -353,6 +353,6 @@ func (j *jwtTokenAuthenticator) hasCorrectIssuer(tokenData string) bool {
+ 	if claims.Issuer != j.iss {
+ 		return false
+ 	}
+-	return true
+ 
++	return true
+ }
+diff --git a/pkg/serviceaccount/jwt_external.go b/pkg/serviceaccount/jwt_external.go
+index bb631b51c61..fe591235e4a 100644
+--- a/pkg/serviceaccount/jwt_external.go
++++ b/pkg/serviceaccount/jwt_external.go
+@@ -18,7 +18,10 @@ package serviceaccount
+ 
+ import (
+ 	"context"
++	"encoding/base64"
++	"encoding/json"
+ 	"fmt"
++	"strings"
+ 
+ 	"google.golang.org/grpc"
+ 	jose "gopkg.in/square/go-jose.v2"
+@@ -149,6 +152,10 @@ type ExternalTokenAuthenticator struct {
+ }
+ 
+ func (a *ExternalTokenAuthenticator) AuthenticateToken(ctx context.Context, tokenData string) (*authenticator.Response, bool, error) {
++	if !a.hasCorrectIssuer(tokenData) {
++		return nil, false, nil
++	}
++
+ 	keyResp, err := a.Client.ListPublicKeys(ctx, &externalsigner.ListPublicKeysRequest{})
+ 	if err != nil {
+ 		return nil, false, err
+@@ -185,3 +192,32 @@ func ExternalJWTTokenAuthenticator(socketPath string, iss string, implicitAuds a
+ 		ImplicitAuds: implicitAuds,
+ 	}, nil
+ }
++
++// hasCorrectIssuer returns true if tokenData is a valid JWT in compact
++// serialization format and the "iss" claim matches the iss field of this token
++// authenticator, and otherwise returns false.
++//
++// Note: go-jose currently does not allow access to unverified JWS payloads.
++// See https://github.com/square/go-jose/issues/169
++func (a *ExternalTokenAuthenticator) hasCorrectIssuer(tokenData string) bool {
++	parts := strings.Split(tokenData, ".")
++	if len(parts) != 3 {
++		return false
++	}
++	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
++	if err != nil {
++		return false
++	}
++	claims := struct {
++		// WARNING: this JWT is not verified. Do not trust these claims.
++		Issuer string `json:"iss"`
++	}{}
++	if err := json.Unmarshal(payload, &claims); err != nil {
++		return false
++	}
++	if claims.Issuer != a.Iss {
++		return false
++	}
++
++	return true
++}
+diff --git a/pkg/serviceaccount/jwt_external_test.go b/pkg/serviceaccount/jwt_external_test.go
+index d806e346589..510c36ec553 100644
+--- a/pkg/serviceaccount/jwt_external_test.go
++++ b/pkg/serviceaccount/jwt_external_test.go
+@@ -62,7 +62,8 @@ func newMockKeyServiceClient(privatekey interface{}) *mockKeyServiceClient {
+ }
+ 
+ type mockKeyServiceClient struct {
+-	key interface{}
++	key                 interface{}
++	listPublicKeysCalls int
+ }
+ 
+ func (c *mockKeyServiceClient) SignPayload(ctx context.Context, in *externalsigner.SignPayloadRequest, opts ...grpc.CallOption) (*externalsigner.SignPayloadResponse, error) {
+@@ -81,6 +82,7 @@ func (c *mockKeyServiceClient) SignPayload(ctx context.Context, in *externalsign
+ }
+ 
+ func (c *mockKeyServiceClient) ListPublicKeys(ctx context.Context, in *externalsigner.ListPublicKeysRequest, opts ...grpc.CallOption) (*externalsigner.ListPublicKeysResponse, error) {
++	c.listPublicKeysCalls++
+ 	var alg jose.SignatureAlgorithm
+ 	var kU []byte
+ 	var err error
+diff --git a/pkg/serviceaccount/jwt_test.go b/pkg/serviceaccount/jwt_test.go
+index f971dcc8c02..6230dd9078f 100644
+--- a/pkg/serviceaccount/jwt_test.go
++++ b/pkg/serviceaccount/jwt_test.go
+@@ -233,13 +233,15 @@ func TestTokenGenerateAndValidate(t *testing.T) {
+ 		Keys   []interface{}
+ 		Token  string
+ 
+-		ExpectedErr           bool
+-		ExpectedOK            bool
+-		ExpectedUserName      string
+-		ExpectedUserUID       string
+-		ExpectedGroups        []string
+-		ExternalServiceClient externalsigner.KeyServiceClient
+-		Issuer                string
++		ExpectedErr                 bool
++		ExpectedOK                  bool
++		ExpectedUserName            string
++		ExpectedUserUID             string
++		ExpectedGroups              []string
++		Authenticator               authenticator.Token
++		ExternalServiceClient       externalsigner.KeyServiceClient
++		ExpectedListPublicKeysCalls int
++		Issuer                      string
+ 	}{
+ 		"no keys": {
+ 			Token:       rsaToken,
+@@ -334,28 +336,37 @@ func TestTokenGenerateAndValidate(t *testing.T) {
+ 			ExpectedOK:  false,
+ 		},
+ 		"valid (external rsa)": {
+-			Token:                 remoteRsaToken,
+-			Client:                fake.NewSimpleClientset(serviceAccount),
+-			Keys:                  nil,
+-			ExpectedErr:           false,
+-			ExpectedOK:            true,
+-			ExpectedUserName:      expectedUserName,
+-			ExpectedUserUID:       expectedUserUID,
+-			ExpectedGroups:        []string{"system:serviceaccounts", "system:serviceaccounts:test"},
+-			ExternalServiceClient: newMockKeyServiceClient(getPrivateKey(rsaPrivateKey)),
+-			Issuer:                newIssuer,
++			Token:                       remoteRsaToken,
++			Client:                      fake.NewSimpleClientset(serviceAccount),
++			Keys:                        nil,
++			ExpectedErr:                 false,
++			ExpectedOK:                  true,
++			ExpectedUserName:            expectedUserName,
++			ExpectedUserUID:             expectedUserUID,
++			ExpectedGroups:              []string{"system:serviceaccounts", "system:serviceaccounts:test"},
++			ExternalServiceClient:       newMockKeyServiceClient(getPrivateKey(rsaPrivateKey)),
++			ExpectedListPublicKeysCalls: 1,
++			Issuer:                      newIssuer,
+ 		},
+-		"invalid key (external)": {
+-			Token:                 remoteRsaToken,
+-			Client:                fake.NewSimpleClientset(serviceAccount),
+-			Keys:                  nil,
+-			ExpectedErr:           true,
+-			ExpectedOK:            false,
+-			ExpectedUserName:      expectedUserName,
+-			ExpectedUserUID:       expectedUserUID,
+-			ExpectedGroups:        []string{"system:serviceaccounts", "system:serviceaccounts:test"},
+-			ExternalServiceClient: newMockKeyServiceClient(getPrivateKey(ecdsaPrivateKey)),
+-			Issuer:                newIssuer,
++		"invalid key (external rsa)": {
++			Token:                       remoteRsaToken,
++			Client:                      nil,
++			Keys:                        nil,
++			ExpectedErr:                 true,
++			ExpectedOK:                  false,
++			ExternalServiceClient:       newMockKeyServiceClient(getPrivateKey(ecdsaPrivateKey)),
++			ExpectedListPublicKeysCalls: 1,
++			Issuer:                      newIssuer,
++		},
++		"valid key, invalid issuer (external rsa)": {
++			Token:                       badIssuerToken,
++			Client:                      nil,
++			Keys:                        []interface{}{getPublicKey(rsaPublicKey)},
++			ExpectedErr:                 false,
++			ExpectedOK:                  false,
++			ExternalServiceClient:       newMockKeyServiceClient(getPrivateKey(rsaPrivateKey)),
++			ExpectedListPublicKeysCalls: 0,
++			Issuer:                      newIssuer,
+ 		},
+ 	}
+ 
+@@ -404,6 +415,13 @@ func TestTokenGenerateAndValidate(t *testing.T) {
+ 				return
+ 			}
+ 
++			if tc.ExternalServiceClient != nil {
++				listPublicKeysCalls := tc.ExternalServiceClient.(*mockKeyServiceClient).listPublicKeysCalls
++				if listPublicKeysCalls != tc.ExpectedListPublicKeysCalls {
++					t.Errorf("%s: Expected listPublicKeysCalls=%v, got %v", k, tc.ExpectedListPublicKeysCalls, listPublicKeysCalls)
++				}
++			}
++
+ 			if err != nil || !ok {
+ 				return
+ 			}
