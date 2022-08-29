@@ -1,0 +1,42 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Matthew Wong <mattwon@amazon.com>
+Date: Thu, 26 Aug 2021 14:42:10 -0700
+Subject: [PATCH] --EKS-PRIVATE-- Fix TestTokenGenerateAndValidate external
+ cases
+
+external JWT signing is a feature added by EKS to support IAM for SA
+---
+ pkg/serviceaccount/jwt_test.go | 13 +++++++++++--
+ 1 file changed, 11 insertions(+), 2 deletions(-)
+
+diff --git a/pkg/serviceaccount/jwt_test.go b/pkg/serviceaccount/jwt_test.go
+index 2ba2a8bb086..f971dcc8c02 100644
+--- a/pkg/serviceaccount/jwt_test.go
++++ b/pkg/serviceaccount/jwt_test.go
+@@ -238,7 +238,6 @@ func TestTokenGenerateAndValidate(t *testing.T) {
+ 		ExpectedUserName      string
+ 		ExpectedUserUID       string
+ 		ExpectedGroups        []string
+-		Authenticator         authenticator.Token
+ 		ExternalServiceClient externalsigner.KeyServiceClient
+ 		Issuer                string
+ 	}{
+@@ -375,7 +374,17 @@ func TestTokenGenerateAndValidate(t *testing.T) {
+ 					return tc.Client.CoreV1().Pods(namespace).Get(context.TODO(), name, metav1.GetOptions{})
+ 				})),
+ 			)
+-			authn := serviceaccount.JWTTokenAuthenticator(serviceaccount.LegacyIssuer, tc.Keys, auds, serviceaccount.NewLegacyValidator(tc.Client != nil, getter))
++			var authn authenticator.Token
++			if tc.ExternalServiceClient != nil {
++				authn = &serviceaccount.ExternalTokenAuthenticator{
++					Client:       tc.ExternalServiceClient,
++					Iss:          tc.Issuer,
++					ImplicitAuds: nil,
++					Validator:    serviceaccount.NewValidator(getter),
++				}
++			} else {
++				authn = serviceaccount.JWTTokenAuthenticator(serviceaccount.LegacyIssuer, tc.Keys, auds, serviceaccount.NewLegacyValidator(tc.Client != nil, getter))
++			}
+ 
+ 			// An invalid, non-JWT token should always fail
+ 			ctx := authenticator.WithAudiences(context.Background(), auds)

@@ -3,18 +3,27 @@ From: Manu Gupta <mgpta@amazon.com>
 Date: Tue, 12 Oct 2021 14:43:34 -0700
 Subject: [PATCH] --EKS-PATCH-- Get inodes and disk usage via pure go.
 
-This commit is an early cherry-pick of
-https://github.com/kubernetes/kubernetes/pull/96115
-1.20 commit: https://github.com/kubernetes/kubernetes/pull/104022
+Cherry-pick of upstream Kubernetes:
+https://github.com/kubernetes/kubernetes/pull/96115, which was
+included in Kubernetes 1.22. There was a PR opened to cherry-pick
+this change for 1.20, but it was closed without being merged. See
+https://github.com/kubernetes/kubernetes/pull/104022
 
-While investigating https://t.corp.amazon.com/P51384162/communication
-I noticed that du does a read call which can somtimes get into an
-infinite read loop for tmpfs. By moving this out, I did not stuck
-terminating calls.
+From the original upstream commit message:
+    Fix inode usage calculation to use filepath.Walk instead of
+    executing an external find. Also calculate the disk usage while at
+    it so we also get rid of the external dependency of `nice` and
+    `du`. (Issue #95172)
 
-I tested this by launching around 600 pods.
+    This is similar to what cadvisor does since commit
+    https://github.com/google/cadvisor/commit/046818d64c0af62a4c5037583b467296bb68626d
 
-cr: https://code.amazon.com/reviews/CR-58649770
+    This solves three problems:
+        - Counts number of inodes correct when there are hardlinks (#96114)
+        - Makes kubelet work without GNU findutils (#95186)
+        - Makes kubelet work without GNU coreutils (#95172)
+
+Signed-off-by: Kirsten Schumy <ksschumy@amazon.com>
 ---
  pkg/volume/metrics_du.go              |  26 ++---
  pkg/volume/metrics_du_test.go         |  15 +++

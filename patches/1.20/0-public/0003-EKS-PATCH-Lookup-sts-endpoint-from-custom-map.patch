@@ -3,6 +3,8 @@ From: Aleksandr Melnik <melnikal@amazon.com>
 Date: Wed, 8 Jan 2020 17:23:06 -0800
 Subject: [PATCH] --EKS-PATCH-- Lookup sts endpoint from custom map
 
+ Update STS endpoint to support different partitions.
+
 Signed-off-by: Jyoti Mahapatra <jyotima@amazon.com>
 ---
  .../k8s.io/legacy-cloud-providers/aws/BUILD   |  1 +
