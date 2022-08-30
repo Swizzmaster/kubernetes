@@ -19,8 +19,7 @@ MESSAGE="Update $MINOR_VERSION patches base version to $LATEST_VERSION"
 git checkout -b update_patches_base_version_"$MINOR_VERSION"
 git add "$PARENT_PATCHES_DIR"/GIT_TAG
 git commit -m "$MESSAGE"
-git pull --squash --rebase origin update_patches_base_version_"$MINOR_VERSION" || true
-git push -o merge_request.create -o merge_request.merge_when_pipeline_succeeds -o merge_request.remove_source_branch https://gitlab-ci-token:"$PROJECT_ACCESS_TOKEN"@gitlab.aws.dev/"$CI_PROJECT_PATH".git update_patches_base_version_"$MINOR_VERSION"
+git push -o merge_request.create -o merge_request.merge_when_pipeline_succeeds -o merge_request.remove_source_branch https://gitlab-ci-token:"$PROJECT_ACCESS_TOKEN"@gitlab.aws.dev/"$CI_PROJECT_PATH".git update_patches_base_version_"$MINOR_VERSION" --force-with-lease
 
 git checkout @{-1}
 git branch -D update_patches_base_version_"$MINOR_VERSION"
