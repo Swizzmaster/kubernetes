@@ -28,6 +28,8 @@ default:
   stage: test
   script:
     - *script_apply_patches
+  except:
+    - schedules
 
 .test_unit:
   image: ubuntu:latest
@@ -45,6 +47,8 @@ default:
     - ./hack/install_unit_test_dependencies.sh ./kubernetes/
     - export PATH=/usr/local/go/bin:$PATH
     - pushd ./kubernetes/ && make test KUBE_RACE=-race KUBE_TIMEOUT=--timeout=300s && popd
+  except:
+    - schedules
 
 build_1.20:
   extends: .build_update_patches_base_version
