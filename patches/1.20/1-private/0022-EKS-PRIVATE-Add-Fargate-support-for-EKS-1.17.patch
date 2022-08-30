@@ -339,7 +339,7 @@ index 0f4fab34c04..226291635e1 100644
  		lc.Resources.CpuPeriod = cpuPeriod
  	}
 diff --git a/pkg/kubelet/lifecycle/BUILD b/pkg/kubelet/lifecycle/BUILD
-index 7ba2b476bc5..1058726fa0d 100644
+index d08f5ee1d94..a1e7640b3ab 100644
 --- a/pkg/kubelet/lifecycle/BUILD
 +++ b/pkg/kubelet/lifecycle/BUILD
 @@ -11,6 +11,8 @@ go_library(

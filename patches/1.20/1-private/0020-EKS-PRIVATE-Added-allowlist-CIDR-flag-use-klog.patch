@@ -39,7 +39,7 @@ Signed-off-by: Jyoti Mahapatra <jyotima@amazon.com>
  create mode 100644 pkg/kubeapiserver/options/ipnetslice_test.go
 
 diff --git a/cmd/kube-apiserver/app/BUILD b/cmd/kube-apiserver/app/BUILD
-index e67351d7c69..8465ae29e5a 100644
+index bf45bdb09a3..5fad71480a8 100644
 --- a/cmd/kube-apiserver/app/BUILD
 +++ b/cmd/kube-apiserver/app/BUILD
 @@ -5,6 +5,7 @@ go_library(
