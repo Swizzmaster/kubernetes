@@ -22,11 +22,11 @@ git add "$PARENT_PATCHES_DIR"/GIT_TAG
 git commit -m "$MESSAGE"
 
 # Only force push if pipeline was last committer
-git remote add origin https://gitlab-ci-token:"$PROJECT_ACCESS_TOKEN"@gitlab.aws.dev/"$CI_PROJECT_PATH".git
 git fetch origin
+git remote add origin_push https://gitlab-ci-token:"$PROJECT_ACCESS_TOKEN"@gitlab.aws.dev/"$CI_PROJECT_PATH".git
 AUTHOR=$(git show -s --format='%ae' origin/"$BRANCH")
 if [[ $AUTHOR == *"eks-dataplane-team"* ]]; then
-  git push -o merge_request.create -o merge_request.merge_when_pipeline_succeeds -o merge_request.remove_source_branch origin "$BRANCH" --force
+  git push -o merge_request.create -o merge_request.merge_when_pipeline_succeeds -o merge_request.remove_source_branch origin_push "$BRANCH" --force
 fi
 
 git checkout @{-1}
