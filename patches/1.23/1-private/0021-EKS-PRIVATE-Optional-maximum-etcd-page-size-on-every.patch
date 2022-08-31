@@ -695,10 +695,10 @@ index ec201787e46..87d8656e524 100644
  
  	// StorageObjectCountTracker is used to keep track of the total
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/factory/etcd3.go b/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/factory/etcd3.go
-index 6cdb8575f4d..bc0723c1d4e 100644
+index 1f002ca8751..8a6f2faa9dd 100644
 --- a/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/factory/etcd3.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/factory/etcd3.go
-@@ -282,7 +282,8 @@ func newETCD3Storage(c storagebackend.ConfigForResource, newFunc func() runtime.
+@@ -321,7 +321,8 @@ func newETCD3Storage(c storagebackend.ConfigForResource, newFunc func() runtime.
  	if transformer == nil {
  		transformer = value.IdentityTransformer
  	}

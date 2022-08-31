@@ -44,12 +44,12 @@ index aa4163877fa..ec201787e46 100644
  	KeyFile       string
  	CertFile      string
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/factory/etcd3.go b/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/factory/etcd3.go
-index 63e18699d6b..6cdb8575f4d 100644
+index df4fe6a6abb..1f002ca8751 100644
 --- a/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/factory/etcd3.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/factory/etcd3.go
-@@ -173,6 +173,7 @@ func newETCD3Client(c storagebackend.TransportConfig) (*clientv3.Client, error)
- 		dialOptions = append(dialOptions, grpc.WithContextDialer(dialer))
+@@ -211,6 +211,7 @@ func newETCD3Client(c storagebackend.TransportConfig) (*clientv3.Client, error)
  	}
+ 
  	cfg := clientv3.Config{
 +		AutoSyncInterval:     c.AutoSyncInterval,
  		DialTimeout:          dialTimeout,
