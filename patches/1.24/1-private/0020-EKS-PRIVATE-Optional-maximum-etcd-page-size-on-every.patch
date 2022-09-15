@@ -1,0 +1,587 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Cenk Alti <alticen@amazon.com>
+Date: Wed, 14 Sep 2022 18:13:30 -0400
+Subject: [PATCH] --EKS-PRIVATE-- Optional maximum etcd page size on every list
+
+---
+ .../apiserver/pkg/server/options/etcd.go      |   3 +
+ .../pkg/storage/etcd3/metrics/metrics.go      |  15 ++
+ .../apiserver/pkg/storage/etcd3/store.go      |  55 +++--
+ .../apiserver/pkg/storage/etcd3/store_test.go | 198 ++++++++++++++++--
+ .../pkg/storage/etcd3/watcher_test.go         |   8 +-
+ .../pkg/storage/storagebackend/config.go      |   3 +-
+ .../storage/storagebackend/factory/etcd3.go   |   3 +-
+ .../pkg/storage/tests/cacher_test.go          |   4 +-
+ 8 files changed, 259 insertions(+), 30 deletions(-)
+
+diff --git a/staging/src/k8s.io/apiserver/pkg/server/options/etcd.go b/staging/src/k8s.io/apiserver/pkg/server/options/etcd.go
+index 1ff41c6bcb9..bd2bdc387b5 100644
+--- a/staging/src/k8s.io/apiserver/pkg/server/options/etcd.go
++++ b/staging/src/k8s.io/apiserver/pkg/server/options/etcd.go
+@@ -181,6 +181,9 @@ func (s *EtcdOptions) AddFlags(fs *pflag.FlagSet) {
+ 	fs.DurationVar(&s.StorageConfig.HealthcheckTimeout, "etcd-healthcheck-timeout", s.StorageConfig.HealthcheckTimeout,
+ 		"The timeout to use when checking etcd health.")
+ 
++	fs.Int64Var(&s.StorageConfig.MaximumPageSize, "maximum-page-size-for-etcd-lists", s.StorageConfig.MaximumPageSize,
++		"Maximum etcd page size for etcd lists. If zero, the limit is unbounded")
++
+ 	fs.Int64Var(&s.StorageConfig.LeaseManagerConfig.ReuseDurationSeconds, "lease-reuse-duration-seconds", s.StorageConfig.LeaseManagerConfig.ReuseDurationSeconds,
+ 		"The time in seconds that each lease is reused. A lower value could avoid large number of objects reusing the same lease. Notice that a too small value may cause performance problems at storage layer.")
+ }
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/metrics/metrics.go b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/metrics/metrics.go
+index dc9917cef91..d876664aae2 100644
+--- a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/metrics/metrics.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/metrics/metrics.go
+@@ -117,6 +117,15 @@ var (
+ 		},
+ 		[]string{"resource"},
+ 	)
++	listStorageLatency = compbasemetrics.NewHistogramVec(
++		&compbasemetrics.HistogramOpts{
++			Name:           "apiserver_storage_list_duration_seconds",
++			Help:           "Duration of objects returned for a LIST request from storage",
++			Buckets:        []float64{0.005, 0.025, 0.1, 0.25, 0.5, 1.0, 2.0, 4.0, 15.0, 30.0, 60.0},
++			StabilityLevel: compbasemetrics.ALPHA,
++		},
++		[]string{"resource"},
++	)
+ )
+ 
+ var registerMetrics sync.Once
+@@ -135,6 +144,7 @@ func Register() {
+ 		legacyregistry.MustRegister(listStorageNumFetched)
+ 		legacyregistry.MustRegister(listStorageNumSelectorEvals)
+ 		legacyregistry.MustRegister(listStorageNumReturned)
++		legacyregistry.MustRegister(listStorageLatency)
+ 	})
+ }
+ 
+@@ -149,6 +159,11 @@ func RecordEtcdRequestLatency(verb, resource string, startTime time.Time) {
+ 	etcdRequestLatency.WithLabelValues(verb, resource).Observe(sinceInSeconds(startTime))
+ }
+ 
++// RecordListStorageLatency sets the "apiserver_storage_list_duration_seconds" metrics.
++func RecordListStorageLatency(resource string, startTime time.Time) {
++	listStorageLatency.WithLabelValues(resource).Observe(sinceInSeconds(startTime))
++}
++
+ // RecordEtcdBookmark updates the etcd_bookmark_counts metric.
+ func RecordEtcdBookmark(resource string) {
+ 	etcdBookmarkCounts.WithLabelValues(resource).Inc()
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go
+index f97bc3833e7..097a53d36c0 100644
+--- a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go
+@@ -81,9 +81,24 @@ type store struct {
+ 	groupResourceString string
+ 	watcher             *watcher
+ 	pagingEnabled       bool
++	maxPageSize         int64
+ 	leaseManager        *leaseManager
+ }
+ 
++// PagingConfig groups the parameter related with paging inside GetList calls.
++// The main reason for paging is to protect etcd from returning unlimited list of items.
++// Because etcd buffers all of the response in memory before returning it to the client,
++// there is a possiblity of using too much memory and get killed by OOM killer.
++type PagingConfig struct {
++	// PagingEnabled enables/disables paging logic.
++	// If paging is disabled, etcd will return all items in the query.
++	PagingEnabled bool
++
++	// MaximumPageSize is a maximum page limit used when fetching objects from etcd.
++	// It has no effect if `PagingEnabled` is false.
++	MaximumPageSize int64
++}
++
+ type objState struct {
+ 	obj   runtime.Object
+ 	meta  *storage.ResponseMeta
+@@ -93,18 +108,19 @@ type objState struct {
+ }
+ 
+ // New returns an etcd3 implementation of storage.Interface.
+-func New(c *clientv3.Client, codec runtime.Codec, newFunc func() runtime.Object, prefix string, groupResource schema.GroupResource, transformer value.Transformer, pagingEnabled bool, leaseManagerConfig LeaseManagerConfig) storage.Interface {
+-	return newStore(c, codec, newFunc, prefix, groupResource, transformer, pagingEnabled, leaseManagerConfig)
++func New(c *clientv3.Client, codec runtime.Codec, newFunc func() runtime.Object, prefix string, groupResource schema.GroupResource, transformer value.Transformer, pagingConfig PagingConfig, leaseManagerConfig LeaseManagerConfig) storage.Interface {
++	return newStore(c, codec, newFunc, prefix, groupResource, transformer, pagingConfig, leaseManagerConfig)
+ }
+ 
+-func newStore(c *clientv3.Client, codec runtime.Codec, newFunc func() runtime.Object, prefix string, groupResource schema.GroupResource, transformer value.Transformer, pagingEnabled bool, leaseManagerConfig LeaseManagerConfig) *store {
++func newStore(c *clientv3.Client, codec runtime.Codec, newFunc func() runtime.Object, prefix string, groupResource schema.GroupResource, transformer value.Transformer, pagingConfig PagingConfig, leaseManagerConfig LeaseManagerConfig) *store {
+ 	versioner := APIObjectVersioner{}
+ 	result := &store{
+ 		client:        c,
+ 		codec:         codec,
+ 		versioner:     versioner,
+ 		transformer:   transformer,
+-		pagingEnabled: pagingEnabled,
++		pagingEnabled: pagingConfig.PagingEnabled,
++		maxPageSize:   pagingConfig.MaximumPageSize,
+ 		// for compatibility with etcd2 impl.
+ 		// no-op for default prefix of '/registry'.
+ 		// keeps compatibility with etcd2 impl for custom prefixes that don't start with '/'
+@@ -114,6 +130,9 @@ func newStore(c *clientv3.Client, codec runtime.Codec, newFunc func() runtime.Ob
+ 		watcher:             newWatcher(c, codec, newFunc, versioner, transformer),
+ 		leaseManager:        newDefaultLeaseManager(c, leaseManagerConfig),
+ 	}
++	if result.pagingEnabled && result.maxPageSize <= 0 {
++		result.maxPageSize = maxLimit
++	}
+ 	return result
+ }
+ 
+@@ -595,7 +614,11 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
+ 	var limitOption *clientv3.OpOption
+ 	var limit int64 = pred.Limit
+ 	options := make([]clientv3.OpOption, 0, 4)
+-	if s.pagingEnabled && pred.Limit > 0 {
++	if s.pagingEnabled {
++		// Put a default limit if no limit specified and cap it at max value.
++		if limit <= 0 || limit > s.maxPageSize {
++			limit = s.maxPageSize
++		}
+ 		options = append(options, clientv3.WithLimit(limit))
+ 		limitOption = &options[len(options)-1]
+ 	}
+@@ -635,7 +658,7 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
+ 			withRev = continueRV
+ 			returnedRV = continueRV
+ 		}
+-	case recursive && s.pagingEnabled && pred.Limit > 0:
++	case recursive && s.pagingEnabled:
+ 		if fromRV != nil {
+ 			switch match {
+ 			case metav1.ResourceVersionMatchNotOlderThan:
+@@ -645,7 +668,7 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
+ 				returnedRV = int64(*fromRV)
+ 				withRev = returnedRV
+ 			case "": // legacy case
+-				if *fromRV > 0 {
++				if *fromRV > 0 && pred.Limit > 0 {
+ 					returnedRV = int64(*fromRV)
+ 					withRev = returnedRV
+ 				}
+@@ -685,9 +708,16 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
+ 	var getResp *clientv3.GetResponse
+ 	var numFetched int
+ 	var numEvald int
++	var pages int
+ 	// Because these metrics are for understanding the costs of handling LIST requests,
+ 	// get them recorded even in error cases.
++	start := time.Now()
+ 	defer func() {
++		if err == nil {
++			// quantify the list from storage latency
++			metrics.RecordListStorageLatency(s.groupResourceString, start)
++		}
++		trace.Step("fetched all pages from etcd", utiltrace.Field{Key: "page-count", Value: pages})
+ 		numReturn := v.Len()
+ 		metrics.RecordStorageListMetrics(s.groupResourceString, numFetched, numEvald, numReturn)
+ 	}()
+@@ -703,6 +733,7 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
+ 			return interpretListError(err, len(pred.Continue) > 0, continueKey, keyPrefix)
+ 		}
+ 		numFetched += len(getResp.Kvs)
++		pages++
+ 		if err = s.validateMinimumResourceVersion(resourceVersion, uint64(getResp.Header.Revision)); err != nil {
+ 			return err
+ 		}
+@@ -722,7 +753,7 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
+ 
+ 		// take items from the response until the bucket is full, filtering as we go
+ 		for i, kv := range getResp.Kvs {
+-			if limitOption != nil && int64(v.Len()) >= pred.Limit {
++			if limitOption != nil && pred.Limit > 0 && int64(v.Len()) >= pred.Limit {
+ 				hasMore = true
+ 				break
+ 			}
+@@ -752,16 +783,16 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
+ 			break
+ 		}
+ 		// we're paging but we have filled our bucket
+-		if int64(v.Len()) >= pred.Limit {
++		if limitOption != nil && pred.Limit > 0 && int64(v.Len()) >= pred.Limit {
+ 			break
+ 		}
+ 
+-		if limit < maxLimit {
++		if limit < s.maxPageSize {
+ 			// We got incomplete result due to field/label selector dropping the object.
+ 			// Double page size to reduce total number of calls to etcd.
+ 			limit *= 2
+-			if limit > maxLimit {
+-				limit = maxLimit
++			if limit > s.maxPageSize {
++				limit = s.maxPageSize
+ 			}
+ 			*limitOption = clientv3.WithLimit(limit)
+ 		}
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store_test.go b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store_test.go
+index 6ace3f68bc8..f529593d304 100644
+--- a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store_test.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store_test.go
+@@ -63,7 +63,10 @@ import (
+ var scheme = runtime.NewScheme()
+ var codecs = serializer.NewCodecFactory(scheme)
+ 
+-const defaultTestPrefix = "test!"
++const (
++	defaultTestPrefix       = "test!"
++	defaultListEtcdMaxLimit = 500
++)
+ 
+ func init() {
+ 	metav1.AddToGroupVersion(scheme, metav1.SchemeGroupVersion)
+@@ -1036,7 +1039,8 @@ func TestGuaranteedUpdateWithSuggestionAndConflict(t *testing.T) {
+ func TestTransformationFailure(t *testing.T) {
+ 	client := testserver.RunEtcd(t, nil)
+ 	codec := apitesting.TestCodec(codecs, examplev1.SchemeGroupVersion)
+-	store := newStore(client, codec, newPod, "", schema.GroupResource{Resource: "pods"}, &prefixTransformer{prefix: []byte(defaultTestPrefix)}, false, newTestLeaseManagerConfig())
++	pagingConfig := PagingConfig{PagingEnabled: false}
++	store := newStore(client, codec, newPod, "", schema.GroupResource{Resource: "pods"}, &prefixTransformer{prefix: []byte(defaultTestPrefix)}, pagingConfig, newTestLeaseManagerConfig())
+ 	ctx := context.Background()
+ 
+ 	preset := []struct {
+@@ -1116,8 +1120,10 @@ func TestList(t *testing.T) {
+ 	client := testserver.RunEtcd(t, nil)
+ 	defer featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.RemainingItemCount, true)()
+ 	codec := apitesting.TestCodec(codecs, examplev1.SchemeGroupVersion)
+-	store := newStore(client, codec, newPod, "", schema.GroupResource{Resource: "pods"}, &prefixTransformer{prefix: []byte(defaultTestPrefix)}, true, newTestLeaseManagerConfig())
+-	disablePagingStore := newStore(client, codec, newPod, "", schema.GroupResource{Resource: "pods"}, &prefixTransformer{prefix: []byte(defaultTestPrefix)}, false, newTestLeaseManagerConfig())
++	pagingConfig := PagingConfig{PagingEnabled: true, MaximumPageSize: defaultListEtcdMaxLimit}
++	store := newStore(client, codec, newPod, "", schema.GroupResource{Resource: "pods"}, &prefixTransformer{prefix: []byte(defaultTestPrefix)}, pagingConfig, newTestLeaseManagerConfig())
++	disabledPagingConfig := PagingConfig{PagingEnabled: false}
++	disablePagingStore := newStore(client, codec, newPod, "", schema.GroupResource{Resource: "pods"}, &prefixTransformer{prefix: []byte(defaultTestPrefix)}, disabledPagingConfig, newTestLeaseManagerConfig())
+ 	ctx := context.Background()
+ 
+ 	// Setup storage with the following structure:
+@@ -1632,7 +1638,8 @@ func TestListContinuation(t *testing.T) {
+ 	transformer := &prefixTransformer{prefix: []byte(defaultTestPrefix)}
+ 	recorder := &clientRecorder{KV: etcdClient.KV}
+ 	etcdClient.KV = recorder
+-	store := newStore(etcdClient, codec, newPod, "", schema.GroupResource{Resource: "pods"}, transformer, true, newTestLeaseManagerConfig())
++	pagingConfig := PagingConfig{PagingEnabled: true, MaximumPageSize: defaultListEtcdMaxLimit}
++	store := newStore(etcdClient, codec, newPod, "", schema.GroupResource{Resource: "pods"}, transformer, pagingConfig, newTestLeaseManagerConfig())
+ 	ctx := context.Background()
+ 
+ 	// Setup storage with the following structure:
+@@ -1790,7 +1797,8 @@ func TestListPaginationRareObject(t *testing.T) {
+ 	transformer := &prefixTransformer{prefix: []byte(defaultTestPrefix)}
+ 	recorder := &clientRecorder{KV: etcdClient.KV}
+ 	etcdClient.KV = recorder
+-	store := newStore(etcdClient, codec, newPod, "", schema.GroupResource{Resource: "pods"}, transformer, true, NewDefaultLeaseManagerConfig())
++	pagingConfig := PagingConfig{PagingEnabled: true, MaximumPageSize: defaultListEtcdMaxLimit}
++	store := newStore(etcdClient, codec, newPod, "", schema.GroupResource{Resource: "pods"}, transformer, pagingConfig, NewDefaultLeaseManagerConfig())
+ 	ctx := context.Background()
+ 
+ 	podCount := 1000
+@@ -1845,6 +1853,166 @@ func TestListPaginationRareObject(t *testing.T) {
+ 	recorder.resetReads()
+ }
+ 
++func TestListPaginationWithEnforcedLimit(t *testing.T) {
++	client := testserver.RunEtcd(t, nil)
++	codec := apitesting.TestCodec(codecs, examplev1.SchemeGroupVersion)
++	transformer := &prefixTransformer{prefix: []byte(defaultTestPrefix)}
++	recorder := &clientRecorder{KV: client.KV}
++	client.KV = recorder
++	pagingConfig := PagingConfig{PagingEnabled: true, MaximumPageSize: defaultListEtcdMaxLimit}
++	store := newStore(client, codec, newPod, "", schema.GroupResource{Resource: "pods"}, transformer, pagingConfig, NewDefaultLeaseManagerConfig())
++	ctx := context.Background()
++
++	// write pods
++	podCount := 2000
++	var pods []*example.Pod
++	for i := 0; i < podCount; i++ {
++		key := fmt.Sprintf("/one-level/pod-%04d", i)
++		obj := &example.Pod{ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("pod-%04d", i)}}
++		storedObj := &example.Pod{}
++		err := store.Create(ctx, key, obj, storedObj, 0)
++		if err != nil {
++			t.Fatalf("Set failed: %v", err)
++		}
++		pods = append(pods, storedObj)
++	}
++
++	// user list requests with 100 limit + latest resource version
++	options := storage.ListOptions{
++		ResourceVersion: "0",
++		Predicate: storage.SelectionPredicate{
++			Label: labels.Everything(),
++			GetAttrs: func(obj runtime.Object) (labels.Set, fields.Set, error) {
++				pod := obj.(*example.Pod)
++				return nil, fields.Set{"metadata.name": pod.Name}, nil
++			},
++		},
++		Recursive: true,
++	}
++
++	testCases := []struct {
++		// are we selecting everything or one item?
++		setFieldSelector bool
++		// predicate setLimit
++		setLimit int64
++		// expected number of total items from GetList
++		expectItems int
++		// expected number of transformer reads
++		expectTransformerReads uint64
++		// expected number of calls to etcd
++		expectPages int
++		// expected continuation token in GetList response
++		expectContinue bool
++	}{
++		{
++			setFieldSelector:       false,
++			setLimit:               0, // no limit is set, we want all items
++			expectItems:            2000,
++			expectTransformerReads: 2000,
++			expectPages:            4,
++			expectContinue:         false,
++		},
++		{
++			setFieldSelector:       false,
++			setLimit:               50, // limit < maxLimit
++			expectItems:            50,
++			expectTransformerReads: 50,
++			expectPages:            1,
++			expectContinue:         true,
++		},
++		{
++			setFieldSelector:       false,
++			setLimit:               500, // limit = maxLimit
++			expectItems:            500,
++			expectTransformerReads: 500,
++			expectPages:            1,
++			expectContinue:         true,
++		},
++		{
++			setFieldSelector:       false,
++			setLimit:               1000, // limit > maxLimit
++			expectItems:            1000,
++			expectTransformerReads: 1000,
++			expectPages:            2,
++			expectContinue:         true,
++		},
++		{
++			setFieldSelector:       true,
++			setLimit:               0,
++			expectItems:            1,
++			expectTransformerReads: 2000,
++			expectPages:            4,
++			expectContinue:         false,
++		},
++		{
++			setFieldSelector:       true,
++			setLimit:               1,
++			expectItems:            1,
++			expectTransformerReads: 1000,
++			expectPages:            10,
++			expectContinue:         true,
++		},
++		{
++			setFieldSelector:       true,
++			setLimit:               50,
++			expectItems:            1,
++			expectTransformerReads: 2000,
++			expectPages:            7,
++			expectContinue:         false,
++		},
++		{
++			setFieldSelector:       true,
++			setLimit:               500,
++			expectItems:            1,
++			expectTransformerReads: 2000,
++			expectPages:            4,
++			expectContinue:         false,
++		},
++		{
++			setFieldSelector:       true,
++			setLimit:               1000,
++			expectItems:            1,
++			expectTransformerReads: 2000,
++			expectPages:            4,
++			expectContinue:         false,
++		},
++	}
++	for i, tc := range testCases {
++		t.Logf("--- Running test case #%d:\n\tsetFieldSelector: %v\n\tsetLimit: %d\n\texpectItems: %d\n\texpectTransformerReads: %d\n\texpectPages: %d\n\texpectContinue: %v", i, tc.setFieldSelector, tc.setLimit, tc.expectItems, tc.expectTransformerReads, tc.expectPages, tc.expectContinue)
++
++		options.Predicate.Limit = tc.setLimit
++		if tc.setFieldSelector {
++			options.Predicate.Field = fields.OneTermEqualSelector("metadata.name", "pod-0999")
++		} else {
++			options.Predicate.Field = fields.Everything()
++		}
++
++		out := &example.PodList{}
++		if err := store.GetList(ctx, "/", options, out); err != nil {
++			t.Fatalf("Unable to get initial list: %v", err)
++		}
++		if tc.expectContinue != (len(out.Continue) != 0) {
++			t.Errorf("Unexpected continuation token")
++		}
++		if len(out.Items) != tc.expectItems {
++			t.Fatalf("expect %d items, but got %d", tc.expectItems, len(out.Items))
++		}
++		if tc.setFieldSelector {
++			if !reflect.DeepEqual(&out.Items[0], pods[999]) {
++				t.Fatalf("Unexpected first page: %#v", out.Items)
++			}
++		}
++		if transformer.reads != tc.expectTransformerReads {
++			t.Errorf("unexpected reads: %d", transformer.reads)
++		}
++		if int(recorder.reads) != tc.expectPages {
++			t.Errorf("expect reads: %d, but got %d", tc.expectPages, recorder.reads)
++		}
++		transformer.resetReads()
++		recorder.resetReads()
++	}
++}
++
+ type clientRecorder struct {
+ 	reads uint64
+ 	clientv3.KV
+@@ -1865,7 +2033,8 @@ func TestListContinuationWithFilter(t *testing.T) {
+ 	transformer := &prefixTransformer{prefix: []byte(defaultTestPrefix)}
+ 	recorder := &clientRecorder{KV: etcdClient.KV}
+ 	etcdClient.KV = recorder
+-	store := newStore(etcdClient, codec, newPod, "", schema.GroupResource{Resource: "pods"}, transformer, true, newTestLeaseManagerConfig())
++	pagingConfig := PagingConfig{PagingEnabled: true, MaximumPageSize: defaultListEtcdMaxLimit}
++	store := newStore(etcdClient, codec, newPod, "", schema.GroupResource{Resource: "pods"}, transformer, pagingConfig, newTestLeaseManagerConfig())
+ 	ctx := context.Background()
+ 
+ 	preset := []struct {
+@@ -1973,7 +2142,8 @@ func TestListContinuationWithFilter(t *testing.T) {
+ func TestListInconsistentContinuation(t *testing.T) {
+ 	client := testserver.RunEtcd(t, nil)
+ 	codec := apitesting.TestCodec(codecs, examplev1.SchemeGroupVersion)
+-	store := newStore(client, codec, newPod, "", schema.GroupResource{Resource: "pods"}, &prefixTransformer{prefix: []byte(defaultTestPrefix)}, true, newTestLeaseManagerConfig())
++	pagingConfig := PagingConfig{PagingEnabled: true, MaximumPageSize: defaultListEtcdMaxLimit}
++	store := newStore(client, codec, newPod, "", schema.GroupResource{Resource: "pods"}, &prefixTransformer{prefix: []byte(defaultTestPrefix)}, pagingConfig, newTestLeaseManagerConfig())
+ 	ctx := context.Background()
+ 
+ 	// Setup storage with the following structure:
+@@ -2141,7 +2311,8 @@ func newTestLeaseManagerConfig() LeaseManagerConfig {
+ func testSetup(t *testing.T) (context.Context, *store, *clientv3.Client) {
+ 	client := testserver.RunEtcd(t, nil)
+ 	codec := apitesting.TestCodec(codecs, examplev1.SchemeGroupVersion)
+-	store := newStore(client, codec, newPod, "", schema.GroupResource{Resource: "pods"}, &prefixTransformer{prefix: []byte(defaultTestPrefix)}, true, newTestLeaseManagerConfig())
++	pagingConfig := PagingConfig{PagingEnabled: true, MaximumPageSize: defaultListEtcdMaxLimit}
++	store := newStore(client, codec, newPod, "", schema.GroupResource{Resource: "pods"}, &prefixTransformer{prefix: []byte(defaultTestPrefix)}, pagingConfig, newTestLeaseManagerConfig())
+ 	ctx := context.Background()
+ 	return ctx, store, client
+ }
+@@ -2182,7 +2353,8 @@ func TestPrefix(t *testing.T) {
+ 		"/registry":         "/registry",
+ 	}
+ 	for configuredPrefix, effectivePrefix := range testcases {
+-		store := newStore(client, codec, nil, configuredPrefix, schema.GroupResource{Resource: "widgets"}, transformer, true, newTestLeaseManagerConfig())
++		pagingConfig := PagingConfig{PagingEnabled: true, MaximumPageSize: defaultListEtcdMaxLimit}
++		store := newStore(client, codec, nil, configuredPrefix, schema.GroupResource{Resource: "widgets"}, transformer, pagingConfig, newTestLeaseManagerConfig())
+ 		if store.pathPrefix != effectivePrefix {
+ 			t.Errorf("configured prefix of %s, expected effective prefix of %s, got %s", configuredPrefix, effectivePrefix, store.pathPrefix)
+ 		}
+@@ -2377,7 +2549,8 @@ func TestConsistentList(t *testing.T) {
+ 	transformer := &fancyTransformer{
+ 		transformer: &prefixTransformer{prefix: []byte(defaultTestPrefix)},
+ 	}
+-	store := newStore(client, codec, newPod, "", schema.GroupResource{Resource: "pods"}, transformer, true, newTestLeaseManagerConfig())
++	pagingConfig := PagingConfig{PagingEnabled: true, MaximumPageSize: defaultListEtcdMaxLimit}
++	store := newStore(client, codec, newPod, "", schema.GroupResource{Resource: "pods"}, transformer, pagingConfig, newTestLeaseManagerConfig())
+ 	transformer.store = store
+ 
+ 	for i := 0; i < 5; i++ {
+@@ -2482,7 +2655,8 @@ func TestCount(t *testing.T) {
+ func TestLeaseMaxObjectCount(t *testing.T) {
+ 	codec := apitesting.TestCodec(codecs, examplev1.SchemeGroupVersion)
+ 	client := testserver.RunEtcd(t, nil)
+-	store := newStore(client, codec, newPod, "", schema.GroupResource{Resource: "pods"}, &prefixTransformer{prefix: []byte(defaultTestPrefix)}, true, LeaseManagerConfig{
++	pagingConfig := PagingConfig{PagingEnabled: true, MaximumPageSize: defaultListEtcdMaxLimit}
++	store := newStore(client, codec, newPod, "", schema.GroupResource{Resource: "pods"}, &prefixTransformer{prefix: []byte(defaultTestPrefix)}, pagingConfig, LeaseManagerConfig{
+ 		ReuseDurationSeconds: defaultLeaseReuseDurationSeconds,
+ 		MaxObjectCount:       2,
+ 	})
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher_test.go b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher_test.go
+index eb3d76fc379..9a0b4d97b23 100644
+--- a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher_test.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher_test.go
+@@ -226,14 +226,15 @@ func TestWatchError(t *testing.T) {
+ 	// this codec fails on decodes, which will bubble up so we can verify the behavior
+ 	invalidCodec := &testCodec{apitesting.TestCodec(codecs, examplev1.SchemeGroupVersion)}
+ 	client := testserver.RunEtcd(t, nil)
+-	invalidStore := newStore(client, invalidCodec, newPod, "", schema.GroupResource{Resource: "pods"}, &prefixTransformer{prefix: []byte("test!")}, true, newTestLeaseManagerConfig())
++	pagingConfig := PagingConfig{PagingEnabled: true, MaximumPageSize: defaultListEtcdMaxLimit}
++	invalidStore := newStore(client, invalidCodec, newPod, "", schema.GroupResource{Resource: "pods"}, &prefixTransformer{prefix: []byte("test!")}, pagingConfig, newTestLeaseManagerConfig())
+ 	ctx := context.Background()
+ 	w, err := invalidStore.Watch(ctx, "/abc", storage.ListOptions{ResourceVersion: "0", Predicate: storage.Everything})
+ 	if err != nil {
+ 		t.Fatalf("Watch failed: %v", err)
+ 	}
+ 	codec := apitesting.TestCodec(codecs, examplev1.SchemeGroupVersion)
+-	validStore := newStore(client, codec, newPod, "", schema.GroupResource{Resource: "pods"}, &prefixTransformer{prefix: []byte("test!")}, true, newTestLeaseManagerConfig())
++	validStore := newStore(client, codec, newPod, "", schema.GroupResource{Resource: "pods"}, &prefixTransformer{prefix: []byte("test!")}, pagingConfig, newTestLeaseManagerConfig())
+ 	if err := validStore.GuaranteedUpdate(ctx, "/abc", &example.Pod{}, true, nil, storage.SimpleUpdate(
+ 		func(runtime.Object) (runtime.Object, error) {
+ 			return &example.Pod{ObjectMeta: metav1.ObjectMeta{Name: "foo"}}, nil
+@@ -363,7 +364,8 @@ func TestProgressNotify(t *testing.T) {
+ 	clusterConfig := testserver.NewTestConfig(t)
+ 	clusterConfig.ExperimentalWatchProgressNotifyInterval = time.Second
+ 	client := testserver.RunEtcd(t, clusterConfig)
+-	store := newStore(client, codec, newPod, "", schema.GroupResource{Resource: "pods"}, &prefixTransformer{prefix: []byte(defaultTestPrefix)}, false, newTestLeaseManagerConfig())
++	pagingConfig := PagingConfig{PagingEnabled: false}
++	store := newStore(client, codec, newPod, "", schema.GroupResource{Resource: "pods"}, &prefixTransformer{prefix: []byte(defaultTestPrefix)}, pagingConfig, newTestLeaseManagerConfig())
+ 	ctx := context.Background()
+ 
+ 	key := "/somekey"
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/config.go b/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/config.go
+index ec201787e46..34e65cfb41d 100644
+--- a/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/config.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/config.go
+@@ -65,7 +65,8 @@ type Config struct {
+ 	// supported). This is generally configured by feature gating, or by a specific
+ 	// resource type not wishing to allow paging, and is not intended for end users to
+ 	// set.
+-	Paging bool
++	Paging          bool
++	MaximumPageSize int64
+ 
+ 	Codec runtime.Codec
+ 	// EncodeVersioner is the same groupVersioner used to build the
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/factory/etcd3.go b/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/factory/etcd3.go
+index 07b24553c18..8bfb9e637db 100644
+--- a/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/factory/etcd3.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/factory/etcd3.go
+@@ -324,7 +324,8 @@ func newETCD3Storage(c storagebackend.ConfigForResource, newFunc func() runtime.
+ 	if transformer == nil {
+ 		transformer = value.IdentityTransformer
+ 	}
+-	return etcd3.New(client, c.Codec, newFunc, c.Prefix, c.GroupResource, transformer, c.Paging, c.LeaseManagerConfig), destroyFunc, nil
++	pagingConfig := etcd3.PagingConfig{PagingEnabled: c.Paging, MaximumPageSize: c.MaximumPageSize}
++	return etcd3.New(client, c.Codec, newFunc, c.Prefix, c.GroupResource, transformer, pagingConfig, c.LeaseManagerConfig), destroyFunc, nil
+ }
+ 
+ // startDBSizeMonitorPerEndpoint starts a loop to monitor etcd database size and update the
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/tests/cacher_test.go b/staging/src/k8s.io/apiserver/pkg/storage/tests/cacher_test.go
+index 93bea21fc1a..31d85eae1e8 100644
+--- a/staging/src/k8s.io/apiserver/pkg/storage/tests/cacher_test.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/tests/cacher_test.go
+@@ -63,6 +63,7 @@ var (
+ const (
+ 	// watchCacheDefaultCapacity syncs watch cache defaultLowerBoundCapacity.
+ 	watchCacheDefaultCapacity = 100
++	defaultListEtcdMaxLimit   = 500
+ )
+ 
+ func init() {
+@@ -107,7 +108,8 @@ func newPodList() runtime.Object { return &example.PodList{} }
+ 
+ func newEtcdTestStorage(t *testing.T, prefix string) (*etcd3testing.EtcdTestServer, storage.Interface) {
+ 	server, _ := etcd3testing.NewUnsecuredEtcd3TestClientServer(t)
+-	storage := etcd3.New(server.V3Client, apitesting.TestCodec(codecs, examplev1.SchemeGroupVersion), newPod, prefix, schema.GroupResource{Resource: "pods"}, value.IdentityTransformer, true, etcd3.NewDefaultLeaseManagerConfig())
++	pagingConfig := etcd3.PagingConfig{PagingEnabled: true, MaximumPageSize: defaultListEtcdMaxLimit}
++	storage := etcd3.New(server.V3Client, apitesting.TestCodec(codecs, examplev1.SchemeGroupVersion), newPod, prefix, schema.GroupResource{Resource: "pods"}, value.IdentityTransformer, pagingConfig, etcd3.NewDefaultLeaseManagerConfig())
+ 	return server, storage
+ }
+ 
