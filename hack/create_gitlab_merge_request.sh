@@ -30,7 +30,7 @@ set +e
 if git rev-parse --verify origin/"$BRANCH"; then
   AUTHOR=$(git show -s --format='%ae' origin/"$BRANCH")
   BRANCH_DNE=""
-  echo "$AUTHOR was last committer, it's safe to force push"
+  echo "$AUTHOR was last committer, it may be safe to force push"
 else
   AUTHOR=""
   BRANCH_DNE="1"
@@ -42,6 +42,8 @@ if [[ $AUTHOR == *"eks-dataplane-team"* ]] || [[ $BRANCH_DNE == "1" ]]; then
   echo "Pushing origin/$BRANCH"
   git remote add origin_push https://gitlab-ci-token:"$PROJECT_ACCESS_TOKEN"@gitlab.aws.dev/"$CI_PROJECT_PATH".git
   git push -o merge_request.create -o merge_request.merge_when_pipeline_succeeds -o merge_request.remove_source_branch origin_push "$BRANCH" --force
+else
+  echo "Not pushing origin/$BRANCH"
 fi
 
 git checkout @{-1}
