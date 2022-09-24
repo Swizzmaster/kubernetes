@@ -1,10 +1,9 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Matthew Wong <mattwon@amazon.com>
 Date: Wed, 16 Feb 2022 11:05:58 -0800
-Subject: [PATCH] --EKS-PATCH-- Check token issuer before calling key-server to
- avoid pointless calls for aws-iam-authenticator token
+Subject: [PATCH] --EKS-PRIVATE-- Check token issuer before calling key-server
+ to avoid pointless calls for aws-iam-authenticator token
 
---EKS-PRIVATE--
 ---
  pkg/serviceaccount/jwt.go               |  2 +-
  pkg/serviceaccount/jwt_external.go      | 36 ++++++++++++

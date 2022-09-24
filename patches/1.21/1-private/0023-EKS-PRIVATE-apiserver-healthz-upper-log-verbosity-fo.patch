@@ -1,10 +1,8 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Gyuho Lee <leegyuho@amazon.com>
 Date: Tue, 28 Sep 2021 19:38:47 +0000
-Subject: [PATCH] --EKS-PATCH-- apiserver/healthz: upper log verbosity for
+Subject: [PATCH] --EKS-PRIVATE-- apiserver/healthz: upper log verbosity for
  "kms-provider-0"
-
---EKS-PRIVATE--
 
 To silence
 

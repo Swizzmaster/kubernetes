@@ -1,10 +1,8 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Jyoti Mahapatra <jyotima@amazon.com>
 Date: Thu, 20 May 2021 08:14:15 +0000
-Subject: [PATCH] --EKS-PATCH-- Added support for external JWT signing and
+Subject: [PATCH] --EKS-PRIVATE-- Added support for external JWT signing and
  verifying
-
---EKS-PRIVATE--
 
 ref. https://github.com/micahhausler/kubernetes/commit/147f45449d6d750c848751eb7d17aba4a9b571be
 
