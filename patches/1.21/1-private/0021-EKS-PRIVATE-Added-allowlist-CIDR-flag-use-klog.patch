@@ -18,17 +18,17 @@ should consider removing the non-inclusive flag.
 
 Signed-off-by: Jyoti Mahapatra <jyotima@amazon.com>
 ---
- cmd/kube-apiserver/app/dialer.go              |  53 +++
- cmd/kube-apiserver/app/options/allowlist.go   |   9 +
- cmd/kube-apiserver/app/options/options.go     |   9 +
- .../app/options/options_test.go               |   2 +
- cmd/kube-apiserver/app/options/validation.go  |  15 +
- cmd/kube-apiserver/app/server.go              |   6 +
- pkg/kubeapiserver/options/ipnetslice.go       |  93 +++++
- pkg/kubeapiserver/options/ipnetslice_test.go  |  36 ++
- pkg/kubeapiserver/options/options.go          |   1 +
- pkg/registry/core/node/strategy.go            |  25 +-
- .../apiserver/proxy_cidr_allowlist_test.go    | 388 ++++++++++++++++++
+ cmd/kube-apiserver/app/dialer.go                   |  53 +++
+ cmd/kube-apiserver/app/options/allowlist.go        |   9 +
+ cmd/kube-apiserver/app/options/options.go          |   9 +
+ cmd/kube-apiserver/app/options/options_test.go     |   2 +
+ cmd/kube-apiserver/app/options/validation.go       |  15 +
+ cmd/kube-apiserver/app/server.go                   |   6 +
+ pkg/kubeapiserver/options/ipnetslice.go            |  93 +++++
+ pkg/kubeapiserver/options/ipnetslice_test.go       |  36 ++
+ pkg/kubeapiserver/options/options.go               |   1 +
+ pkg/registry/core/node/strategy.go                 |  25 +-
+ .../apiserver/proxy_cidr_allowlist_test.go         | 388 +++++++++++++++++++++
  11 files changed, 633 insertions(+), 4 deletions(-)
  create mode 100644 cmd/kube-apiserver/app/dialer.go
  create mode 100644 cmd/kube-apiserver/app/options/allowlist.go
@@ -111,7 +111,7 @@ index 00000000000..d10ec4ebdda
 +	ProxyCIDRAllowlist kubeoptions.IPNetSlice = kubeoptions.DefaultProxyCIDRAllowlist
 +)
 diff --git a/cmd/kube-apiserver/app/options/options.go b/cmd/kube-apiserver/app/options/options.go
-index a16bc5498c5..0b6847a7766 100644
+index c8a21ac1437..3edf7da3f20 100644
 --- a/cmd/kube-apiserver/app/options/options.go
 +++ b/cmd/kube-apiserver/app/options/options.go
 @@ -65,6 +65,7 @@ type ServerRunOptions struct {
@@ -122,16 +122,16 @@ index a16bc5498c5..0b6847a7766 100644
  	// ServiceClusterIPRange is mapped to input provided by user
  	ServiceClusterIPRanges string
  	// PrimaryServiceClusterIPRange and SecondaryServiceClusterIPRange are the results
-@@ -136,6 +137,8 @@ func NewServerRunOptions() *ServerRunOptions {
- 		},
- 		ServiceNodePortRange: kubeoptions.DefaultServiceNodePortRange,
+@@ -138,6 +139,8 @@ func NewServerRunOptions() *ServerRunOptions {
+ 		ServiceNodePortRange:                kubeoptions.DefaultServiceNodePortRange,
+ 		AggregatorRejectForwardingRedirects: true,
  	}
 +	s.ServiceClusterIPRanges = kubeoptions.DefaultServiceIPCIDR.String()
 +	s.ProxyCIDRAllowlist = kubeoptions.DefaultProxyCIDRAllowlist
  
  	// Overwrite the default for storage data format.
  	s.Etcd.DefaultStorageMediaType = "application/vnd.kubernetes.protobuf"
-@@ -231,6 +234,12 @@ func (s *ServerRunOptions) Flags() (fss cliflag.NamedFlagSets) {
+@@ -233,6 +236,12 @@ func (s *ServerRunOptions) Flags() (fss cliflag.NamedFlagSets) {
  		"A CIDR notation IP range from which to assign service cluster IPs. This must not "+
  		"overlap with any IP ranges assigned to nodes or pods. Max of two dual-stack CIDRs is allowed.")
  
@@ -145,7 +145,7 @@ index a16bc5498c5..0b6847a7766 100644
  		"A port range to reserve for services with NodePort visibility. "+
  		"Example: '30000-32767'. Inclusive at both ends of the range.")
 diff --git a/cmd/kube-apiserver/app/options/options_test.go b/cmd/kube-apiserver/app/options/options_test.go
-index d506ddb7274..72ecc46c982 100644
+index 640f7564f64..24fa718bc06 100644
 --- a/cmd/kube-apiserver/app/options/options_test.go
 +++ b/cmd/kube-apiserver/app/options/options_test.go
 @@ -111,6 +111,7 @@ func TestAddFlags(t *testing.T) {
