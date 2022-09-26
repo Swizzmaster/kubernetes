@@ -46,7 +46,7 @@ default:
     - *script_apply_patches
     - ./hack/install_unit_test_dependencies.sh ./kubernetes/
     - export PATH=/usr/local/go/bin:$PATH
-    - pushd ./kubernetes/ && make test KUBE_RACE=-race KUBE_TIMEOUT=--timeout=300s && popd
+    - pushd ./kubernetes/ && make test KUBE_RACE=-race KUBE_TIMEOUT=--timeout=900s && popd
   except:
     - schedules
 
