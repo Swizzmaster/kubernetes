@@ -6,8 +6,8 @@ Subject: [PATCH] --EKS-PATCH-- Limit redirect proxy handling to redirected
 
 Cherry-pick of upstream Kubernetes PR #112526
 (https://github.com/kubernetes/kubernetes/pull/112526/commits/a7e079680a9007bed0304ac3b62ae24623ad0bf1),
-which is available in Kubernetes versions 1.22+. For versions 1.20/1.21
-(where AP&F is enabled), we are back-porting the fix for EKS to mitigate customer issues.
+which is available in Kubernetes versions 1.22+.
+This is a fix for CVE-2022-3172 https://github.com/kubernetes/kubernetes/issues/112513
 ---
  .../apimachinery/pkg/util/proxy/upgradeaware.go     |  2 +-
  .../pkg/util/proxy/upgradeaware_test.go             | 21 +++++++++++++++++++++
