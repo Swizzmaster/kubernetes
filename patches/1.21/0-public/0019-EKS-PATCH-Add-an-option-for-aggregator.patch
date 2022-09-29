@@ -5,8 +5,8 @@ Subject: [PATCH] --EKS-PATCH-- Add an option for aggregator
 
 Cherry-pick of upstream Kubernetes PR #112359
 (https://github.com/kubernetes/kubernetes/pull/112359/commits/1f72d5d61330dd6b4f1241b96ad44aab5131f7fe),
-which is available in Kubernetes versions 1.22+. For versions 1.20/1.21
-we are back-porting the fix for EKS to mitigate customer issues.
+which is available in Kubernetes versions 1.22+.
+This is a fix for CVE-2022-3172 https://github.com/kubernetes/kubernetes/issues/112513
 ---
  cmd/kube-apiserver/app/aggregator.go               |  9 +--
  cmd/kube-apiserver/app/options/options.go          |  9 ++-
