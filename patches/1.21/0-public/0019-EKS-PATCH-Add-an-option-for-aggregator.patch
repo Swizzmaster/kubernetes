@@ -8,13 +8,13 @@ Cherry-pick of upstream Kubernetes PR #112359
 which is available in Kubernetes versions 1.22+.
 This is a fix for CVE-2022-3172 https://github.com/kubernetes/kubernetes/issues/112513
 ---
- cmd/kube-apiserver/app/aggregator.go               |  9 +--
- cmd/kube-apiserver/app/options/options.go          |  9 ++-
- cmd/kube-apiserver/app/options/options_test.go     | 17 ++---
- .../apimachinery/pkg/util/proxy/upgradeaware.go    | 27 ++++++++
- .../pkg/util/proxy/upgradeaware_test.go            | 77 ++++++++++++++++++++++
- .../kube-aggregator/pkg/apiserver/apiserver.go     |  7 ++
- .../kube-aggregator/pkg/apiserver/handler_proxy.go |  6 ++
+ cmd/kube-apiserver/app/aggregator.go          |  9 ++-
+ cmd/kube-apiserver/app/options/options.go     |  9 ++-
+ .../app/options/options_test.go               | 17 ++--
+ .../pkg/util/proxy/upgradeaware.go            | 27 +++++++
+ .../pkg/util/proxy/upgradeaware_test.go       | 77 +++++++++++++++++++
+ .../pkg/apiserver/apiserver.go                |  7 ++
+ .../pkg/apiserver/handler_proxy.go            |  6 ++
  7 files changed, 138 insertions(+), 14 deletions(-)
 
 diff --git a/cmd/kube-apiserver/app/aggregator.go b/cmd/kube-apiserver/app/aggregator.go
