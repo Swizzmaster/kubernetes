@@ -9,9 +9,9 @@ Cherry-pick of upstream Kubernetes PR #111009
 which is available in Kubernetes versions 1.22+. For versions 1.20/1.21
 (where AP&F is enabled), we are back-porting the fix for EKS to mitigate customer issues.
 ---
- .../kuberuntime/security_context_windows.go        | 10 ++++--
- .../kuberuntime/security_context_windows_test.go   | 42 ++++++++++++++++++++++
- test/e2e/windows/security_context.go               | 39 ++++++++++++++++++++
+ .../kuberuntime/security_context_windows.go   | 10 +++--
+ .../security_context_windows_test.go          | 42 +++++++++++++++++++
+ test/e2e/windows/security_context.go          | 39 +++++++++++++++++
  3 files changed, 88 insertions(+), 3 deletions(-)
 
 diff --git a/pkg/kubelet/kuberuntime/security_context_windows.go b/pkg/kubelet/kuberuntime/security_context_windows.go

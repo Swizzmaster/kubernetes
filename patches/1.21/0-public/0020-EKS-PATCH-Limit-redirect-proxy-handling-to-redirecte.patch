@@ -9,8 +9,8 @@ Cherry-pick of upstream Kubernetes PR #112526
 which is available in Kubernetes versions 1.22+. For versions 1.20/1.21
 (where AP&F is enabled), we are back-porting the fix for EKS to mitigate customer issues.
 ---
- .../apimachinery/pkg/util/proxy/upgradeaware.go     |  2 +-
- .../pkg/util/proxy/upgradeaware_test.go             | 21 +++++++++++++++++++++
+ .../pkg/util/proxy/upgradeaware.go            |  2 +-
+ .../pkg/util/proxy/upgradeaware_test.go       | 21 +++++++++++++++++++
  2 files changed, 22 insertions(+), 1 deletion(-)
 
 diff --git a/staging/src/k8s.io/apimachinery/pkg/util/proxy/upgradeaware.go b/staging/src/k8s.io/apimachinery/pkg/util/proxy/upgradeaware.go
