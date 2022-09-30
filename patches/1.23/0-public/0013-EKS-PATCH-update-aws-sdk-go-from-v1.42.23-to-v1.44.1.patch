@@ -1,0 +1,55 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Gaige Pierce-Raison <gpiercer@amazon.com>
+Date: Fri, 30 Sep 2022 21:35:29 +0000
+Subject: [PATCH] --EKS-PATCH-- update aws-sdk-go from v1.42.23 to v1.44.107
+ for kubernetes v1.23.12
+
+---
+ go.mod                                           | 4 ++--
+ staging/src/k8s.io/legacy-cloud-providers/go.mod | 6 ++++--
+ 2 files changed, 6 insertions(+), 4 deletions(-)
+
+diff --git a/go.mod b/go.mod
+index cf6e56ce9db..70f5b21f7e7 100644
+--- a/go.mod
++++ b/go.mod
+@@ -20,7 +20,7 @@ require (
+ 	github.com/Microsoft/hcsshim v0.8.22
+ 	github.com/armon/circbuf v0.0.0-20150827004946-bbbad097214e
+ 	github.com/auth0/go-jwt-middleware v1.0.1 // indirect
+-	github.com/aws/aws-sdk-go v1.42.23
++	github.com/aws/aws-sdk-go v1.44.107
+ 	github.com/blang/semver v3.5.1+incompatible
+ 	github.com/boltdb/bolt v1.3.1 // indirect
+ 	github.com/clusterhq/flocker-go v0.0.0-20160920122132-2b8b7259d313
+@@ -176,7 +176,7 @@ replace (
+ 	github.com/armon/go-radix => github.com/armon/go-radix v0.0.0-20180808171621-7fddfc383310
+ 	github.com/asaskevich/govalidator => github.com/asaskevich/govalidator v0.0.0-20190424111038-f61b66f89f4a
+ 	github.com/auth0/go-jwt-middleware => github.com/auth0/go-jwt-middleware v1.0.1
+-	github.com/aws/aws-sdk-go => github.com/aws/aws-sdk-go v1.42.23
++	github.com/aws/aws-sdk-go => github.com/aws/aws-sdk-go v1.44.107
+ 	github.com/benbjohnson/clock => github.com/benbjohnson/clock v1.1.0
+ 	github.com/beorn7/perks => github.com/beorn7/perks v1.0.1
+ 	github.com/bgentry/speakeasy => github.com/bgentry/speakeasy v0.1.0
+diff --git a/staging/src/k8s.io/legacy-cloud-providers/go.mod b/staging/src/k8s.io/legacy-cloud-providers/go.mod
+index 05e27ec63f5..b8471e0acb1 100644
+--- a/staging/src/k8s.io/legacy-cloud-providers/go.mod
++++ b/staging/src/k8s.io/legacy-cloud-providers/go.mod
+@@ -12,9 +12,9 @@ require (
+ 	github.com/Azure/go-autorest/autorest/mocks v0.4.1
+ 	github.com/Azure/go-autorest/autorest/to v0.4.0
+ 	github.com/Azure/go-autorest/autorest/validation v0.1.0 // indirect
+-	github.com/GoogleCloudPlatform/k8s-cloud-provider v1.16.1-0.20210702024009-ea6160c1d0e3
+-	github.com/aws/aws-sdk-go v1.42.23
+ 	github.com/GoogleCloudPlatform/k8s-cloud-provider v0.0.0-20200415212048-7901bc822317
++	github.com/GoogleCloudPlatform/k8s-cloud-provider v1.16.1-0.20210702024009-ea6160c1d0e3
++	github.com/aws/aws-sdk-go v1.44.107
+ 	github.com/blang/semver v3.5.1+incompatible
+ 	github.com/dnaeon/go-vcr v1.0.1 // indirect
+ 	github.com/gofrs/uuid v4.0.0+incompatible // indirect
+@@ -57,3 +57,5 @@ replace (
+ 	k8s.io/legacy-cloud-providers => ../legacy-cloud-providers
+ 	k8s.io/mount-utils => ../mount-utils
+ )
++
++replace github.com/aws/aws-sdk-go => github.com/aws/aws-sdk-go v1.44.107
