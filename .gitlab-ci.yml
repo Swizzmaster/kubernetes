@@ -123,6 +123,8 @@ test_unit_1.23:
       - patches/1.23/**/*
 
 build_1.24:
+  tags:
+    - dataplane-group
   extends: .build_update_patches_base_version
   variables:
     MINOR_VERSION: "1.24"
@@ -133,6 +135,8 @@ test_apply_patches_1.24:
     MINOR_VERSION: "1.24"
 
 test_unit_1.24:
+  tags:
+    - dataplane-group
   extends: .test_unit
   variables:
     MINOR_VERSION: "1.24"
