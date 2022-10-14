@@ -32,8 +32,6 @@ default:
     - schedules
 
 .test_unit:
-  tags:
-    - size:large
   image: ubuntu:latest
   before_script:
     - apt-get update && apt-get install git -q -y
