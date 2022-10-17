@@ -33,6 +33,7 @@ default:
 
 .test_unit:
   tags:
+    - arch:amd64
     - size:large
   image: ubuntu:latest
   before_script:
