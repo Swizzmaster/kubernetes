@@ -52,6 +52,8 @@ default:
     - pushd ./kubernetes/ && make test KUBE_RACE=-race KUBE_TIMEOUT=--timeout=900s && popd
   rules:
     - if: $CI_PIPELINE_SOURCE != "schedule"
+    - changes:
+        - patches/$MINOR_VERSION/**/*
 
 .1.20:
   variables:
@@ -71,9 +73,6 @@ test_unit_1.20:
   extends:
     - .test_unit
     - .1.20
-  rules:
-    - changes:
-        - patches/$MINOR_VERSION/**/*
 
 .1.21:
   variables:
@@ -93,9 +92,6 @@ test_unit_1.21:
   extends:
     - .test_unit
     - .1.21
-  rules:
-    - changes:
-        - patches/$MINOR_VERSION/**/*
 
 .1.22:
   variables:
@@ -115,9 +111,6 @@ test_unit_1.22:
   extends:
     - .test_unit
     - .1.22
-  rules:
-    - changes:
-        - patches/$MINOR_VERSION/**/*
 
 .1.23:
   variables:
@@ -137,9 +130,6 @@ test_unit_1.23:
   extends:
     - .test_unit
     - .1.23
-  rules:
-    - changes:
-        - patches/$MINOR_VERSION/**/*
 
 .1.24:
   variables:
@@ -159,6 +149,3 @@ test_unit_1.24:
   extends:
     - .test_unit
     - .1.24
-  rules:
-    - changes:
-        - patches/$MINOR_VERSION/**/*
