@@ -21,15 +21,15 @@ default:
   script:
     - ./hack/update_patches_base_version.sh ./patches/$MINOR_VERSION/ ./kubernetes/
     - ./hack/create_gitlab_merge_request.sh ./patches/$MINOR_VERSION/ $MINOR_VERSION
-  only:
-    - schedules
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
 
 .test_apply_patches:
   stage: test
   script:
     - *script_apply_patches
-  except:
-    - schedules
+  rules:
+    - if: $CI_PIPELINE_SOURCE != "schedule"
 
 .test_unit:
   tags:
@@ -50,8 +50,8 @@ default:
     - ./hack/install_unit_test_dependencies.sh ./kubernetes/
     - export PATH=/usr/local/go/bin:$PATH
     - pushd ./kubernetes/ && make test KUBE_RACE=-race KUBE_TIMEOUT=--timeout=900s && popd
-  except:
-    - schedules
+  rules:
+    - if: $CI_PIPELINE_SOURCE != "schedule"
 
 build_1.20:
   extends: .build_update_patches_base_version
@@ -67,8 +67,8 @@ test_unit_1.20:
   extends: .test_unit
   variables:
     MINOR_VERSION: "1.20"
-  only:
-    changes:
+  rules:
+    - changes:
       - patches/1.20/**/*
 
 build_1.21:
@@ -85,8 +85,8 @@ test_unit_1.21:
   extends: .test_unit
   variables:
     MINOR_VERSION: "1.21"
-  only:
-    changes:
+  rules:
+    - changes:
       - patches/1.21/**/*
 
 build_1.22:
@@ -103,8 +103,8 @@ test_unit_1.22:
   extends: .test_unit
   variables:
     MINOR_VERSION: "1.22"
-  only:
-    changes:
+  rules:
+    - changes:
       - patches/1.22/**/*
 
 build_1.23:
@@ -121,8 +121,8 @@ test_unit_1.23:
   extends: .test_unit
   variables:
     MINOR_VERSION: "1.23"
-  only:
-    changes:
+  rules:
+    - changes:
       - patches/1.23/**/*
 
 build_1.24:
@@ -139,6 +139,6 @@ test_unit_1.24:
   extends: .test_unit
   variables:
     MINOR_VERSION: "1.24"
-  only:
-    changes:
+  rules:
+    - changes:
       - patches/1.24/**/*
