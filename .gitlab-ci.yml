@@ -78,7 +78,7 @@ test_unit_1.20:
   variables:
     MINOR_VERSION: "1.21"
 
-build_1.20:
+build_1.21:
   extends:
     - .build_update_patches_base_version
     - .1.21
