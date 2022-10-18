@@ -53,92 +53,111 @@ default:
   rules:
     - if: $CI_PIPELINE_SOURCE != "schedule"
 
-build_1.20:
-  extends: .build_update_patches_base_version
+.1.20:
   variables:
     MINOR_VERSION: "1.20"
+
+build_1.20:
+  extends:
+    - .build_update_patches_base_version
+    - .1.20
 
 test_apply_patches_1.20:
-  extends: .test_apply_patches
-  variables:
-    MINOR_VERSION: "1.20"
+  extends:
+    - .test_apply_patches
+    - .1.20
 
 test_unit_1.20:
-  extends: .test_unit
-  variables:
-    MINOR_VERSION: "1.20"
+  extends:
+    - .test_unit
+    - .1.20
   rules:
     - changes:
-      - patches/1.20/**/*
-
-build_1.21:
-  extends: .build_update_patches_base_version
+      - patches/$MINOR_VERSION/**/*
+.1.21:
   variables:
     MINOR_VERSION: "1.21"
+
+build_1.20:
+  extends:
+    - .build_update_patches_base_version
+    - .1.21
 
 test_apply_patches_1.21:
-  extends: .test_apply_patches
-  variables:
-    MINOR_VERSION: "1.21"
+  extends:
+    - .test_apply_patches
+    - .1.21
 
 test_unit_1.21:
-  extends: .test_unit
-  variables:
-    MINOR_VERSION: "1.21"
+  extends:
+    - .test_unit
+    - .1.21
   rules:
     - changes:
-      - patches/1.21/**/*
+      - patches/$MINOR_VERSION/**/*
+
+.1.22:
+  variables:
+    MINOR_VERSION: "1.22"
 
 build_1.22:
-  extends: .build_update_patches_base_version
-  variables:
-    MINOR_VERSION: "1.22"
+  extends:
+    - .build_update_patches_base_version
+    - .1.22
 
 test_apply_patches_1.22:
-  extends: .test_apply_patches
-  variables:
-    MINOR_VERSION: "1.22"
+  extends:
+    - .test_apply_patches
+    - .1.22
 
 test_unit_1.22:
-  extends: .test_unit
-  variables:
-    MINOR_VERSION: "1.22"
+  extends:
+    - .test_unit
+    - .1.22
   rules:
     - changes:
-      - patches/1.22/**/*
+      - patches/$MINOR_VERSION/**/*
+
+.1.23:
+  variables:
+    MINOR_VERSION: "1.23"
 
 build_1.23:
-  extends: .build_update_patches_base_version
-  variables:
-    MINOR_VERSION: "1.23"
+  extends:
+    - .build_update_patches_base_version
+    - .1.23
 
 test_apply_patches_1.23:
-  extends: .test_apply_patches
-  variables:
-    MINOR_VERSION: "1.23"
+  extends:
+    - .test_apply_patches
+    - .1.23
 
 test_unit_1.23:
-  extends: .test_unit
-  variables:
-    MINOR_VERSION: "1.23"
+  extends:
+    - .test_unit
+    - .1.23
   rules:
     - changes:
-      - patches/1.23/**/*
+      - patches/$MINOR_VERSION/**/*
+
+.1.24:
+  variables:
+    MINOR_VERSION: "1.24"
 
 build_1.24:
-  extends: .build_update_patches_base_version
-  variables:
-    MINOR_VERSION: "1.24"
+  extends:
+    - .build_update_patches_base_version
+    - .1.24
 
 test_apply_patches_1.24:
-  extends: .test_apply_patches
-  variables:
-    MINOR_VERSION: "1.24"
+  extends:
+    - .test_apply_patches
+    - .1.24
 
 test_unit_1.24:
-  extends: .test_unit
-  variables:
-    MINOR_VERSION: "1.24"
+  extends:
+    - .test_unit
+    - .1.24
   rules:
     - changes:
-      - patches/1.24/**/*
+      - patches/$MINOR_VERSION/**/*
