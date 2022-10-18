@@ -52,7 +52,7 @@ default:
     - pushd ./kubernetes/ && make test KUBE_RACE=-race KUBE_TIMEOUT=--timeout=900s && popd
   rules:
     - if: $CI_PIPELINE_SOURCE != "schedule"
-    - changes:
+      changes:
         - patches/$MINOR_VERSION/**/*
 
 .1.20:
