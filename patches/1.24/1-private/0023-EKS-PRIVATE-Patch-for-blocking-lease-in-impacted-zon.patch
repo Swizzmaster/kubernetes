@@ -1,4 +1,4 @@
-From cb69bfb6548205ede459a6c5c8ac314a72214527 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Jyoti Mahapatra <jyotima@amazon.com>
 Date: Tue, 11 Oct 2022 19:09:04 -0700
 Subject: [PATCH] --EKS-PRIVATE-- Patch for blocking lease in impacted zone
