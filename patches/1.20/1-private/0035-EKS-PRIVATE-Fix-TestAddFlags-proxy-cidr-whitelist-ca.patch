@@ -9,7 +9,7 @@ Subject: [PATCH] --EKS-PRIVATE-- Fix TestAddFlags --proxy-cidr-whitelist case
  1 file changed, 2 insertions(+), 1 deletion(-)
 
 diff --git a/cmd/kube-apiserver/app/options/options_test.go b/cmd/kube-apiserver/app/options/options_test.go
-index 3a833ff188f..72ecc46c982 100644
+index c4ff029e2c8..24fa718bc06 100644
 --- a/cmd/kube-apiserver/app/options/options_test.go
 +++ b/cmd/kube-apiserver/app/options/options_test.go
 @@ -111,6 +111,7 @@ func TestAddFlags(t *testing.T) {

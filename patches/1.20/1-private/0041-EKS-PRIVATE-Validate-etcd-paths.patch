@@ -1,0 +1,191 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tim Allclair <tallclair@google.com>
+Date: Mon, 10 Oct 2022 18:15:22 -0700
+Subject: [PATCH] --EKS-PRIVATE-- Validate etcd paths
+
+---
+ .../apiserver/pkg/storage/etcd3/store.go      | 40 +++++++++++
+ .../apiserver/pkg/storage/etcd3/store_test.go | 69 +++++++++++++++++++
+ 2 files changed, 109 insertions(+)
+
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go
+index a28cd95fef4..1f4e73708a7 100644
+--- a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go
+@@ -119,6 +119,9 @@ func (s *store) Versioner() storage.Versioner {
+ 
+ // Get implements storage.Interface.Get.
+ func (s *store) Get(ctx context.Context, key string, opts storage.GetOptions, out runtime.Object) error {
++	if err := validateKey(key); err != nil {
++		return err
++	}
+ 	key = path.Join(s.pathPrefix, key)
+ 	startTime := time.Now()
+ 	getResp, err := s.client.KV.Get(ctx, key)
+@@ -148,6 +151,9 @@ func (s *store) Get(ctx context.Context, key string, opts storage.GetOptions, ou
+ 
+ // Create implements storage.Interface.Create.
+ func (s *store) Create(ctx context.Context, key string, obj, out runtime.Object, ttl uint64) error {
++	if err := validateKey(key); err != nil {
++		return err
++	}
+ 	if version, err := s.versioner.ObjectResourceVersion(obj); err == nil && version != 0 {
+ 		return errors.New("resourceVersion should not be set on objects to be created")
+ 	}
+@@ -193,6 +199,9 @@ func (s *store) Create(ctx context.Context, key string, obj, out runtime.Object,
+ 
+ // Delete implements storage.Interface.Delete.
+ func (s *store) Delete(ctx context.Context, key string, out runtime.Object, preconditions *storage.Preconditions, validateDeletion storage.ValidateObjectFunc) error {
++	if err := validateKey(key); err != nil {
++		return err
++	}
+ 	v, err := conversion.EnforcePtr(out)
+ 	if err != nil {
+ 		return fmt.Errorf("unable to convert output object to pointer: %v", err)
+@@ -246,6 +255,9 @@ func (s *store) conditionalDelete(ctx context.Context, key string, out runtime.O
+ func (s *store) GuaranteedUpdate(
+ 	ctx context.Context, key string, out runtime.Object, ignoreNotFound bool,
+ 	preconditions *storage.Preconditions, tryUpdate storage.UpdateFunc, suggestion runtime.Object) error {
++	if err := validateKey(key); err != nil {
++		return err
++	}
+ 	trace := utiltrace.New("GuaranteedUpdate etcd3", utiltrace.Field{"type", getTypeName(out)})
+ 	defer trace.LogIfLong(500 * time.Millisecond)
+ 
+@@ -396,6 +408,9 @@ func (s *store) GuaranteedUpdate(
+ 
+ // GetToList implements storage.Interface.GetToList.
+ func (s *store) GetToList(ctx context.Context, key string, listOpts storage.ListOptions, listObj runtime.Object) error {
++	if err := validateKey(key); err != nil {
++		return err
++	}
+ 	resourceVersion := listOpts.ResourceVersion
+ 	match := listOpts.ResourceVersionMatch
+ 	pred := listOpts.Predicate
+@@ -468,6 +483,9 @@ func getNewItemFunc(listObj runtime.Object, v reflect.Value) func() runtime.Obje
+ }
+ 
+ func (s *store) Count(key string) (int64, error) {
++	if err := validateKey(key); err != nil {
++		return 0, err
++	}
+ 	key = path.Join(s.pathPrefix, key)
+ 
+ 	// We need to make sure the key ended with "/" so that we only get children "directories".
+@@ -650,6 +668,9 @@ func (s *store) paginatedList(ctx context.Context, trace *utiltrace.Trace, key,
+ 
+ // List implements storage.Interface.List.
+ func (s *store) List(ctx context.Context, key string, opts storage.ListOptions, listObj runtime.Object) error {
++	if err := validateKey(key); err != nil {
++		return err
++	}
+ 	resourceVersion := opts.ResourceVersion
+ 	match := opts.ResourceVersionMatch
+ 	pred := opts.Predicate
+@@ -819,6 +840,9 @@ func (s *store) WatchList(ctx context.Context, key string, opts storage.ListOpti
+ }
+ 
+ func (s *store) watch(ctx context.Context, key string, opts storage.ListOptions, recursive bool) (watch.Interface, error) {
++	if err := validateKey(key); err != nil {
++		return nil, err
++	}
+ 	rev, err := s.versioner.ParseResourceVersion(opts.ResourceVersion)
+ 	if err != nil {
+ 		return nil, err
+@@ -977,3 +1001,19 @@ func notFound(key string) clientv3.Cmp {
+ func getTypeName(obj interface{}) string {
+ 	return reflect.TypeOf(obj).String()
+ }
++
++func validateKey(key string) error {
++	if key == ".." ||
++		strings.HasPrefix(key, "../") ||
++		strings.HasSuffix(key, "/..") ||
++		strings.Contains(key, "/../") {
++		return fmt.Errorf("invalid key: %q", key)
++	}
++	if key == "." ||
++		strings.HasPrefix(key, "./") ||
++		strings.HasSuffix(key, "/.") ||
++		strings.Contains(key, "/./") {
++		return fmt.Errorf("invalid key: %q", key)
++	}
++	return nil
++}
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store_test.go b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store_test.go
+index a599ec2421e..e86397cf829 100644
+--- a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store_test.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store_test.go
+@@ -2292,3 +2292,72 @@ func TestLeaseMaxObjectCount(t *testing.T) {
+ 		}
+ 	}
+ }
++
++func TestValidateKey(t *testing.T) {
++	validKeys := []string{
++		"/foo/bar/baz/a.b.c/",
++		"/foo",
++		"foo/bar/baz",
++		"/foo/bar..baz/",
++		"/foo/bar..",
++		"foo",
++		"foo/bar",
++		"/foo/bar/",
++	}
++	invalidKeys := []string{
++		"/foo/bar/../a.b.c/",
++		"..",
++		"/..",
++		"../",
++		"/foo/bar/..",
++		"../foo/bar",
++		"/../foo",
++		"/foo/bar/../",
++		".",
++		"/.",
++		"./",
++		"/./",
++		"/foo/.",
++		"./bar",
++		"/foo/./bar/",
++	}
++
++	for _, key := range validKeys {
++		if err := validateKey(key); err != nil {
++			t.Errorf("key %q should be valid; unexpected error: %v", key, err)
++		}
++	}
++
++	for _, key := range invalidKeys {
++		if err := validateKey(key); err == nil {
++			t.Errorf("key %q should be invalid", key)
++		}
++	}
++}
++
++func TestInvalidKeys(t *testing.T) {
++	const invalidKey = "/foo/bar/../baz"
++	expectedError := fmt.Sprintf("invalid key: %q", invalidKey)
++
++	expectInvalidKey := func(methodName string, err error) {
++		if err == nil {
++			t.Errorf("[%s] expected invalid key error; got nil", methodName)
++		} else if err.Error() != expectedError {
++			t.Errorf("[%s] expected invalid key error; got %v", methodName, err)
++		}
++	}
++
++	ctx, store, _ := testSetup(t)
++	expectInvalidKey("Create", store.Create(ctx, invalidKey, nil, nil, 0))
++	expectInvalidKey("Delete", store.Delete(ctx, invalidKey, nil, nil, nil))
++	_, watchErr := store.Watch(ctx, invalidKey, storage.ListOptions{})
++	expectInvalidKey("Watch", watchErr)
++	_, watchListErr := store.WatchList(ctx, invalidKey, storage.ListOptions{})
++	expectInvalidKey("WatchList", watchListErr)
++	expectInvalidKey("Get", store.Get(ctx, invalidKey, storage.GetOptions{}, nil))
++	expectInvalidKey("List", store.List(ctx, invalidKey, storage.ListOptions{}, nil))
++	expectInvalidKey("GetToList", store.GetToList(ctx, invalidKey, storage.ListOptions{}, nil))
++	expectInvalidKey("GuaranteedUpdate", store.GuaranteedUpdate(ctx, invalidKey, nil, true, nil, nil, nil))
++	_, countErr := store.Count(invalidKey)
++	expectInvalidKey("Count", countErr)
++}
