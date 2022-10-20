@@ -1,4 +1,4 @@
-From 4e2fa9b91bf7ec6b7a81488c6224704b87c1f90a Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Jyoti Mahapatra <jyotima@amazon.com>
 Date: Fri, 14 Oct 2022 10:59:40 -0700
 Subject: [PATCH] --EKS-PRIVATE-- Patch for apiserver endpoint weigh away
@@ -364,6 +364,3 @@ index 1d27f1c0361..4a273481b58 100644
  func TestLeaseRemoveEndpoints(t *testing.T) {
  	ns := corev1.NamespaceDefault
  	om := func(name string, skipMirrorLabel bool) metav1.ObjectMeta {
--- 
-2.35.1
-
