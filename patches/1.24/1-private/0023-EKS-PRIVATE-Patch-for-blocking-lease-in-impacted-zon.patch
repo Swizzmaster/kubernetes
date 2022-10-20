@@ -1,4 +1,4 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From cb69bfb6548205ede459a6c5c8ac314a72214527 Mon Sep 17 00:00:00 2001
 From: Jyoti Mahapatra <jyotima@amazon.com>
 Date: Tue, 11 Oct 2022 19:09:04 -0700
 Subject: [PATCH] --EKS-PRIVATE-- Patch for blocking lease in impacted zone
@@ -6,15 +6,15 @@ Subject: [PATCH] --EKS-PRIVATE-- Patch for blocking lease in impacted zone
 
 ref: https://quip-amazon.com/0k7FAEo7j60v/Stop-software-operations-in-the-impacted-AZ
 ---
- .../coordination/validation/validation.go     | 69 +++++++++++++
- .../validation/validation_test.go             | 97 +++++++++++++++++++
- 2 files changed, 166 insertions(+)
+ .../coordination/validation/validation.go     |  74 +++++++++++
+ .../validation/validation_test.go             | 118 ++++++++++++++++++
+ 2 files changed, 192 insertions(+)
 
 diff --git a/pkg/apis/coordination/validation/validation.go b/pkg/apis/coordination/validation/validation.go
-index 4eae06265d0..71ec869fefa 100644
+index 4eae06265d0..9a905492479 100644
 --- a/pkg/apis/coordination/validation/validation.go
 +++ b/pkg/apis/coordination/validation/validation.go
-@@ -17,15 +17,34 @@ limitations under the License.
+@@ -17,15 +17,37 @@ limitations under the License.
  package validation
  
  import (
@@ -29,8 +29,11 @@ index 4eae06265d0..71ec869fefa 100644
  
 +const (
 +	// Label applied on the lease object. The value must be availability-zone-id
++	// The label is applied by the az resiliency poller https://gitlab.aws.dev/eks-dataplane/eks-dataplane-az-poller
++	// Refer https://quip-amazon.com/bgPkAo16pbXT/Dataplane-Pollers-for-AZ-Resiliency for details.
 +	zoneEvacuationLabelKey = "eks.amazonaws.com/evacuate-zone"
-+	// The current availability-zone-id the apiserver is operating in.
++	// The current availability-zone-id the apiserver is operating in. This is an environment variable set in the
++	// apiserver static pod manifest in https://gitlab.aws.dev/eks-dataplane/eks-kcp-ami-config
 +	// EKS assumes that all lease updates from controllers occur within the same host.
 +	currentZoneEnvironmentKey = "APISERVER_AVAILABILITY_ZONE"
 +)
@@ -49,7 +52,7 @@ index 4eae06265d0..71ec869fefa 100644
  	return allErrs
  }
  
-@@ -33,6 +52,7 @@ func ValidateLease(lease *coordination.Lease) field.ErrorList {
+@@ -33,6 +55,7 @@ func ValidateLease(lease *coordination.Lease) field.ErrorList {
  func ValidateLeaseUpdate(lease, oldLease *coordination.Lease) field.ErrorList {
  	allErrs := validation.ValidateObjectMetaUpdate(&lease.ObjectMeta, &oldLease.ObjectMeta, field.NewPath("metadata"))
  	allErrs = append(allErrs, ValidateLeaseSpec(&lease.Spec, field.NewPath("spec"))...)
@@ -57,7 +60,7 @@ index 4eae06265d0..71ec869fefa 100644
  	return allErrs
  }
  
-@@ -50,3 +70,52 @@ func ValidateLeaseSpec(spec *coordination.LeaseSpec, fldPath *field.Path) field.
+@@ -50,3 +73,54 @@ func ValidateLeaseSpec(spec *coordination.LeaseSpec, fldPath *field.Path) field.
  	}
  	return allErrs
  }
@@ -100,7 +103,9 @@ index 4eae06265d0..71ec869fefa 100644
 +		return allErrs
 +	}
 +
-+	if excludedZone == currentZone {
++	// If both currentZone and excludedZone are empty, its an unexpected bug. The following check
++	// succeeds only when both strings are non empty and they match.
++	if currentZone != "" && excludedZone != "" && excludedZone == currentZone {
 +		allErrs = append(allErrs, &field.Error{
 +			Type:     field.ErrorTypeForbidden,
 +			Field:    currentZoneEnvironmentKey,
@@ -111,7 +116,7 @@ index 4eae06265d0..71ec869fefa 100644
 +	return allErrs
 +}
 diff --git a/pkg/apis/coordination/validation/validation_test.go b/pkg/apis/coordination/validation/validation_test.go
-index 2d102c6a154..320fabdb9bb 100644
+index 2d102c6a154..bb25c0762d8 100644
 --- a/pkg/apis/coordination/validation/validation_test.go
 +++ b/pkg/apis/coordination/validation/validation_test.go
 @@ -17,6 +17,7 @@ limitations under the License.
@@ -122,7 +127,7 @@ index 2d102c6a154..320fabdb9bb 100644
  	"testing"
  
  	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-@@ -102,3 +103,99 @@ func TestValidateLeaseSpecUpdate(t *testing.T) {
+@@ -102,3 +103,120 @@ func TestValidateLeaseSpecUpdate(t *testing.T) {
  		t.Errorf("unexpected list of errors for valid update: %#v", errs.ToAggregate().Error())
  	}
  }
@@ -137,6 +142,8 @@ index 2d102c6a154..320fabdb9bb 100644
 +		componentName      string
 +		namespaceName      string
 +		errorCountExpected int
++		setEnvironment     bool
++		setLabel           bool
 +	}{
 +		{
 +			name:               "FailureIfExcludedZoneIsCurrentZone",
@@ -145,6 +152,8 @@ index 2d102c6a154..320fabdb9bb 100644
 +			componentName:      "kube-scheduler",
 +			namespaceName:      "kube-system",
 +			errorCountExpected: 1,
++			setEnvironment:     true,
++			setLabel:           true,
 +		},
 +		{
 +			name:               "SuccessIfExcludedZoneIsNotCurrentZone",
@@ -153,6 +162,8 @@ index 2d102c6a154..320fabdb9bb 100644
 +			componentName:      "kube-scheduler",
 +			namespaceName:      "kube-system",
 +			errorCountExpected: 0,
++			setEnvironment:     true,
++			setLabel:           true,
 +		},
 +		{
 +			name:               "SuccessIfComponentIsNotEKSManagedComponent",
@@ -161,14 +172,17 @@ index 2d102c6a154..320fabdb9bb 100644
 +			componentName:      "some-scheduler",
 +			namespaceName:      "kube-system",
 +			errorCountExpected: 0,
++			setEnvironment:     true,
++			setLabel:           true,
 +		},
 +		{
 +			name:               "SuccessIfZoneEnvironmentIsUnset",
-+			currentZone:        "",
 +			impactedZone:       "az1",
 +			componentName:      "kube-scheduler",
 +			namespaceName:      "kube-system",
 +			errorCountExpected: 0,
++			setEnvironment:     false,
++			setLabel:           true,
 +		},
 +		{
 +			name:               "SuccessIfZoneEnvironmentIsSetButLabelIsNotSet",
@@ -176,6 +190,8 @@ index 2d102c6a154..320fabdb9bb 100644
 +			componentName:      "kube-scheduler",
 +			namespaceName:      "kube-system",
 +			errorCountExpected: 0,
++			setEnvironment:     true,
++			setLabel:           false,
 +		},
 +		{
 +			name:               "FailIfNamespaceIsNotKubeSystem",
@@ -184,13 +200,23 @@ index 2d102c6a154..320fabdb9bb 100644
 +			componentName:      "kube-scheduler",
 +			namespaceName:      "some-system",
 +			errorCountExpected: 0,
++			setEnvironment:     true,
++			setLabel:           true,
++		},
++		{
++			name:               "SuccessIfBothLabelAndZoneAreUnset",
++			componentName:      "kube-scheduler",
++			namespaceName:      "kube-system",
++			errorCountExpected: 0,
++			setEnvironment:     true,
++			setLabel:           true,
 +		},
 +	}
 +
 +	for _, test := range tests {
 +		t.Run(test.name, func(t *testing.T) {
 +			defer os.Unsetenv(currentZoneEnvironmentKey)
-+			if test.currentZone != "" {
++			if test.setEnvironment {
 +				os.Setenv(currentZoneEnvironmentKey, test.currentZone)
 +			}
 +
@@ -206,7 +232,7 @@ index 2d102c6a154..320fabdb9bb 100644
 +				},
 +			}
 +
-+			if test.impactedZone != "" {
++			if test.setLabel {
 +				lease.SetLabels(map[string]string{zoneEvacuationLabelKey: test.impactedZone})
 +			}
 +
