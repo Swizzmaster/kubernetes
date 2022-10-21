@@ -1,4 +1,4 @@
-From e3de6414541c575abb3d23100a7af119665b3389 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Jyoti Mahapatra <jyotima@amazon.com>
 Date: Fri, 14 Oct 2022 10:59:40 -0700
 Subject: [PATCH] --EKS-PRIVATE-- Patch for apiserver endpoint weigh away
@@ -11,7 +11,7 @@ ref: https://quip-amazon.com/0k7FAEo7j60v/Stop-software-operations-in-the-impact
  2 files changed, 290 insertions(+), 4 deletions(-)
 
 diff --git a/pkg/controlplane/reconcilers/lease.go b/pkg/controlplane/reconcilers/lease.go
-index 4d794ff74b7..20b72afbf74 100644
+index ca3e1dee04b..62b6bf2de0e 100644
 --- a/pkg/controlplane/reconcilers/lease.go
 +++ b/pkg/controlplane/reconcilers/lease.go
 @@ -24,6 +24,7 @@ https://github.com/openshift/origin/blob/bb340c5dd5ff72718be86fb194dedc0faed7f4c
@@ -105,7 +105,7 @@ index 4d794ff74b7..20b72afbf74 100644
  
  func (r *leaseEndpointReconciler) StopReconciling() {
 diff --git a/pkg/controlplane/reconcilers/lease_test.go b/pkg/controlplane/reconcilers/lease_test.go
-index dc659e76367..d6e93886fe6 100644
+index 21fdde8865f..b9bb76365b0 100644
 --- a/pkg/controlplane/reconcilers/lease_test.go
 +++ b/pkg/controlplane/reconcilers/lease_test.go
 @@ -24,6 +24,7 @@ https://github.com/openshift/origin/blob/bb340c5dd5ff72718be86fb194dedc0faed7f4c
@@ -363,6 +363,3 @@ index dc659e76367..d6e93886fe6 100644
  func TestLeaseRemoveEndpoints(t *testing.T) {
  	ns := corev1.NamespaceDefault
  	om := func(name string, skipMirrorLabel bool) metav1.ObjectMeta {
--- 
-2.35.1
-

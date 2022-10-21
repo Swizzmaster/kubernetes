@@ -1,4 +1,4 @@
-From cb69bfb6548205ede459a6c5c8ac314a72214527 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Jyoti Mahapatra <jyotima@amazon.com>
 Date: Tue, 11 Oct 2022 19:09:04 -0700
 Subject: [PATCH] --EKS-PRIVATE-- Patch for blocking lease in impacted zone
@@ -11,7 +11,7 @@ ref: https://quip-amazon.com/0k7FAEo7j60v/Stop-software-operations-in-the-impact
  2 files changed, 192 insertions(+)
 
 diff --git a/pkg/apis/coordination/validation/validation.go b/pkg/apis/coordination/validation/validation.go
-index 4eae06265d0..9a905492479 100644
+index e3eedcf5a83..013e06fa9cf 100644
 --- a/pkg/apis/coordination/validation/validation.go
 +++ b/pkg/apis/coordination/validation/validation.go
 @@ -17,15 +17,37 @@ limitations under the License.

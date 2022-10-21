@@ -1,4 +1,4 @@
-From 4e2fa9b91bf7ec6b7a81488c6224704b87c1f90a Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Jyoti Mahapatra <jyotima@amazon.com>
 Date: Fri, 14 Oct 2022 10:59:40 -0700
 Subject: [PATCH] --EKS-PRIVATE-- Patch for apiserver endpoint weigh away
@@ -11,7 +11,7 @@ ref: https://quip-amazon.com/0k7FAEo7j60v/Stop-software-operations-in-the-impact
  2 files changed, 291 insertions(+), 4 deletions(-)
 
 diff --git a/pkg/controlplane/reconcilers/lease.go b/pkg/controlplane/reconcilers/lease.go
-index 891ab31c4d7..0f8bebad648 100644
+index ca3e1dee04b..62b6bf2de0e 100644
 --- a/pkg/controlplane/reconcilers/lease.go
 +++ b/pkg/controlplane/reconcilers/lease.go
 @@ -24,6 +24,7 @@ https://github.com/openshift/origin/blob/bb340c5dd5ff72718be86fb194dedc0faed7f4c
@@ -40,7 +40,7 @@ index 891ab31c4d7..0f8bebad648 100644
  // ListLeases retrieves a list of the current master IPs from storage
  func (s *storageLeases) ListLeases() ([]string, error) {
  	ipInfoList := &corev1.EndpointsList{}
-@@ -157,6 +169,35 @@ func (r *leaseEndpointReconciler) ReconcileEndpoints(serviceName string, ip net.
+@@ -156,6 +168,35 @@ func (r *leaseEndpointReconciler) ReconcileEndpoints(serviceName string, ip net.
  		return nil
  	}
  
@@ -76,7 +76,7 @@ index 891ab31c4d7..0f8bebad648 100644
  	// Refresh the TTL on our key, independently of whether any error or
  	// update conflict happens below. This makes sure that at least some of
  	// the masters will add our endpoint.
-@@ -164,11 +205,14 @@ func (r *leaseEndpointReconciler) ReconcileEndpoints(serviceName string, ip net.
+@@ -163,11 +204,14 @@ func (r *leaseEndpointReconciler) ReconcileEndpoints(serviceName string, ip net.
  		return err
  	}
  
@@ -94,7 +94,7 @@ index 891ab31c4d7..0f8bebad648 100644
  	shouldCreate := false
  	if err != nil {
  		if !errors.IsNotFound(err) {
-@@ -300,7 +344,8 @@ func (r *leaseEndpointReconciler) RemoveEndpoints(serviceName string, ip net.IP,
+@@ -299,7 +343,8 @@ func (r *leaseEndpointReconciler) RemoveEndpoints(serviceName string, ip net.IP,
  		return err
  	}
  
@@ -364,6 +364,3 @@ index 1d27f1c0361..4a273481b58 100644
  func TestLeaseRemoveEndpoints(t *testing.T) {
  	ns := corev1.NamespaceDefault
  	om := func(name string, skipMirrorLabel bool) metav1.ObjectMeta {
--- 
-2.35.1
-
