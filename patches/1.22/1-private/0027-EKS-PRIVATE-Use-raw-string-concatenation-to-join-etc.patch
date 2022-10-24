@@ -1,0 +1,766 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tim Allclair <tallclair@google.com>
+Date: Tue, 11 Oct 2022 15:22:32 -0700
+Subject: [PATCH] --EKS-PRIVATE-- Use raw string concatenation to join etcd
+ prefix
+
+---
+ .../apiserver/pkg/storage/etcd3/store.go      | 159 ++++++++++--------
+ .../apiserver/pkg/storage/etcd3/store_test.go | 101 ++++++-----
+ 2 files changed, 142 insertions(+), 118 deletions(-)
+
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go
+index 2fea4ab8cfd..f9457af816d 100644
+--- a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go
+@@ -96,15 +96,20 @@ func New(c *clientv3.Client, codec runtime.Codec, newFunc func() runtime.Object,
+ 
+ func newStore(c *clientv3.Client, codec runtime.Codec, newFunc func() runtime.Object, prefix string, transformer value.Transformer, leaseManagerConfig LeaseManagerConfig, pagingConfig PagingConfig) *store {
+ 	versioner := APIObjectVersioner{}
++	// for compatibility with etcd2 impl.
++	// no-op for default prefix of '/registry'.
++	// keeps compatibility with etcd2 impl for custom prefixes that don't start with '/'
++	pathPrefix := path.Join("/", prefix)
++	if !strings.HasSuffix(pathPrefix, "/") {
++		// Ensure the pathPrefix ends in "/" here to simplify key concatenation later.
++		pathPrefix += "/"
++	}
+ 	result := &store{
+-		client:      c,
+-		codec:       codec,
+-		versioner:   versioner,
+-		transformer: transformer,
+-		// for compatibility with etcd2 impl.
+-		// no-op for default prefix of '/registry'.
+-		// keeps compatibility with etcd2 impl for custom prefixes that don't start with '/'
+-		pathPrefix:   path.Join("/", prefix),
++		client:       c,
++		codec:        codec,
++		versioner:    versioner,
++		transformer:  transformer,
++		pathPrefix:   pathPrefix,
+ 		watcher:      newWatcher(c, codec, newFunc, versioner, transformer),
+ 		pagingConfig: pagingConfig,
+ 		leaseManager: newDefaultLeaseManager(c, leaseManagerConfig),
+@@ -119,12 +124,12 @@ func (s *store) Versioner() storage.Versioner {
+ 
+ // Get implements storage.Interface.Get.
+ func (s *store) Get(ctx context.Context, key string, opts storage.GetOptions, out runtime.Object) error {
+-	if err := validateKey(key); err != nil {
++	preparedKey, err := s.prepareKey(key)
++	if err != nil {
+ 		return err
+ 	}
+-	key = path.Join(s.pathPrefix, key)
+ 	startTime := time.Now()
+-	getResp, err := s.client.KV.Get(ctx, key)
++	getResp, err := s.client.KV.Get(ctx, preparedKey)
+ 	metrics.RecordEtcdRequestLatency("get", getTypeName(out), startTime)
+ 	if err != nil {
+ 		return err
+@@ -137,11 +142,11 @@ func (s *store) Get(ctx context.Context, key string, opts storage.GetOptions, ou
+ 		if opts.IgnoreNotFound {
+ 			return runtime.SetZeroValue(out)
+ 		}
+-		return storage.NewKeyNotFoundError(key, 0)
++		return storage.NewKeyNotFoundError(preparedKey, 0)
+ 	}
+ 	kv := getResp.Kvs[0]
+ 
+-	data, _, err := s.transformer.TransformFromStorage(kv.Value, authenticatedDataString(key))
++	data, _, err := s.transformer.TransformFromStorage(kv.Value, authenticatedDataString(preparedKey))
+ 	if err != nil {
+ 		return storage.NewInternalError(err.Error())
+ 	}
+@@ -151,7 +156,8 @@ func (s *store) Get(ctx context.Context, key string, opts storage.GetOptions, ou
+ 
+ // Create implements storage.Interface.Create.
+ func (s *store) Create(ctx context.Context, key string, obj, out runtime.Object, ttl uint64) error {
+-	if err := validateKey(key); err != nil {
++	preparedKey, err := s.prepareKey(key)
++	if err != nil {
+ 		return err
+ 	}
+ 	if version, err := s.versioner.ObjectResourceVersion(obj); err == nil && version != 0 {
+@@ -164,30 +170,29 @@ func (s *store) Create(ctx context.Context, key string, obj, out runtime.Object,
+ 	if err != nil {
+ 		return err
+ 	}
+-	key = path.Join(s.pathPrefix, key)
+ 
+ 	opts, err := s.ttlOpts(ctx, int64(ttl))
+ 	if err != nil {
+ 		return err
+ 	}
+ 
+-	newData, err := s.transformer.TransformToStorage(data, authenticatedDataString(key))
++	newData, err := s.transformer.TransformToStorage(data, authenticatedDataString(preparedKey))
+ 	if err != nil {
+ 		return storage.NewInternalError(err.Error())
+ 	}
+ 
+ 	startTime := time.Now()
+ 	txnResp, err := s.client.KV.Txn(ctx).If(
+-		notFound(key),
++		notFound(preparedKey),
+ 	).Then(
+-		clientv3.OpPut(key, string(newData), opts...),
++		clientv3.OpPut(preparedKey, string(newData), opts...),
+ 	).Commit()
+ 	metrics.RecordEtcdRequestLatency("create", getTypeName(obj), startTime)
+ 	if err != nil {
+ 		return err
+ 	}
+ 	if !txnResp.Succeeded {
+-		return storage.NewKeyExistsError(key, 0)
++		return storage.NewKeyExistsError(preparedKey, 0)
+ 	}
+ 
+ 	if out != nil {
+@@ -201,15 +206,15 @@ func (s *store) Create(ctx context.Context, key string, obj, out runtime.Object,
+ func (s *store) Delete(
+ 	ctx context.Context, key string, out runtime.Object, preconditions *storage.Preconditions,
+ 	validateDeletion storage.ValidateObjectFunc, cachedExistingObject runtime.Object) error {
+-	if err := validateKey(key); err != nil {
++	preparedKey, err := s.prepareKey(key)
++	if err != nil {
+ 		return err
+ 	}
+ 	v, err := conversion.EnforcePtr(out)
+ 	if err != nil {
+ 		return fmt.Errorf("unable to convert output object to pointer: %v", err)
+ 	}
+-	key = path.Join(s.pathPrefix, key)
+-	return s.conditionalDelete(ctx, key, out, v, preconditions, validateDeletion, cachedExistingObject)
++	return s.conditionalDelete(ctx, preparedKey, out, v, preconditions, validateDeletion, cachedExistingObject)
+ }
+ 
+ func (s *store) conditionalDelete(
+@@ -322,7 +327,8 @@ func (s *store) conditionalDelete(
+ func (s *store) GuaranteedUpdate(
+ 	ctx context.Context, key string, out runtime.Object, ignoreNotFound bool,
+ 	preconditions *storage.Preconditions, tryUpdate storage.UpdateFunc, cachedExistingObject runtime.Object) error {
+-	if err := validateKey(key); err != nil {
++	preparedKey, err := s.prepareKey(key)
++	if err != nil {
+ 		return err
+ 	}
+ 	trace := utiltrace.New("GuaranteedUpdate etcd3", utiltrace.Field{"type", getTypeName(out)})
+@@ -332,16 +338,15 @@ func (s *store) GuaranteedUpdate(
+ 	if err != nil {
+ 		return fmt.Errorf("unable to convert output object to pointer: %v", err)
+ 	}
+-	key = path.Join(s.pathPrefix, key)
+ 
+ 	getCurrentState := func() (*objState, error) {
+ 		startTime := time.Now()
+-		getResp, err := s.client.KV.Get(ctx, key)
++		getResp, err := s.client.KV.Get(ctx, preparedKey)
+ 		metrics.RecordEtcdRequestLatency("get", getTypeName(out), startTime)
+ 		if err != nil {
+ 			return nil, err
+ 		}
+-		return s.getState(getResp, key, v, ignoreNotFound)
++		return s.getState(getResp, preparedKey, v, ignoreNotFound)
+ 	}
+ 
+ 	var origState *objState
+@@ -357,9 +362,9 @@ func (s *store) GuaranteedUpdate(
+ 	}
+ 	trace.Step("initial value restored")
+ 
+-	transformContext := authenticatedDataString(key)
++	transformContext := authenticatedDataString(preparedKey)
+ 	for {
+-		if err := preconditions.Check(key, origState.obj); err != nil {
++		if err := preconditions.Check(preparedKey, origState.obj); err != nil {
+ 			// If our data is already up to date, return the error
+ 			if origStateIsCurrent {
+ 				return err
+@@ -442,11 +447,11 @@ func (s *store) GuaranteedUpdate(
+ 
+ 		startTime := time.Now()
+ 		txnResp, err := s.client.KV.Txn(ctx).If(
+-			clientv3.Compare(clientv3.ModRevision(key), "=", origState.rev),
++			clientv3.Compare(clientv3.ModRevision(preparedKey), "=", origState.rev),
+ 		).Then(
+-			clientv3.OpPut(key, string(newData), opts...),
++			clientv3.OpPut(preparedKey, string(newData), opts...),
+ 		).Else(
+-			clientv3.OpGet(key),
++			clientv3.OpGet(preparedKey),
+ 		).Commit()
+ 		metrics.RecordEtcdRequestLatency("update", getTypeName(out), startTime)
+ 		if err != nil {
+@@ -455,8 +460,8 @@ func (s *store) GuaranteedUpdate(
+ 		trace.Step("Transaction committed")
+ 		if !txnResp.Succeeded {
+ 			getResp := (*clientv3.GetResponse)(txnResp.Responses[0].GetResponseRange())
+-			klog.V(4).Infof("GuaranteedUpdate of %s failed because of a conflict, going to retry", key)
+-			origState, err = s.getState(getResp, key, v, ignoreNotFound)
++			klog.V(4).Infof("GuaranteedUpdate of %s failed because of a conflict, going to retry", preparedKey)
++			origState, err = s.getState(getResp, preparedKey, v, ignoreNotFound)
+ 			if err != nil {
+ 				return err
+ 			}
+@@ -472,14 +477,15 @@ func (s *store) GuaranteedUpdate(
+ 
+ // GetToList implements storage.Interface.GetToList.
+ func (s *store) GetToList(ctx context.Context, key string, listOpts storage.ListOptions, listObj runtime.Object) error {
+-	if err := validateKey(key); err != nil {
++	preparedKey, err := s.prepareKey(key)
++	if err != nil {
+ 		return err
+ 	}
+ 	resourceVersion := listOpts.ResourceVersion
+ 	match := listOpts.ResourceVersionMatch
+ 	pred := listOpts.Predicate
+ 	trace := utiltrace.New("GetToList etcd3",
+-		utiltrace.Field{"key", key},
++		utiltrace.Field{"key", preparedKey},
+ 		utiltrace.Field{"resourceVersion", resourceVersion},
+ 		utiltrace.Field{"resourceVersionMatch", match},
+ 		utiltrace.Field{"limit", pred.Limit},
+@@ -496,7 +502,6 @@ func (s *store) GetToList(ctx context.Context, key string, listOpts storage.List
+ 
+ 	newItemFunc := getNewItemFunc(listObj, v)
+ 
+-	key = path.Join(s.pathPrefix, key)
+ 	startTime := time.Now()
+ 	var opts []clientv3.OpOption
+ 	if len(resourceVersion) > 0 && match == metav1.ResourceVersionMatchExact {
+@@ -507,7 +512,7 @@ func (s *store) GetToList(ctx context.Context, key string, listOpts storage.List
+ 		opts = append(opts, clientv3.WithRev(int64(rv)))
+ 	}
+ 
+-	getResp, err := s.client.KV.Get(ctx, key, opts...)
++	getResp, err := s.client.KV.Get(ctx, preparedKey, opts...)
+ 	metrics.RecordEtcdRequestLatency("get", getTypeName(listPtr), startTime)
+ 	if err != nil {
+ 		return err
+@@ -517,7 +522,7 @@ func (s *store) GetToList(ctx context.Context, key string, listOpts storage.List
+ 	}
+ 
+ 	if len(getResp.Kvs) > 0 {
+-		data, _, err := s.transformer.TransformFromStorage(getResp.Kvs[0].Value, authenticatedDataString(key))
++		data, _, err := s.transformer.TransformFromStorage(getResp.Kvs[0].Value, authenticatedDataString(preparedKey))
+ 		if err != nil {
+ 			return storage.NewInternalError(err.Error())
+ 		}
+@@ -547,21 +552,21 @@ func getNewItemFunc(listObj runtime.Object, v reflect.Value) func() runtime.Obje
+ }
+ 
+ func (s *store) Count(key string) (int64, error) {
+-	if err := validateKey(key); err != nil {
++	preparedKey, err := s.prepareKey(key)
++	if err != nil {
+ 		return 0, err
+ 	}
+-	key = path.Join(s.pathPrefix, key)
+ 
+ 	// We need to make sure the key ended with "/" so that we only get children "directories".
+ 	// e.g. if we have key "/a", "/a/b", "/ab", getting keys with prefix "/a" will return all three,
+ 	// while with prefix "/a/" will return only "/a/b" which is the correct answer.
+-	if !strings.HasSuffix(key, "/") {
+-		key += "/"
++	if !strings.HasSuffix(preparedKey, "/") {
++		preparedKey += "/"
+ 	}
+ 
+ 	startTime := time.Now()
+-	getResp, err := s.client.KV.Get(context.Background(), key, clientv3.WithRange(clientv3.GetPrefixRangeEnd(key)), clientv3.WithCountOnly())
+-	metrics.RecordEtcdRequestLatency("listWithCount", key, startTime)
++	getResp, err := s.client.KV.Get(context.Background(), preparedKey, clientv3.WithRange(clientv3.GetPrefixRangeEnd(preparedKey)), clientv3.WithCountOnly())
++	metrics.RecordEtcdRequestLatency("listWithCount", preparedKey, startTime)
+ 	if err != nil {
+ 		return 0, err
+ 	}
+@@ -732,14 +737,15 @@ func (s *store) paginatedList(ctx context.Context, trace *utiltrace.Trace, key,
+ 
+ // List implements storage.Interface.List.
+ func (s *store) List(ctx context.Context, key string, opts storage.ListOptions, listObj runtime.Object) error {
+-	if err := validateKey(key); err != nil {
++	preparedKey, err := s.prepareKey(key)
++	if err != nil {
+ 		return err
+ 	}
+ 	resourceVersion := opts.ResourceVersion
+ 	match := opts.ResourceVersionMatch
+ 	pred := opts.Predicate
+ 	trace := utiltrace.New("List etcd3",
+-		utiltrace.Field{"key", key},
++		utiltrace.Field{"key", preparedKey},
+ 		utiltrace.Field{"resourceVersion", resourceVersion},
+ 		utiltrace.Field{"resourceVersionMatch", match},
+ 		utiltrace.Field{"limit", pred.Limit},
+@@ -754,16 +760,13 @@ func (s *store) List(ctx context.Context, key string, opts storage.ListOptions,
+ 		return fmt.Errorf("need ptr to slice: %v", err)
+ 	}
+ 
+-	if s.pathPrefix != "" {
+-		key = path.Join(s.pathPrefix, key)
+-	}
+ 	// We need to make sure the key ended with "/" so that we only get children "directories".
+ 	// e.g. if we have key "/a", "/a/b", "/ab", getting keys with prefix "/a" will return all three,
+ 	// while with prefix "/a/" will return only "/a/b" which is the correct answer.
+-	if !strings.HasSuffix(key, "/") {
+-		key += "/"
++	if !strings.HasSuffix(preparedKey, "/") {
++		preparedKey += "/"
+ 	}
+-	keyPrefix := key
++	keyPrefix := preparedKey
+ 
+ 	newItemFunc := getNewItemFunc(listObj, v)
+ 
+@@ -790,7 +793,7 @@ func (s *store) List(ctx context.Context, key string, opts storage.ListOptions,
+ 		}
+ 
+ 		rangeEnd = clientv3.GetPrefixRangeEnd(keyPrefix)
+-		key = continueKey
++		preparedKey = continueKey
+ 
+ 		// If continueRV > 0, the LIST request needs a specific resource version.
+ 		// continueRV==0 is invalid.
+@@ -830,10 +833,10 @@ func (s *store) List(ctx context.Context, key string, opts storage.ListOptions,
+ 			}
+ 		}
+ 
+-		rangeEnd = clientv3.GetPrefixRangeEnd(key)
++		rangeEnd = clientv3.GetPrefixRangeEnd(preparedKey)
+ 	}
+ 
+-	hasMore, startKey, rv, remainingCnt, err := s.paginatedList(ctx, trace, key, rangeEnd, withRev, fromRV, v, getTypeName(listObj), opts.Predicate, newItemFunc)
++	hasMore, startKey, rv, remainingCnt, err := s.paginatedList(ctx, trace, preparedKey, rangeEnd, withRev, fromRV, v, getTypeName(listObj), opts.Predicate, newItemFunc)
+ 	if err != nil {
+ 		return interpretListError(err, len(pred.Continue) > 0, continueKey, keyPrefix)
+ 	}
+@@ -904,15 +907,15 @@ func (s *store) WatchList(ctx context.Context, key string, opts storage.ListOpti
+ }
+ 
+ func (s *store) watch(ctx context.Context, key string, opts storage.ListOptions, recursive bool) (watch.Interface, error) {
+-	if err := validateKey(key); err != nil {
++	preparedKey, err := s.prepareKey(key)
++	if err != nil {
+ 		return nil, err
+ 	}
+ 	rev, err := s.versioner.ParseResourceVersion(opts.ResourceVersion)
+ 	if err != nil {
+ 		return nil, err
+ 	}
+-	key = path.Join(s.pathPrefix, key)
+-	return s.watcher.Watch(ctx, key, int64(rev), recursive, opts.ProgressNotify, opts.Predicate)
++	return s.watcher.Watch(ctx, preparedKey, int64(rev), recursive, opts.ProgressNotify, opts.Predicate)
+ }
+ 
+ func (s *store) getState(getResp *clientv3.GetResponse, key string, v reflect.Value, ignoreNotFound bool) (*objState, error) {
+@@ -1024,6 +1027,30 @@ func (s *store) validateMinimumResourceVersion(minimumResourceVersion string, ac
+ 	return nil
+ }
+ 
++func (s *store) prepareKey(key string) (string, error) {
++	if key == ".." ||
++		strings.HasPrefix(key, "../") ||
++		strings.HasSuffix(key, "/..") ||
++		strings.Contains(key, "/../") {
++		return "", fmt.Errorf("invalid key: %q", key)
++	}
++	if key == "." ||
++		strings.HasPrefix(key, "./") ||
++		strings.HasSuffix(key, "/.") ||
++		strings.Contains(key, "/./") {
++		return "", fmt.Errorf("invalid key: %q", key)
++	}
++	if key == "" || key == "/" {
++		return "", fmt.Errorf("empty key: %q", key)
++	}
++	// We ensured that pathPrefix ends in '/' in construction, so skip any leading '/' in the key now.
++	startIndex := 0
++	if key[0] == '/' {
++		startIndex = 1
++	}
++	return s.pathPrefix + key[startIndex:], nil
++}
++
+ // decode decodes value of bytes into object. It will also set the object resource version to rev.
+ // On success, objPtr would be set to the object.
+ func decode(codec runtime.Codec, versioner storage.Versioner, value []byte, objPtr runtime.Object, rev int64) error {
+@@ -1065,19 +1092,3 @@ func notFound(key string) clientv3.Cmp {
+ func getTypeName(obj interface{}) string {
+ 	return reflect.TypeOf(obj).String()
+ }
+-
+-func validateKey(key string) error {
+-	if key == ".." ||
+-		strings.HasPrefix(key, "../") ||
+-		strings.HasSuffix(key, "/..") ||
+-		strings.Contains(key, "/../") {
+-		return fmt.Errorf("invalid key: %q", key)
+-	}
+-	if key == "." ||
+-		strings.HasPrefix(key, "./") ||
+-		strings.HasSuffix(key, "/.") ||
+-		strings.Contains(key, "/./") {
+-		return fmt.Errorf("invalid key: %q", key)
+-	}
+-	return nil
+-}
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store_test.go b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store_test.go
+index 3149c163e0f..2d90cabb118 100644
+--- a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store_test.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store_test.go
+@@ -63,6 +63,7 @@ var codecs = serializer.NewCodecFactory(scheme)
+ const (
+ 	defaultTestPrefix       = "test!"
+ 	defaultListEtcdMaxLimit = 500
++	basePath                = "/keybase"
+ )
+ 
+ func init() {
+@@ -1012,13 +1013,13 @@ func TestTransformationFailure(t *testing.T) {
+ 		obj       *example.Pod
+ 		storedObj *example.Pod
+ 	}{{
+-		key: "/one-level/test",
++		key: basePath + "/one-level/test",
+ 		obj: &example.Pod{
+ 			ObjectMeta: metav1.ObjectMeta{Name: "bar"},
+ 			Spec:       storagetesting.DeepEqualSafePodSpec(),
+ 		},
+ 	}, {
+-		key: "/two-level/1/test",
++		key: basePath + "/two-level/1/test",
+ 		obj: &example.Pod{
+ 			ObjectMeta: metav1.ObjectMeta{Name: "baz"},
+ 			Spec:       storagetesting.DeepEqualSafePodSpec(),
+@@ -1046,7 +1047,7 @@ func TestTransformationFailure(t *testing.T) {
+ 
+ 	// List should fail
+ 	var got example.PodList
+-	if err := store.List(ctx, "/", storage.ListOptions{Predicate: storage.Everything}, &got); !storage.IsInternalError(err) {
++	if err := store.List(ctx, basePath, storage.ListOptions{Predicate: storage.Everything}, &got); !storage.IsInternalError(err) {
+ 		t.Errorf("Unexpected error %v", err)
+ 	}
+ 
+@@ -1087,7 +1088,7 @@ func TestList(t *testing.T) {
+ 	ctx := context.Background()
+ 
+ 	// Setup storage with the following structure:
+-	//  /
++	//  /keybase/
+ 	//   - one-level/
+ 	//  |            - test
+ 	//  |
+@@ -1110,23 +1111,23 @@ func TestList(t *testing.T) {
+ 		storedObj *example.Pod
+ 	}{
+ 		{
+-			key: "/one-level/test",
++			key: basePath + "/one-level/test",
+ 			obj: &example.Pod{ObjectMeta: metav1.ObjectMeta{Name: "foo"}},
+ 		},
+ 		{
+-			key: "/two-level/1/test",
++			key: basePath + "/two-level/1/test",
+ 			obj: &example.Pod{ObjectMeta: metav1.ObjectMeta{Name: "foo"}},
+ 		},
+ 		{
+-			key: "/two-level/2/test",
++			key: basePath + "/two-level/2/test",
+ 			obj: &example.Pod{ObjectMeta: metav1.ObjectMeta{Name: "bar"}},
+ 		},
+ 		{
+-			key: "/z-level/3/test",
++			key: basePath + "/z-level/3/test",
+ 			obj: &example.Pod{ObjectMeta: metav1.ObjectMeta{Name: "fourth"}},
+ 		},
+ 		{
+-			key: "/z-level/3/test-2",
++			key: basePath + "/z-level/3/test-2",
+ 			obj: &example.Pod{ObjectMeta: metav1.ObjectMeta{Name: "bar"}},
+ 		},
+ 	}
+@@ -1140,9 +1141,9 @@ func TestList(t *testing.T) {
+ 	}
+ 
+ 	list := &example.PodList{}
+-	store.List(ctx, "/two-level", storage.ListOptions{ResourceVersion: "0", Predicate: storage.Everything}, list)
++	store.List(ctx, basePath+"/two-level", storage.ListOptions{ResourceVersion: "0", Predicate: storage.Everything}, list)
+ 	continueRV, _ := strconv.Atoi(list.ResourceVersion)
+-	secondContinuation, err := encodeContinue("/two-level/2", "/two-level/", int64(continueRV))
++	secondContinuation, err := encodeContinue(basePath+"/two-level/2", basePath+"/two-level/", int64(continueRV))
+ 	if err != nil {
+ 		t.Fatal(err)
+ 	}
+@@ -1527,9 +1528,9 @@ func TestList(t *testing.T) {
+ 			storageOpts := storage.ListOptions{ResourceVersion: tt.rv, ResourceVersionMatch: tt.rvMatch, Predicate: tt.pred}
+ 			var err error
+ 			if tt.disablePaging {
+-				err = disablePagingStore.List(ctx, tt.prefix, storageOpts, out)
++				err = disablePagingStore.List(ctx, basePath+tt.prefix, storageOpts, out)
+ 			} else {
+-				err = store.List(ctx, tt.prefix, storageOpts, out)
++				err = store.List(ctx, basePath+tt.prefix, storageOpts, out)
+ 			}
+ 			if tt.expectRVTooLarge {
+ 				if err == nil || !storage.IsTooLargeResourceVersion(err) {
+@@ -1587,7 +1588,7 @@ func TestListPaginationWithEnforcedLimit(t *testing.T) {
+ 	podCount := 1000
+ 	var pods []*example.Pod
+ 	for i := 0; i < podCount; i++ {
+-		key := fmt.Sprintf("/one-level/pod-%d", i)
++		key := basePath + fmt.Sprintf("/one-level/pod-%d", i)
+ 		obj := &example.Pod{ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("pod-%d", i)}}
+ 		storedObj := &example.Pod{}
+ 		err := store.Create(ctx, key, obj, storedObj, 0)
+@@ -1632,7 +1633,7 @@ func TestListPaginationWithEnforcedLimit(t *testing.T) {
+ 	for _, tc := range testCases {
+ 		store.pagingConfig.MaximumPageSize = tc.limit
+ 		out := &example.PodList{}
+-		if err := store.List(ctx, "/", options, out); err != nil {
++		if err := store.List(ctx, basePath, options, out); err != nil {
+ 			t.Fatalf("Unable to get initial list: %v", err)
+ 		}
+ 		if len(out.Continue) != 0 {
+@@ -1663,7 +1664,7 @@ func TestListContinuation(t *testing.T) {
+ 	ctx := context.Background()
+ 
+ 	// Setup storage with the following structure:
+-	//  /
++	//  /keybase/
+ 	//   - one-level/
+ 	//  |            - test
+ 	//  |
+@@ -1680,15 +1681,15 @@ func TestListContinuation(t *testing.T) {
+ 		storedObj *example.Pod
+ 	}{
+ 		{
+-			key: "/one-level/test",
++			key: basePath + "/one-level/test",
+ 			obj: &example.Pod{ObjectMeta: metav1.ObjectMeta{Name: "foo"}},
+ 		},
+ 		{
+-			key: "/two-level/1/test",
++			key: basePath + "/two-level/1/test",
+ 			obj: &example.Pod{ObjectMeta: metav1.ObjectMeta{Name: "foo"}},
+ 		},
+ 		{
+-			key: "/two-level/2/test",
++			key: basePath + "/two-level/2/test",
+ 			obj: &example.Pod{ObjectMeta: metav1.ObjectMeta{Name: "bar"}},
+ 		},
+ 	}
+@@ -1715,7 +1716,7 @@ func TestListContinuation(t *testing.T) {
+ 			},
+ 		}
+ 	}
+-	if err := store.List(ctx, "/", storage.ListOptions{ResourceVersion: "0", Predicate: pred(1, "")}, out); err != nil {
++	if err := store.List(ctx, basePath, storage.ListOptions{ResourceVersion: "0", Predicate: pred(1, "")}, out); err != nil {
+ 		t.Fatalf("Unable to get initial list: %v", err)
+ 	}
+ 	if len(out.Continue) == 0 {
+@@ -1737,14 +1738,14 @@ func TestListContinuation(t *testing.T) {
+ 
+ 	// no limit, should get two items
+ 	out = &example.PodList{}
+-	if err := store.List(ctx, "/", storage.ListOptions{ResourceVersion: "0", Predicate: pred(0, continueFromSecondItem)}, out); err != nil {
++	if err := store.List(ctx, basePath, storage.ListOptions{ResourceVersion: "0", Predicate: pred(0, continueFromSecondItem)}, out); err != nil {
+ 		t.Fatalf("Unable to get second page: %v", err)
+ 	}
+ 	if len(out.Continue) != 0 {
+ 		t.Fatalf("Unexpected continuation token set")
+ 	}
+ 	if !reflect.DeepEqual(out.Items, []example.Pod{*preset[1].storedObj, *preset[2].storedObj}) {
+-		key, rv, err := decodeContinue(continueFromSecondItem, "/")
++		key, rv, err := decodeContinue(continueFromSecondItem, basePath)
+ 		t.Logf("continue token was %d %s %v", rv, key, err)
+ 		t.Fatalf("Unexpected second page: %#v", out.Items)
+ 	}
+@@ -1759,7 +1760,7 @@ func TestListContinuation(t *testing.T) {
+ 
+ 	// limit, should get two more pages
+ 	out = &example.PodList{}
+-	if err := store.List(ctx, "/", storage.ListOptions{ResourceVersion: "0", Predicate: pred(1, continueFromSecondItem)}, out); err != nil {
++	if err := store.List(ctx, basePath, storage.ListOptions{ResourceVersion: "0", Predicate: pred(1, continueFromSecondItem)}, out); err != nil {
+ 		t.Fatalf("Unable to get second page: %v", err)
+ 	}
+ 	if len(out.Continue) == 0 {
+@@ -1780,7 +1781,7 @@ func TestListContinuation(t *testing.T) {
+ 	continueFromThirdItem := out.Continue
+ 
+ 	out = &example.PodList{}
+-	if err := store.List(ctx, "/", storage.ListOptions{ResourceVersion: "0", Predicate: pred(1, continueFromThirdItem)}, out); err != nil {
++	if err := store.List(ctx, basePath, storage.ListOptions{ResourceVersion: "0", Predicate: pred(1, continueFromThirdItem)}, out); err != nil {
+ 		t.Fatalf("Unable to get second page: %v", err)
+ 	}
+ 	if len(out.Continue) != 0 {
+@@ -1848,7 +1849,7 @@ func TestListContinuationWithFilter(t *testing.T) {
+ 
+ 	for i, ps := range preset {
+ 		preset[i].storedObj = &example.Pod{}
+-		err := store.Create(ctx, ps.key, ps.obj, preset[i].storedObj, 0)
++		err := store.Create(ctx, basePath+ps.key, ps.obj, preset[i].storedObj, 0)
+ 		if err != nil {
+ 			t.Fatalf("Set failed: %v", err)
+ 		}
+@@ -1871,7 +1872,7 @@ func TestListContinuationWithFilter(t *testing.T) {
+ 			},
+ 		}
+ 	}
+-	if err := store.List(ctx, "/", storage.ListOptions{ResourceVersion: "0", Predicate: pred(2, "")}, out); err != nil {
++	if err := store.List(ctx, basePath, storage.ListOptions{ResourceVersion: "0", Predicate: pred(2, "")}, out); err != nil {
+ 		t.Errorf("Unable to get initial list: %v", err)
+ 	}
+ 	if len(out.Continue) == 0 {
+@@ -1900,7 +1901,7 @@ func TestListContinuationWithFilter(t *testing.T) {
+ 	// but since there is only one item left, that is all we should get with no continueValue
+ 	// both read counters should be incremented for the singular calls they make in this case
+ 	out = &example.PodList{}
+-	if err := store.List(ctx, "/", storage.ListOptions{ResourceVersion: "0", Predicate: pred(2, cont)}, out); err != nil {
++	if err := store.List(ctx, basePath, storage.ListOptions{ResourceVersion: "0", Predicate: pred(2, cont)}, out); err != nil {
+ 		t.Errorf("Unable to get second page: %v", err)
+ 	}
+ 	if len(out.Continue) != 0 {
+@@ -1927,7 +1928,7 @@ func TestListInconsistentContinuation(t *testing.T) {
+ 	ctx := context.Background()
+ 
+ 	// Setup storage with the following structure:
+-	//  /
++	//  /keybase/
+ 	//   - one-level/
+ 	//  |            - test
+ 	//  |
+@@ -1944,15 +1945,15 @@ func TestListInconsistentContinuation(t *testing.T) {
+ 		storedObj *example.Pod
+ 	}{
+ 		{
+-			key: "/one-level/test",
++			key: basePath + "/one-level/test",
+ 			obj: &example.Pod{ObjectMeta: metav1.ObjectMeta{Name: "foo"}},
+ 		},
+ 		{
+-			key: "/two-level/1/test",
++			key: basePath + "/two-level/1/test",
+ 			obj: &example.Pod{ObjectMeta: metav1.ObjectMeta{Name: "foo"}},
+ 		},
+ 		{
+-			key: "/two-level/2/test",
++			key: basePath + "/two-level/2/test",
+ 			obj: &example.Pod{ObjectMeta: metav1.ObjectMeta{Name: "bar"}},
+ 		},
+ 	}
+@@ -1979,7 +1980,7 @@ func TestListInconsistentContinuation(t *testing.T) {
+ 	}
+ 
+ 	out := &example.PodList{}
+-	if err := store.List(ctx, "/", storage.ListOptions{ResourceVersion: "0", Predicate: pred(1, "")}, out); err != nil {
++	if err := store.List(ctx, basePath, storage.ListOptions{ResourceVersion: "0", Predicate: pred(1, "")}, out); err != nil {
+ 		t.Fatalf("Unable to get initial list: %v", err)
+ 	}
+ 	if len(out.Continue) == 0 {
+@@ -2020,7 +2021,7 @@ func TestListInconsistentContinuation(t *testing.T) {
+ 	}
+ 
+ 	// The old continue token should have expired
+-	err = store.List(ctx, "/", storage.ListOptions{ResourceVersion: "0", Predicate: pred(0, continueFromSecondItem)}, out)
++	err = store.List(ctx, basePath, storage.ListOptions{ResourceVersion: "0", Predicate: pred(0, continueFromSecondItem)}, out)
+ 	if err == nil {
+ 		t.Fatalf("unexpected no error")
+ 	}
+@@ -2037,7 +2038,7 @@ func TestListInconsistentContinuation(t *testing.T) {
+ 	}
+ 
+ 	out = &example.PodList{}
+-	if err := store.List(ctx, "/", storage.ListOptions{ResourceVersion: "0", Predicate: pred(1, inconsistentContinueFromSecondItem)}, out); err != nil {
++	if err := store.List(ctx, basePath, storage.ListOptions{ResourceVersion: "0", Predicate: pred(1, inconsistentContinueFromSecondItem)}, out); err != nil {
+ 		t.Fatalf("Unable to get second page: %v", err)
+ 	}
+ 	if len(out.Continue) == 0 {
+@@ -2051,7 +2052,7 @@ func TestListInconsistentContinuation(t *testing.T) {
+ 	}
+ 	continueFromThirdItem := out.Continue
+ 	out = &example.PodList{}
+-	if err := store.List(ctx, "/", storage.ListOptions{ResourceVersion: "0", Predicate: pred(1, continueFromThirdItem)}, out); err != nil {
++	if err := store.List(ctx, basePath, storage.ListOptions{ResourceVersion: "0", Predicate: pred(1, continueFromThirdItem)}, out); err != nil {
+ 		t.Fatalf("Unable to get second page: %v", err)
+ 	}
+ 	if len(out.Continue) != 0 {
+@@ -2111,9 +2112,9 @@ func TestPrefix(t *testing.T) {
+ 	codec := apitesting.TestCodec(codecs, examplev1.SchemeGroupVersion)
+ 	transformer := &prefixTransformer{prefix: []byte(defaultTestPrefix)}
+ 	testcases := map[string]string{
+-		"custom/prefix":     "/custom/prefix",
+-		"/custom//prefix//": "/custom/prefix",
+-		"/registry":         "/registry",
++		"custom/prefix":     "/custom/prefix/",
++		"/custom//prefix//": "/custom/prefix/",
++		"/registry":         "/registry/",
+ 	}
+ 	pagingConfig := PagingConfig{PagingEnabled: true, MaximumPageSize: defaultListEtcdMaxLimit}
+ 	for configuredPrefix, effectivePrefix := range testcases {
+@@ -2335,7 +2336,7 @@ func TestConsistentList(t *testing.T) {
+ 	}
+ 
+ 	result1 := example.PodList{}
+-	if err := store.List(context.TODO(), "/", storage.ListOptions{Predicate: predicate}, &result1); err != nil {
++	if err := store.List(context.TODO(), basePath, storage.ListOptions{Predicate: predicate}, &result1); err != nil {
+ 		t.Fatalf("failed to list objects: %v", err)
+ 	}
+ 
+@@ -2347,7 +2348,7 @@ func TestConsistentList(t *testing.T) {
+ 	}
+ 
+ 	result2 := example.PodList{}
+-	if err := store.List(context.TODO(), "/", options, &result2); err != nil {
++	if err := store.List(context.TODO(), basePath, options, &result2); err != nil {
+ 		t.Fatalf("failed to list objects: %v", err)
+ 	}
+ 
+@@ -2359,7 +2360,7 @@ func TestConsistentList(t *testing.T) {
+ 	options.ResourceVersionMatch = metav1.ResourceVersionMatchNotOlderThan
+ 
+ 	result3 := example.PodList{}
+-	if err := store.List(context.TODO(), "/", options, &result3); err != nil {
++	if err := store.List(context.TODO(), basePath, options, &result3); err != nil {
+ 		t.Fatalf("failed to list objects: %v", err)
+ 	}
+ 
+@@ -2367,7 +2368,7 @@ func TestConsistentList(t *testing.T) {
+ 	options.ResourceVersionMatch = metav1.ResourceVersionMatchExact
+ 
+ 	result4 := example.PodList{}
+-	if err := store.List(context.TODO(), "/", options, &result4); err != nil {
++	if err := store.List(context.TODO(), basePath, options, &result4); err != nil {
+ 		t.Fatalf("failed to list objects: %v", err)
+ 	}
+ 
+@@ -2485,15 +2486,27 @@ func TestValidateKey(t *testing.T) {
+ 		"./bar",
+ 		"/foo/./bar/",
+ 	}
++	const (
++		pathPrefix   = "/first/second"
++		expectPrefix = pathPrefix + "/"
++	)
++	client := testserver.RunEtcd(t, nil)
++	codec := apitesting.TestCodec(codecs, examplev1.SchemeGroupVersion)
++	pagingConfig := PagingConfig{PagingEnabled: true, MaximumPageSize: defaultListEtcdMaxLimit}
++	store := newStore(client, codec, newPod, pathPrefix, &prefixTransformer{prefix: []byte(defaultTestPrefix)}, NewDefaultLeaseManagerConfig(), pagingConfig)
+ 
+ 	for _, key := range validKeys {
+-		if err := validateKey(key); err != nil {
++		k, err := store.prepareKey(key)
++		if err != nil {
+ 			t.Errorf("key %q should be valid; unexpected error: %v", key, err)
++		} else if !strings.HasPrefix(k, expectPrefix) {
++			t.Errorf("key %q should have prefix %q", k, expectPrefix)
+ 		}
+ 	}
+ 
+ 	for _, key := range invalidKeys {
+-		if err := validateKey(key); err == nil {
++		_, err := store.prepareKey(key)
++		if err == nil {
+ 			t.Errorf("key %q should be invalid", key)
+ 		}
+ 	}
