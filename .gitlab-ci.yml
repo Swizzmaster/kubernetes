@@ -7,6 +7,10 @@
   - pushd ./kubernetes/ && git reset --hard && git clean -df && popd
   - ./hack/apply_patches.sh ./patches/$MINOR_VERSION/ ./kubernetes/
 
+.script_prepare_patches: &script_prepare_patches
+ - ./hack/prepare_patches.sh ./kubernetes/ ./patches/$MINOR_VERSION/
+ - git diff --quiet
+
 default:
   image: bitnami/git
   before_script:
@@ -36,6 +40,13 @@ workflow:
     - *script_apply_patches
   rules:
     - if: $CI_PIPELINE_SOURCE != "schedule"
+
+.test_prepare_patches:
+  stage: test
+  script:
+   - *script_prepare_patches
+  rules:
+   - if: $CI_PIPELINE_SOURCE == "merge_request_event"
 
 .test_unit:
   tags:
@@ -75,6 +86,13 @@ test_apply_patches_1.20:
     - .test_apply_patches
     - .1.20
 
+test_prepare_patches_1.20:
+  needs:
+   - test_apply_patches_1.20
+  extends:
+   - .test_prepare_patches
+   - .1.20
+
 test_unit_1.20:
   extends:
     - .test_unit
@@ -93,6 +111,13 @@ test_apply_patches_1.21:
   extends:
     - .test_apply_patches
     - .1.21
+
+test_prepare_patches_1.21:
+  needs:
+   - test_apply_patches_1.21
+  extends:
+   - .test_prepare_patches
+   - .1.21
 
 test_unit_1.21:
   extends:
@@ -113,6 +138,13 @@ test_apply_patches_1.22:
     - .test_apply_patches
     - .1.22
 
+test_prepare_patches_1.22:
+  needs:
+   - test_apply_patches_1.22
+  extends:
+   - .test_prepare_patches
+   - .1.22
+
 test_unit_1.22:
   extends:
     - .test_unit
@@ -132,6 +164,13 @@ test_apply_patches_1.23:
     - .test_apply_patches
     - .1.23
 
+test_prepare_patches_1.23:
+  needs:
+   - test_apply_patches_1.23
+  extends:
+   - .test_prepare_patches
+   - .1.23
+
 test_unit_1.23:
   extends:
     - .test_unit
@@ -150,6 +189,13 @@ test_apply_patches_1.24:
   extends:
     - .test_apply_patches
     - .1.24
+
+test_prepare_patches_1.24:
+  needs:
+   - test_apply_patches_1.24
+  extends:
+   - .test_prepare_patches
+   - .1.24
 
 test_unit_1.24:
   extends:
