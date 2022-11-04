@@ -72,32 +72,29 @@ workflow:
       changes:
         - patches/$MINOR_VERSION/**/*
 
+.kubernetes_versions: &kubernetes_matrix
+  parallel:
+    matrix:
+    - MINOR_VERSION: ["1.20", "1.21", "1.22", "1.23", "1.24"]
+
 build_update_patches_base_version:
   extends:
   - .build_update_patches_base_version
-  parallel:
-    matrix:
-     - MINOR_VERSION: ["1.20", "1.21", "1.22", "1.23", "1.24"]
+  <<: *kubernetes_matrix
 
 test_unit:
   extends:
   - .test_unit
-  parallel:
-    matrix:
-     - MINOR_VERSION: ["1.20", "1.21", "1.22", "1.23", "1.24"]
+  <<: *kubernetes_matrix
 
 test_apply_patches:
   extends:
   - .test_apply_patches
-  parallel:
-    matrix:
-     - MINOR_VERSION: ["1.20", "1.21", "1.22", "1.23", "1.24"]
+  <<: *kubernetes_matrix
 
 test_prepare_patches:
   extends:
-   - .test_prepare_patches
+  - .test_prepare_patches
   needs:
   - test_apply_patches
-  parallel:
-    matrix:
-     - MINOR_VERSION: ["1.20", "1.21", "1.22", "1.23", "1.24"]
+  <<: *kubernetes_matrix
