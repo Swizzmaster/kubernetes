@@ -72,6 +72,22 @@ workflow:
       changes:
         - patches/$MINOR_VERSION/**/*
 
+test_apply_patches:
+  extends:
+  - .test_apply_patches
+  parallel:
+    matrix:
+     - MINOR_VERSION: ["1.20", "1.21", "1.22", "1.23", "1.24"]
+
+test_prepare_patches:
+  extends:
+   - .test_prepare_patches
+  needs:
+  - test_apply_patches
+  parallel:
+    matrix:
+     - MINOR_VERSION: ["1.20", "1.21", "1.22", "1.23", "1.24"]
+
 .1.20:
   variables:
     MINOR_VERSION: "1.20"
@@ -80,18 +96,6 @@ build_1.20:
   extends:
     - .build_update_patches_base_version
     - .1.20
-
-test_apply_patches_1.20:
-  extends:
-    - .test_apply_patches
-    - .1.20
-
-test_prepare_patches_1.20:
-  needs:
-   - test_apply_patches_1.20
-  extends:
-   - .test_prepare_patches
-   - .1.20
 
 test_unit_1.20:
   extends:
@@ -107,18 +111,6 @@ build_1.21:
     - .build_update_patches_base_version
     - .1.21
 
-test_apply_patches_1.21:
-  extends:
-    - .test_apply_patches
-    - .1.21
-
-test_prepare_patches_1.21:
-  needs:
-   - test_apply_patches_1.21
-  extends:
-   - .test_prepare_patches
-   - .1.21
-
 test_unit_1.21:
   extends:
     - .test_unit
@@ -132,18 +124,6 @@ build_1.22:
   extends:
     - .build_update_patches_base_version
     - .1.22
-
-test_apply_patches_1.22:
-  extends:
-    - .test_apply_patches
-    - .1.22
-
-test_prepare_patches_1.22:
-  needs:
-   - test_apply_patches_1.22
-  extends:
-   - .test_prepare_patches
-   - .1.22
 
 test_unit_1.22:
   extends:
@@ -159,18 +139,6 @@ build_1.23:
     - .build_update_patches_base_version
     - .1.23
 
-test_apply_patches_1.23:
-  extends:
-    - .test_apply_patches
-    - .1.23
-
-test_prepare_patches_1.23:
-  needs:
-   - test_apply_patches_1.23
-  extends:
-   - .test_prepare_patches
-   - .1.23
-
 test_unit_1.23:
   extends:
     - .test_unit
@@ -184,18 +152,6 @@ build_1.24:
   extends:
     - .build_update_patches_base_version
     - .1.24
-
-test_apply_patches_1.24:
-  extends:
-    - .test_apply_patches
-    - .1.24
-
-test_prepare_patches_1.24:
-  needs:
-   - test_apply_patches_1.24
-  extends:
-   - .test_prepare_patches
-   - .1.24
 
 test_unit_1.24:
   extends:
