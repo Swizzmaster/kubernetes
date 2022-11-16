@@ -6,23 +6,25 @@ Subject: [PATCH] --EKS-PRIVATE-- Patch for apiserver endpoint weigh away
 
 ref: https://quip-amazon.com/0k7FAEo7j60v/Stop-software-operations-in-the-impacted-AZ
 ---
- pkg/controlplane/reconcilers/lease.go      |  53 ++++-
- pkg/controlplane/reconcilers/lease_test.go | 241 +++++++++++++++++++++
- 2 files changed, 290 insertions(+), 4 deletions(-)
+ pkg/controlplane/reconcilers/lease.go      |  75 ++-
+ pkg/controlplane/reconcilers/lease_test.go | 622 +++++++++++++++++++++
+ 2 files changed, 693 insertions(+), 4 deletions(-)
 
 diff --git a/pkg/controlplane/reconcilers/lease.go b/pkg/controlplane/reconcilers/lease.go
-index ca3e1dee04b..62b6bf2de0e 100644
+index ca3e1dee04b..b0761ed4394 100644
 --- a/pkg/controlplane/reconcilers/lease.go
 +++ b/pkg/controlplane/reconcilers/lease.go
-@@ -24,6 +24,7 @@ https://github.com/openshift/origin/blob/bb340c5dd5ff72718be86fb194dedc0faed7f4c
+@@ -24,7 +24,9 @@ https://github.com/openshift/origin/blob/bb340c5dd5ff72718be86fb194dedc0faed7f4c
  import (
  	"fmt"
  	"net"
 +	"os"
  	"path"
++	"strconv"
  	"sync"
  	"time"
-@@ -60,6 +61,17 @@ type storageLeases struct {
+ 
+@@ -60,6 +62,22 @@ type storageLeases struct {
  
  var _ Leases = &storageLeases{}
  
@@ -31,6 +33,11 @@ index ca3e1dee04b..62b6bf2de0e 100644
 +	// The label is applied by the az resiliency poller https://gitlab.aws.dev/eks-dataplane/eks-dataplane-az-poller
 +	// Refer https://quip-amazon.com/bgPkAo16pbXT/Dataplane-Pollers-for-AZ-Resiliency for details.
 +	zoneEvacuationLabelKey = "eks.amazonaws.com/evacuate-zone"
++	// Label applied on the lease object. The value must be an Unix epoch seconds. Unix epoch always represents UTC time.
++	// The label is applied by the az resiliency poller https://gitlab.aws.dev/eks-dataplane/eks-dataplane-az-poller
++	// Refer https://quip-amazon.com/bgPkAo16pbXT/Dataplane-Pollers-for-AZ-Resiliency for details.
++	// Empty value behaves the same as an expired time. If time specified in the value is expired, zone evacuation stops.
++	zoneEvacuationExpiryLabelKey = "eks.amazonaws.com/evacuate-zone-expiry"
 +	// The current availability-zone-id the apiserver is operating in. This is an environment variable set in the
 +	// apiserver static pod manifest in https://gitlab.aws.dev/eks-dataplane/eks-kcp-ami-config
 +	// EKS assumes that all lease updates from controllers occur within the same host.
@@ -40,48 +47,24 @@ index ca3e1dee04b..62b6bf2de0e 100644
  // ListLeases retrieves a list of the current master IPs from storage
  func (s *storageLeases) ListLeases() ([]string, error) {
  	ipInfoList := &corev1.EndpointsList{}
-@@ -156,6 +168,35 @@ func (r *leaseEndpointReconciler) ReconcileEndpoints(serviceName string, ip net.
+@@ -156,6 +174,11 @@ func (r *leaseEndpointReconciler) ReconcileEndpoints(serviceName string, ip net.
  		return nil
  	}
  
-+	e, err := r.epAdapter.Get(corev1.NamespaceDefault, serviceName, metav1.GetOptions{})
-+	if err == nil {
-+		if excludedZone, ok := e.GetLabels()[zoneEvacuationLabelKey]; ok {
-+			if currentZone, ok := os.LookupEnv(currentZoneEnvironmentKey); ok {
-+				// If excludedZone and currentZone are both empty, its a bug.
-+				if excludedZone != "" && currentZone != "" && excludedZone == currentZone {
-+					masterIPs, err := r.masterLeases.ListLeases()
-+					if err == nil {
-+						if len(masterIPs) >= 2 {
-+							// Exit only if another apiserver is updating the endpoints.
-+							// This condition is hit when the label is first applied. The apiserver in impacted zone will see 2 master ips until etcd lease ttl expires
-+							// If the current apiserver is the only one updating, then we don't want to exit
-+							klog.Warningf("Exiting master advertise address reconciliation because %s zone is impacted and at least 2 endpoints are available: %v", excludedZone, masterIPs)
-+							return nil
-+						} else if len(masterIPs) == 1 && !net.ParseIP(masterIPs[0]).Equal(ip) {
-+							// This condition is hit when there is only one master ip. If the one master ip is of a different apiserver, it is safe to exit.
-+							// If the only existing master ip is self ip, then we don't want to exit and cause availability drop. This helps in fail open when cascading errors happen
-+							// and the remaining healthy apiserver terminates.
-+							klog.Warningf("Exiting master advertise address reconciliation because %s zone is impacted and a different apiserver instance is available %v.", excludedZone, masterIPs)
-+							return nil
-+						}
-+					}
-+
-+					// if no endpoints exist or the self ip is the only ip, let the reconciliation go through(fail open)
-+				}
-+			}
-+		}
++	e, errGetEndpoints := r.epAdapter.Get(corev1.NamespaceDefault, serviceName, metav1.GetOptions{})
++	if errGetEndpoints == nil && r.shouldStopEndpointReconciliation(e, ip) {
++		return nil
 +	}
 +
  	// Refresh the TTL on our key, independently of whether any error or
  	// update conflict happens below. This makes sure that at least some of
  	// the masters will add our endpoint.
-@@ -163,11 +204,14 @@ func (r *leaseEndpointReconciler) ReconcileEndpoints(serviceName string, ip net.
+@@ -163,11 +186,14 @@ func (r *leaseEndpointReconciler) ReconcileEndpoints(serviceName string, ip net.
  		return err
  	}
  
 -	return r.doReconcile(serviceName, endpointPorts, reconcilePorts)
-+	return r.doReconcile(e, err, serviceName, endpointPorts, reconcilePorts)
++	return r.doReconcile(e, errGetEndpoints, serviceName, endpointPorts, reconcilePorts)
  }
  
 -func (r *leaseEndpointReconciler) doReconcile(serviceName string, endpointPorts []corev1.EndpointPort, reconcilePorts bool) error {
@@ -94,7 +77,7 @@ index ca3e1dee04b..62b6bf2de0e 100644
  	shouldCreate := false
  	if err != nil {
  		if !errors.IsNotFound(err) {
-@@ -299,7 +343,8 @@ func (r *leaseEndpointReconciler) RemoveEndpoints(serviceName string, ip net.IP,
+@@ -299,7 +325,8 @@ func (r *leaseEndpointReconciler) RemoveEndpoints(serviceName string, ip net.IP,
  		return err
  	}
  
@@ -104,33 +87,83 @@ index ca3e1dee04b..62b6bf2de0e 100644
  }
  
  func (r *leaseEndpointReconciler) StopReconciling() {
+@@ -307,3 +334,43 @@ func (r *leaseEndpointReconciler) StopReconciling() {
+ 	defer r.reconcilingLock.Unlock()
+ 	r.stopReconcilingCalled = true
+ }
++
++func (r *leaseEndpointReconciler) shouldStopEndpointReconciliation(e *corev1.Endpoints, ip net.IP) bool {
++	// the second parameters are excluded from check because we expect the strings to be non empty for the logic.
++	// found vs not found will yield the same results for the string
++	excludedZone, _ := e.GetLabels()[zoneEvacuationLabelKey]
++	zoneEvacuationExpiry, _ := e.GetLabels()[zoneEvacuationExpiryLabelKey]
++	currentZone, _ := os.LookupEnv(currentZoneEnvironmentKey)
++
++	if excludedZone != "" && currentZone != "" && isEpochCurrent(zoneEvacuationExpiry) && excludedZone == currentZone {
++		if masterIPs, err := r.masterLeases.ListLeases(); err == nil {
++			if len(masterIPs) >= 2 {
++				// Exit only if another apiserver is updating the endpoints.
++				// This condition is hit when the label is first applied. The apiserver in impacted zone will see 2 master ips until etcd lease ttl expires
++				// If the current apiserver is the only one updating, then we don't want to exit
++				klog.Warningf("Exiting master advertise address reconciliation because %s zone is impacted and at least 2 endpoints are available: %v", excludedZone, masterIPs)
++				return true
++			} else if len(masterIPs) == 1 && !net.ParseIP(masterIPs[0]).Equal(ip) {
++				// This condition is hit when there is only one master ip. If the one master ip is of a different apiserver, it is safe to exit.
++				// If the only existing master ip is self ip, then we don't want to exit and cause availability drop. This helps in fail open when cascading errors happen
++				// and the remaining healthy apiserver terminates.
++				klog.Warningf("Exiting master advertise address reconciliation because %s zone is impacted and a different apiserver instance is available %v.", excludedZone, masterIPs)
++				return true
++			}
++			// if no endpoints exist or the self ip is the only ip, let the reconciliation go through(fail open)
++		}
++	}
++	return false
++}
++
++// expiryEpoch is Unix epoch in seconds. isEpochCurrent returns true if expiryEpoch is greater than current Unix epoch
++func isEpochCurrent(zoneEvacuationExpiry string) bool {
++	if zoneEvacuationExpiry == "" {
++		return false
++	}
++
++	if expiryEpoch, err := strconv.ParseInt(zoneEvacuationExpiry, 10, 64); err == nil && expiryEpoch > time.Now().UTC().Unix() {
++		return true
++	}
++	return false
++}
 diff --git a/pkg/controlplane/reconcilers/lease_test.go b/pkg/controlplane/reconcilers/lease_test.go
-index 21fdde8865f..b9bb76365b0 100644
+index 21fdde8865f..bec154e5351 100644
 --- a/pkg/controlplane/reconcilers/lease_test.go
 +++ b/pkg/controlplane/reconcilers/lease_test.go
-@@ -24,6 +24,7 @@ https://github.com/openshift/origin/blob/bb340c5dd5ff72718be86fb194dedc0faed7f4c
+@@ -24,8 +24,11 @@ https://github.com/openshift/origin/blob/bb340c5dd5ff72718be86fb194dedc0faed7f4c
  import (
  	"context"
  	"net"
 +	"os"
  	"reflect"
++	"strconv"
  	"testing"
++	"time"
  
-@@ -580,6 +581,246 @@ func TestLeaseEndpointReconciler(t *testing.T) {
+ 	corev1 "k8s.io/api/core/v1"
+ 	discoveryv1 "k8s.io/api/discovery/v1"
+@@ -580,6 +583,625 @@ func TestLeaseEndpointReconciler(t *testing.T) {
  	}
  }
  
 +func TestLeaseEndpointReconcilerForAZEvacuation(t *testing.T) {
 +	ns := corev1.NamespaceDefault
++	futureExpiryEpoch := strconv.FormatInt(time.Now().Add(time.Hour).UTC().Unix(), 10)
 +	om := func(name string, evacuateAZ string, applyLabel bool) metav1.ObjectMeta {
 +		o := metav1.ObjectMeta{
 +			Namespace: ns,
 +			Name:      name,
 +			Labels: map[string]string{
-+				discoveryv1.LabelSkipMirror: "true",
++				discoveryv1.LabelSkipMirror:  "true",
++				zoneEvacuationExpiryLabelKey: futureExpiryEpoch,
 +			},
 +		}
-+		if evacuateAZ != "" {
++		if applyLabel {
 +			o.Labels[zoneEvacuationLabelKey] = evacuateAZ
 +		}
 +
@@ -348,6 +381,383 @@ index 21fdde8865f..b9bb76365b0 100644
 +				t.Errorf("case %q: unexpected error: %v", test.testName, err)
 +			}
 +			if test.expectEndpoints != nil {
++				delete(actualEndpoints.Labels, zoneEvacuationExpiryLabelKey)
++				delete(test.expectEndpoints.Labels, zoneEvacuationExpiryLabelKey)
++				if e, a := test.expectEndpoints, actualEndpoints; !reflect.DeepEqual(e, a) {
++					t.Errorf("case %q: expected update:\n%#v\ngot:\n%#v\n", test.testName, e, a)
++				}
++			}
++			updatedKeys := fakeLeases.GetUpdatedKeys()
++			if test.expectUpdatedKeyLen != len(updatedKeys) {
++				t.Errorf("expectUpdatedKeyLen %d , found %d ", test.expectUpdatedKeyLen, len(updatedKeys))
++			}
++		})
++	}
++}
++
++func TestLeaseEndpointReconcilerForAZEvacuationExpiryScenarios(t *testing.T) {
++	ns := corev1.NamespaceDefault
++	expiredExpiryEpoch := strconv.FormatInt(time.Now().Add(-time.Hour).UTC().Unix(), 10)
++	om := func(name string, evacuateAZ string, applyLabel bool) metav1.ObjectMeta {
++		o := metav1.ObjectMeta{
++			Namespace: ns,
++			Name:      name,
++			Labels: map[string]string{
++				discoveryv1.LabelSkipMirror:  "true",
++				zoneEvacuationExpiryLabelKey: expiredExpiryEpoch,
++			},
++		}
++		if applyLabel {
++			o.Labels[zoneEvacuationLabelKey] = evacuateAZ
++		}
++
++		return o
++	}
++	reconcileTests := []struct {
++		testName            string
++		serviceName         string
++		ip                  string
++		endpointPorts       []corev1.EndpointPort
++		endpointKeys        []string
++		endpoints           *corev1.EndpointsList
++		expectEndpoints     *corev1.Endpoints // nil means none expected
++		evacuateZone        string
++		currentZone         string
++		expectUpdatedKeyLen int
++	}{
++		{
++			testName:      "existing endpoints current AZ is not evacuated AZ",
++			serviceName:   "foo",
++			ip:            "4.3.2.2",
++			endpointPorts: []corev1.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
++			endpointKeys:  []string{"4.3.2.1"},
++			endpoints: &corev1.EndpointsList{
++				Items: []corev1.Endpoints{{
++					ObjectMeta: om("foo", "az2", true),
++					Subsets: []corev1.EndpointSubset{{
++						Addresses: []corev1.EndpointAddress{
++							{IP: "4.3.2.1"},
++						},
++						Ports: []corev1.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
++					}},
++				}},
++			},
++			expectEndpoints: &corev1.Endpoints{
++				ObjectMeta: om("foo", "az2", true),
++				Subsets: []corev1.EndpointSubset{{
++					Addresses: []corev1.EndpointAddress{
++						{IP: "4.3.2.1"},
++						{IP: "4.3.2.2"},
++					},
++					Ports: []corev1.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
++				}},
++			},
++			currentZone:         "az1",
++			evacuateZone:        "az2",
++			expectUpdatedKeyLen: 1,
++		},
++		{
++			testName:      "one other existing endpoints current AZ is equal to evacuated AZ",
++			serviceName:   "foo",
++			ip:            "4.3.2.2",
++			endpointPorts: []corev1.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
++			endpointKeys:  []string{"4.3.2.1"},
++			endpoints: &corev1.EndpointsList{
++				Items: []corev1.Endpoints{{
++					ObjectMeta: om("foo", "az1", true),
++					Subsets: []corev1.EndpointSubset{{
++						Addresses: []corev1.EndpointAddress{
++							{IP: "4.3.2.1"},
++						},
++						Ports: []corev1.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
++					}},
++				}},
++			},
++			expectEndpoints: &corev1.Endpoints{
++				ObjectMeta: om("foo", "az1", true),
++				Subsets: []corev1.EndpointSubset{{
++					Addresses: []corev1.EndpointAddress{
++						{IP: "4.3.2.1"},
++						{IP: "4.3.2.2"},
++					},
++					Ports: []corev1.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
++				}},
++			},
++			currentZone:         "az1",
++			evacuateZone:        "az1",
++			expectUpdatedKeyLen: 1,
++		},
++		{
++			testName:      "same endpoint existing current AZ is equal to evacuated AZ(fail open)",
++			serviceName:   "foo",
++			ip:            "4.3.2.1",
++			endpointPorts: []corev1.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
++			endpointKeys:  []string{"4.3.2.1"},
++			endpoints: &corev1.EndpointsList{
++				Items: []corev1.Endpoints{{
++					ObjectMeta: om("foo", "az1", true),
++					Subsets: []corev1.EndpointSubset{{
++						Addresses: []corev1.EndpointAddress{
++							{IP: "4.3.2.1"},
++						},
++						Ports: []corev1.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
++					}},
++				}},
++			},
++			expectEndpoints: &corev1.Endpoints{
++				ObjectMeta: om("foo", "az1", true),
++				Subsets: []corev1.EndpointSubset{{
++					Addresses: []corev1.EndpointAddress{
++						{IP: "4.3.2.1"},
++					},
++					Ports: []corev1.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
++				}},
++			},
++			currentZone:         "az1",
++			evacuateZone:        "az1",
++			expectUpdatedKeyLen: 1,
++		},
++		{
++			testName:      "No endpoint existing current AZ is equal to evacuated AZ(fail open)",
++			serviceName:   "foo",
++			ip:            "4.3.2.1",
++			endpointPorts: []corev1.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
++			endpointKeys:  []string{},
++			endpoints:     nil,
++			expectEndpoints: &corev1.Endpoints{
++				ObjectMeta: om("foo", "", false),
++				Subsets: []corev1.EndpointSubset{{
++					Addresses: []corev1.EndpointAddress{
++						{IP: "4.3.2.1"},
++					},
++					Ports: []corev1.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
++				}},
++			},
++			currentZone:         "az1",
++			evacuateZone:        "az1",
++			expectUpdatedKeyLen: 1,
++		},
++		{
++			testName:      "existing endpoints current AZ and evacuated AZ are empty",
++			serviceName:   "foo",
++			ip:            "4.3.2.2",
++			endpointPorts: []corev1.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
++			endpointKeys:  []string{"4.3.2.1"},
++			endpoints: &corev1.EndpointsList{
++				Items: []corev1.Endpoints{{
++					ObjectMeta: om("foo", "", true),
++					Subsets: []corev1.EndpointSubset{{
++						Addresses: []corev1.EndpointAddress{
++							{IP: "4.3.2.1"},
++						},
++						Ports: []corev1.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
++					}},
++				}},
++			},
++			expectEndpoints: &corev1.Endpoints{
++				ObjectMeta: om("foo", "", true),
++				Subsets: []corev1.EndpointSubset{{
++					Addresses: []corev1.EndpointAddress{
++						{IP: "4.3.2.1"},
++						{IP: "4.3.2.2"},
++					},
++					Ports: []corev1.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
++				}},
++			},
++			currentZone:         "",
++			evacuateZone:        "",
++			expectUpdatedKeyLen: 1,
++		},
++	}
++	for _, test := range reconcileTests {
++		t.Run(test.testName, func(t *testing.T) {
++			os.Setenv(currentZoneEnvironmentKey, test.currentZone)
++			defer os.Unsetenv(currentZoneEnvironmentKey)
++			fakeLeases := newFakeLeases()
++			fakeLeases.SetKeys(test.endpointKeys)
++			clientset := fake.NewSimpleClientset()
++			if test.endpoints != nil {
++				for _, ep := range test.endpoints.Items {
++					if _, err := clientset.CoreV1().Endpoints(ep.Namespace).Create(context.TODO(), &ep, metav1.CreateOptions{}); err != nil {
++						t.Errorf("case %q: unexpected error: %v", test.testName, err)
++						continue
++					}
++				}
++			}
++
++			epAdapter := EndpointsAdapter{endpointClient: clientset.CoreV1()}
++			r := NewLeaseEndpointReconciler(epAdapter, fakeLeases)
++			err := r.ReconcileEndpoints(test.serviceName, net.ParseIP(test.ip), test.endpointPorts, true)
++			if err != nil {
++				t.Errorf("case %q: unexpected error: %v", test.testName, err)
++			}
++			actualEndpoints, err := clientset.CoreV1().Endpoints(corev1.NamespaceDefault).Get(context.TODO(), test.serviceName, metav1.GetOptions{})
++			if err != nil {
++				t.Errorf("case %q: unexpected error: %v", test.testName, err)
++			}
++			if test.expectEndpoints != nil {
++				delete(actualEndpoints.Labels, zoneEvacuationExpiryLabelKey)
++				delete(test.expectEndpoints.Labels, zoneEvacuationExpiryLabelKey)
++				if e, a := test.expectEndpoints, actualEndpoints; !reflect.DeepEqual(e, a) {
++					t.Errorf("case %q: expected update:\n%#v\ngot:\n%#v\n", test.testName, e, a)
++				}
++			}
++			updatedKeys := fakeLeases.GetUpdatedKeys()
++			if test.expectUpdatedKeyLen != len(updatedKeys) {
++				t.Errorf("expectUpdatedKeyLen %d , found %d ", test.expectUpdatedKeyLen, len(updatedKeys))
++			}
++		})
++	}
++}
++
++func TestLeaseEndpointReconcilerForAZEvacuationExpiryNotSetShouldFailOpen(t *testing.T) {
++	ns := corev1.NamespaceDefault
++	om := func(name string, labels map[string]string) metav1.ObjectMeta {
++		o := metav1.ObjectMeta{
++			Namespace: ns,
++			Name:      name,
++		}
++
++		o.SetLabels(labels)
++		o.Labels[discoveryv1.LabelSkipMirror] = "true"
++
++		return o
++	}
++	reconcileTests := []struct {
++		testName            string
++		serviceName         string
++		ip                  string
++		endpointPorts       []corev1.EndpointPort
++		endpointKeys        []string
++		endpoints           *corev1.EndpointsList
++		expectEndpoints     *corev1.Endpoints // nil means none expected
++		evacuateZone        string
++		currentZone         string
++		expectUpdatedKeyLen int
++	}{
++		{
++			testName:      "current AZ is evacuated AZ expiry unset",
++			serviceName:   "foo",
++			ip:            "4.3.2.2",
++			endpointPorts: []corev1.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
++			endpointKeys:  []string{"4.3.2.1"},
++			endpoints: &corev1.EndpointsList{
++				Items: []corev1.Endpoints{{
++					ObjectMeta: om("foo", map[string]string{zoneEvacuationLabelKey: "az1"}),
++					Subsets: []corev1.EndpointSubset{{
++						Addresses: []corev1.EndpointAddress{
++							{IP: "4.3.2.1"},
++						},
++						Ports: []corev1.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
++					}},
++				}},
++			},
++			expectEndpoints: &corev1.Endpoints{
++				ObjectMeta: om("foo", map[string]string{zoneEvacuationLabelKey: "az1"}),
++				Subsets: []corev1.EndpointSubset{{
++					Addresses: []corev1.EndpointAddress{
++						{IP: "4.3.2.1"},
++						{IP: "4.3.2.2"},
++					},
++					Ports: []corev1.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
++				}},
++			},
++			currentZone:         "az1",
++			evacuateZone:        "az1",
++			expectUpdatedKeyLen: 1,
++		},
++		{
++			testName:      "current AZ is evacuated AZ expiry empty",
++			serviceName:   "foo",
++			ip:            "4.3.2.2",
++			endpointPorts: []corev1.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
++			endpointKeys:  []string{"4.3.2.1"},
++			endpoints: &corev1.EndpointsList{
++				Items: []corev1.Endpoints{{
++					ObjectMeta: om("foo", map[string]string{zoneEvacuationLabelKey: "az1", zoneEvacuationExpiryLabelKey: ""}),
++					Subsets: []corev1.EndpointSubset{{
++						Addresses: []corev1.EndpointAddress{
++							{IP: "4.3.2.1"},
++						},
++						Ports: []corev1.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
++					}},
++				}},
++			},
++			expectEndpoints: &corev1.Endpoints{
++				ObjectMeta: om("foo", map[string]string{zoneEvacuationLabelKey: "az1", zoneEvacuationExpiryLabelKey: ""}),
++				Subsets: []corev1.EndpointSubset{{
++					Addresses: []corev1.EndpointAddress{
++						{IP: "4.3.2.1"},
++						{IP: "4.3.2.2"},
++					},
++					Ports: []corev1.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
++				}},
++			},
++			currentZone:         "az1",
++			evacuateZone:        "az1",
++			expectUpdatedKeyLen: 1,
++		},
++		{
++			testName:      "current AZ is evacuated AZ expiry invalid",
++			serviceName:   "foo",
++			ip:            "4.3.2.2",
++			endpointPorts: []corev1.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
++			endpointKeys:  []string{"4.3.2.1"},
++			endpoints: &corev1.EndpointsList{
++				Items: []corev1.Endpoints{{
++					ObjectMeta: om("foo", map[string]string{zoneEvacuationLabelKey: "az1", zoneEvacuationExpiryLabelKey: "abc"}),
++					Subsets: []corev1.EndpointSubset{{
++						Addresses: []corev1.EndpointAddress{
++							{IP: "4.3.2.1"},
++						},
++						Ports: []corev1.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
++					}},
++				}},
++			},
++			expectEndpoints: &corev1.Endpoints{
++				ObjectMeta: om("foo", map[string]string{zoneEvacuationLabelKey: "az1", zoneEvacuationExpiryLabelKey: "abc"}),
++				Subsets: []corev1.EndpointSubset{{
++					Addresses: []corev1.EndpointAddress{
++						{IP: "4.3.2.1"},
++						{IP: "4.3.2.2"},
++					},
++					Ports: []corev1.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
++				}},
++			},
++			currentZone:         "az1",
++			evacuateZone:        "az1",
++			expectUpdatedKeyLen: 1,
++		},
++	}
++	for _, test := range reconcileTests {
++		t.Run(test.testName, func(t *testing.T) {
++			os.Setenv(currentZoneEnvironmentKey, test.currentZone)
++			defer os.Unsetenv(currentZoneEnvironmentKey)
++			fakeLeases := newFakeLeases()
++			fakeLeases.SetKeys(test.endpointKeys)
++			clientset := fake.NewSimpleClientset()
++			if test.endpoints != nil {
++				for _, ep := range test.endpoints.Items {
++					if _, err := clientset.CoreV1().Endpoints(ep.Namespace).Create(context.TODO(), &ep, metav1.CreateOptions{}); err != nil {
++						t.Errorf("case %q: unexpected error: %v", test.testName, err)
++						continue
++					}
++				}
++			}
++
++			epAdapter := EndpointsAdapter{endpointClient: clientset.CoreV1()}
++			r := NewLeaseEndpointReconciler(epAdapter, fakeLeases)
++			err := r.ReconcileEndpoints(test.serviceName, net.ParseIP(test.ip), test.endpointPorts, true)
++			if err != nil {
++				t.Errorf("case %q: unexpected error: %v", test.testName, err)
++			}
++			actualEndpoints, err := clientset.CoreV1().Endpoints(corev1.NamespaceDefault).Get(context.TODO(), test.serviceName, metav1.GetOptions{})
++			if err != nil {
++				t.Errorf("case %q: unexpected error: %v", test.testName, err)
++			}
++			if test.expectEndpoints != nil {
++				delete(actualEndpoints.Labels, zoneEvacuationExpiryLabelKey)
++				delete(test.expectEndpoints.Labels, zoneEvacuationExpiryLabelKey)
 +				if e, a := test.expectEndpoints, actualEndpoints; !reflect.DeepEqual(e, a) {
 +					t.Errorf("case %q: expected update:\n%#v\ngot:\n%#v\n", test.testName, e, a)
 +				}
