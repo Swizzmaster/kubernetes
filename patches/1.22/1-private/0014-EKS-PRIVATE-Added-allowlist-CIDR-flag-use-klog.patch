@@ -27,9 +27,9 @@ Signed-off-by: Nick Turner <nic@amazon.com>
  pkg/kubeapiserver/options/ipnetslice.go       |  93 +++++
  pkg/kubeapiserver/options/ipnetslice_test.go  |  36 ++
  pkg/kubeapiserver/options/options.go          |   1 +
- pkg/registry/core/node/strategy.go            |  25 +-
+ pkg/registry/core/node/strategy.go            |  17 +
  .../apiserver/proxy_cidr_allowlist_test.go    | 388 ++++++++++++++++++
- 11 files changed, 631 insertions(+), 5 deletions(-)
+ 11 files changed, 627 insertions(+), 1 deletion(-)
  create mode 100644 cmd/kube-apiserver/app/dialer.go
  create mode 100644 cmd/kube-apiserver/app/options/allowlist.go
  create mode 100644 pkg/kubeapiserver/options/ipnetslice.go
@@ -364,7 +364,7 @@ index 1314e52c05f..818b7061566 100644
  const DefaultEtcdPathPrefix = "/registry"
 +var DefaultProxyCIDRAllowlist IPNetSlice = NewIPNetSlice()
 diff --git a/pkg/registry/core/node/strategy.go b/pkg/registry/core/node/strategy.go
-index 496a860d0c7..479a5aa1bba 100644
+index beae4ca23a0..479a5aa1bba 100644
 --- a/pkg/registry/core/node/strategy.go
 +++ b/pkg/registry/core/node/strategy.go
 @@ -35,6 +35,7 @@ import (
@@ -375,14 +375,10 @@ index 496a860d0c7..479a5aa1bba 100644
  	"k8s.io/kubernetes/pkg/api/legacyscheme"
  	api "k8s.io/kubernetes/pkg/apis/core"
  	"k8s.io/kubernetes/pkg/apis/core/validation"
-@@ -266,6 +267,26 @@ func ResourceLocation(getter ResourceGetter, connection client.ConnectionInfoGet
- 		return nil, nil, err
+@@ -270,6 +271,22 @@ func ResourceLocation(getter ResourceGetter, connection client.ConnectionInfoGet
+ 		return nil, nil, errors.NewBadRequest(err.Error())
  	}
  
-+	if err := proxyutil.IsProxyableHostname(ctx, &net.Resolver{}, info.Hostname); err != nil {
-+		return nil, nil, errors.NewBadRequest(err.Error())
-+	}
-+
 +	// REVIEW NOTE:
 +	// I didn't see a better way to plumb this down here. Feature gates are globals too, but I'd be happy to get the CIDRs here another way
 +	// The allowlist must be checked here. In case below the info.Transport is
@@ -402,17 +398,6 @@ index 496a860d0c7..479a5aa1bba 100644
  	// We check if we want to get a default Kubelet's transport. It happens if either:
  	// - no port is specified in request (Kubelet's port is default)
  	// - the requested port matches the kubelet port for this node
-@@ -278,10 +299,6 @@ func ResourceLocation(getter ResourceGetter, connection client.ConnectionInfoGet
- 			nil
- 	}
- 
--	if err := proxyutil.IsProxyableHostname(ctx, &net.Resolver{}, info.Hostname); err != nil {
--		return nil, nil, errors.NewBadRequest(err.Error())
--	}
--
- 	// Otherwise, return the requested scheme and port, and the proxy transport
- 	return &url.URL{Scheme: schemeReq, Host: net.JoinHostPort(info.Hostname, portReq)}, proxyTransport, nil
- }
 diff --git a/test/integration/apiserver/proxy_cidr_allowlist_test.go b/test/integration/apiserver/proxy_cidr_allowlist_test.go
 new file mode 100644
 index 00000000000..d3044053ca4
