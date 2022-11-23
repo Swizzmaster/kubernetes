@@ -1,53 +1,339 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Jyoti Mahapatra <jyotima@amazon.com>
-Date: Fri, 14 Oct 2022 10:59:40 -0700
-Subject: [PATCH] --EKS-PRIVATE-- Patch for apiserver endpoint weigh away
- during zonal outage
+Date: Tue, 11 Oct 2022 19:09:04 -0700
+Subject: [PATCH] --EKS-PRIVATE-- Patch for blocking lease and endpoint in
+ impacted zone during zonal outage
 
 ref: https://quip-amazon.com/0k7FAEo7j60v/Stop-software-operations-in-the-impacted-AZ
 ---
- pkg/controlplane/reconcilers/lease.go      |  75 ++-
- pkg/controlplane/reconcilers/lease_test.go | 622 +++++++++++++++++++++
- 2 files changed, 693 insertions(+), 4 deletions(-)
+ .../coordination/validation/validation.go     |  57 ++
+ .../validation/validation_test.go             | 191 ++++++
+ pkg/controlplane/reconcilers/lease.go         |  53 +-
+ pkg/controlplane/reconcilers/lease_test.go    | 623 ++++++++++++++++++
+ pkg/kubeapiserver/az/utils.go                 |  49 ++
+ 5 files changed, 966 insertions(+), 7 deletions(-)
+ create mode 100644 pkg/kubeapiserver/az/utils.go
 
+diff --git a/pkg/apis/coordination/validation/validation.go b/pkg/apis/coordination/validation/validation.go
+index e3eedcf5a83..ad52ff91379 100644
+--- a/pkg/apis/coordination/validation/validation.go
++++ b/pkg/apis/coordination/validation/validation.go
+@@ -17,15 +17,27 @@ limitations under the License.
+ package validation
+ 
+ import (
++	"fmt"
++	"os"
++
++	"k8s.io/apimachinery/pkg/api/meta"
+ 	"k8s.io/apimachinery/pkg/api/validation"
+ 	"k8s.io/apimachinery/pkg/util/validation/field"
+ 	"k8s.io/kubernetes/pkg/apis/coordination"
++	az "k8s.io/kubernetes/pkg/kubeapiserver/az"
+ )
+ 
++var eksManagedLeaseNames = map[string]struct{}{
++	"kube-scheduler":           {},
++	"kube-controller-manager":  {},
++	"cloud-controller-manager": {},
++}
++
+ // ValidateLease validates a Lease.
+ func ValidateLease(lease *coordination.Lease) field.ErrorList {
+ 	allErrs := validation.ValidateObjectMeta(&lease.ObjectMeta, true, validation.NameIsDNSSubdomain, field.NewPath("metadata"))
+ 	allErrs = append(allErrs, ValidateLeaseSpec(&lease.Spec, field.NewPath("spec"))...)
++	allErrs = append(allErrs, validateAZ(lease)...)
+ 	return allErrs
+ }
+ 
+@@ -33,6 +45,7 @@ func ValidateLease(lease *coordination.Lease) field.ErrorList {
+ func ValidateLeaseUpdate(lease, oldLease *coordination.Lease) field.ErrorList {
+ 	allErrs := validation.ValidateObjectMetaUpdate(&lease.ObjectMeta, &oldLease.ObjectMeta, field.NewPath("metadata"))
+ 	allErrs = append(allErrs, ValidateLeaseSpec(&lease.Spec, field.NewPath("spec"))...)
++	allErrs = append(allErrs, validateAZ(lease)...)
+ 	return allErrs
+ }
+ 
+@@ -50,3 +63,47 @@ func ValidateLeaseSpec(spec *coordination.LeaseSpec, fldPath *field.Path) field.
+ 	}
+ 	return allErrs
+ }
++
++/*
++ * validateAZ function blocks lease update during a zonal outage.
++ * https://quip-amazon.com/0k7FAEo7j60v/Stop-software-operations-in-the-impacted-AZ
++ */
++func validateAZ(lease *coordination.Lease) field.ErrorList {
++	allErrs := field.ErrorList{}
++	if _, ok := eksManagedLeaseNames[lease.GetName()]; !ok {
++		return allErrs
++	}
++
++	if lease.GetNamespace() != "kube-system" {
++		return allErrs
++	}
++
++	metadata, err := meta.Accessor(&lease.ObjectMeta)
++	if err != nil {
++		allErrs = append(allErrs, &field.Error{
++			Type:     field.ErrorTypeInvalid,
++			Field:    "objectMeta",
++			BadValue: lease.ObjectMeta,
++			Detail:   "object does not implement the Object interfaces",
++		})
++		return allErrs
++	}
++	if metadata.GetLabels() == nil {
++		return allErrs
++	}
++
++	excludedZone := metadata.GetLabels()[az.ZoneEvacuationLabelKey]
++	zoneEvacuationExpiry := metadata.GetLabels()[az.ZoneEvacuationExpiryLabelKey]
++	currentZone, _ := os.LookupEnv(az.CurrentZoneEnvironmentKey)
++	// If both currentZone and excludedZone are empty, its an unexpected bug. The following check
++	// succeeds only when both strings are non empty and they match.
++	if excludedZone != "" && currentZone != "" && az.IsEpochCurrent(zoneEvacuationExpiry) && excludedZone == currentZone {
++		allErrs = append(allErrs, &field.Error{
++			Type:     field.ErrorTypeForbidden,
++			Field:    currentZone,
++			BadValue: excludedZone,
++			Detail:   fmt.Sprintf("zone %s is experiencing zonal outage. Cannot renew lease.", excludedZone),
++		})
++	}
++	return allErrs
++}
+diff --git a/pkg/apis/coordination/validation/validation_test.go b/pkg/apis/coordination/validation/validation_test.go
+index 2d102c6a154..a5b7a119c0f 100644
+--- a/pkg/apis/coordination/validation/validation_test.go
++++ b/pkg/apis/coordination/validation/validation_test.go
+@@ -17,11 +17,15 @@ limitations under the License.
+ package validation
+ 
+ import (
++	"fmt"
++	"os"
+ 	"testing"
++	"time"
+ 
+ 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+ 	"k8s.io/apimachinery/pkg/util/validation/field"
+ 	"k8s.io/kubernetes/pkg/apis/coordination"
++	az "k8s.io/kubernetes/pkg/kubeapiserver/az"
+ )
+ 
+ func TestValidateLease(t *testing.T) {
+@@ -102,3 +106,190 @@ func TestValidateLeaseSpecUpdate(t *testing.T) {
+ 		t.Errorf("unexpected list of errors for valid update: %#v", errs.ToAggregate().Error())
+ 	}
+ }
++
++func TestLeaseValidationForLeaseStealing(t *testing.T) {
++	holder := "holder"
++	leaseDurationSeconds := int32(10)
++	tests := []struct {
++		name               string
++		currentZone        string
++		impactedZone       string
++		componentName      string
++		namespaceName      string
++		errorCountExpected int
++		setEnvironment     bool
++		setLabel           bool
++	}{
++		{
++			name:               "FailureIfExcludedZoneIsCurrentZone",
++			currentZone:        "az1",
++			impactedZone:       "az1",
++			componentName:      "kube-scheduler",
++			namespaceName:      "kube-system",
++			errorCountExpected: 1,
++			setEnvironment:     true,
++			setLabel:           true,
++		},
++		{
++			name:               "SuccessIfExcludedZoneIsNotCurrentZone",
++			currentZone:        "az1",
++			impactedZone:       "az2",
++			componentName:      "kube-scheduler",
++			namespaceName:      "kube-system",
++			errorCountExpected: 0,
++			setEnvironment:     true,
++			setLabel:           true,
++		},
++		{
++			name:               "SuccessIfComponentIsNotEKSManagedComponent",
++			currentZone:        "az1",
++			impactedZone:       "az1",
++			componentName:      "some-scheduler",
++			namespaceName:      "kube-system",
++			errorCountExpected: 0,
++			setEnvironment:     true,
++			setLabel:           true,
++		},
++		{
++			name:               "SuccessIfZoneEnvironmentIsUnset",
++			impactedZone:       "az1",
++			componentName:      "kube-scheduler",
++			namespaceName:      "kube-system",
++			errorCountExpected: 0,
++			setEnvironment:     false,
++			setLabel:           true,
++		},
++		{
++			name:               "SuccessIfZoneEnvironmentIsSetButLabelIsNotSet",
++			currentZone:        "az1",
++			componentName:      "kube-scheduler",
++			namespaceName:      "kube-system",
++			errorCountExpected: 0,
++			setEnvironment:     true,
++			setLabel:           false,
++		},
++		{
++			name:               "FailIfNamespaceIsNotKubeSystem",
++			currentZone:        "az1",
++			impactedZone:       "az1",
++			componentName:      "kube-scheduler",
++			namespaceName:      "some-system",
++			errorCountExpected: 0,
++			setEnvironment:     true,
++			setLabel:           true,
++		},
++		{
++			name:               "SuccessIfBothLabelAndZoneAreUnset",
++			componentName:      "kube-scheduler",
++			namespaceName:      "kube-system",
++			errorCountExpected: 0,
++			setEnvironment:     true,
++			setLabel:           true,
++		},
++	}
++
++	for _, test := range tests {
++		t.Run(test.name, func(t *testing.T) {
++			defer os.Unsetenv(az.CurrentZoneEnvironmentKey)
++			if test.setEnvironment {
++				os.Setenv(az.CurrentZoneEnvironmentKey, test.currentZone)
++			}
++
++			lease := &coordination.Lease{
++				ObjectMeta: metav1.ObjectMeta{
++					Name:            test.componentName,
++					Namespace:       test.namespaceName,
++					ResourceVersion: "1",
++				},
++				Spec: coordination.LeaseSpec{
++					HolderIdentity:       &holder,
++					LeaseDurationSeconds: &leaseDurationSeconds,
++				},
++			}
++
++			if test.setLabel {
++				lease.SetLabels(map[string]string{
++					az.ZoneEvacuationLabelKey:       test.impactedZone,
++					az.ZoneEvacuationExpiryLabelKey: fmt.Sprintf("%d", time.Now().UTC().Unix()+3600),
++				})
++			}
++
++			errs := ValidateLease(lease)
++			if len(errs) != test.errorCountExpected {
++				t.Errorf("unexpected list of errors for lease create: %v", errs)
++			}
++
++			errs = ValidateLeaseUpdate(lease, lease)
++			if len(errs) != test.errorCountExpected {
++				t.Errorf("unexpected list of errors for lease update: %v", errs)
++			}
++		})
++	}
++}
++
++func TestLeaseValidationForLeaseStealingWhenLabelIsExpired(t *testing.T) {
++	holder := "holder"
++	leaseDurationSeconds := int32(10)
++	tests := []struct {
++		name               string
++		currentZone        string
++		impactedZone       string
++		componentName      string
++		namespaceName      string
++		errorCountExpected int
++		expiryTime         int64
++	}{
++		{
++			name:               "FailureIfExcludedZoneIsCurrentZoneAndTtlIsNotExpired",
++			currentZone:        "az1",
++			impactedZone:       "az1",
++			componentName:      "kube-scheduler",
++			namespaceName:      "kube-system",
++			errorCountExpected: 1,
++			expiryTime:         time.Now().UTC().Unix() + 3600,
++		},
++		{
++			name:               "FailureIfExcludedZoneIsCurrentZoneAndTtlIsExpired",
++			currentZone:        "az1",
++			impactedZone:       "az1",
++			componentName:      "kube-scheduler",
++			namespaceName:      "kube-system",
++			errorCountExpected: 0,
++			expiryTime:         time.Now().UTC().Unix() - 3600,
++		},
++	}
++
++	for _, test := range tests {
++		t.Run(test.name, func(t *testing.T) {
++			defer os.Unsetenv(az.CurrentZoneEnvironmentKey)
++			os.Setenv(az.CurrentZoneEnvironmentKey, test.currentZone)
++
++			lease := &coordination.Lease{
++				ObjectMeta: metav1.ObjectMeta{
++					Name:            test.componentName,
++					Namespace:       test.namespaceName,
++					ResourceVersion: "1",
++				},
++				Spec: coordination.LeaseSpec{
++					HolderIdentity:       &holder,
++					LeaseDurationSeconds: &leaseDurationSeconds,
++				},
++			}
++
++			lease.SetLabels(map[string]string{
++				az.ZoneEvacuationLabelKey:       test.impactedZone,
++				az.ZoneEvacuationExpiryLabelKey: fmt.Sprintf("%d", test.expiryTime),
++			})
++
++			errs := ValidateLease(lease)
++			if len(errs) != test.errorCountExpected {
++				t.Errorf("unexpected list of errors for lease create: %v", errs)
++			}
++
++			errs = ValidateLeaseUpdate(lease, lease)
++			if len(errs) != test.errorCountExpected {
++				t.Errorf("unexpected list of errors for lease update: %v", errs)
++			}
++		})
++	}
++}
 diff --git a/pkg/controlplane/reconcilers/lease.go b/pkg/controlplane/reconcilers/lease.go
-index ca3e1dee04b..b0761ed4394 100644
+index ca3e1dee04b..5eb0b3f81c4 100644
 --- a/pkg/controlplane/reconcilers/lease.go
 +++ b/pkg/controlplane/reconcilers/lease.go
-@@ -24,7 +24,9 @@ https://github.com/openshift/origin/blob/bb340c5dd5ff72718be86fb194dedc0faed7f4c
+@@ -24,6 +24,7 @@ https://github.com/openshift/origin/blob/bb340c5dd5ff72718be86fb194dedc0faed7f4c
  import (
  	"fmt"
  	"net"
 +	"os"
  	"path"
-+	"strconv"
  	"sync"
  	"time"
+@@ -38,6 +39,7 @@ import (
+ 	"k8s.io/apiserver/pkg/registry/rest"
+ 	"k8s.io/apiserver/pkg/storage"
+ 	endpointsv1 "k8s.io/kubernetes/pkg/api/v1/endpoints"
++	az "k8s.io/kubernetes/pkg/kubeapiserver/az"
+ )
  
-@@ -60,6 +62,22 @@ type storageLeases struct {
- 
- var _ Leases = &storageLeases{}
- 
-+const (
-+	// Label applied on the lease object. The value must be availability-zone-id
-+	// The label is applied by the az resiliency poller https://gitlab.aws.dev/eks-dataplane/eks-dataplane-az-poller
-+	// Refer https://quip-amazon.com/bgPkAo16pbXT/Dataplane-Pollers-for-AZ-Resiliency for details.
-+	zoneEvacuationLabelKey = "eks.amazonaws.com/evacuate-zone"
-+	// Label applied on the lease object. The value must be an Unix epoch seconds. Unix epoch always represents UTC time.
-+	// The label is applied by the az resiliency poller https://gitlab.aws.dev/eks-dataplane/eks-dataplane-az-poller
-+	// Refer https://quip-amazon.com/bgPkAo16pbXT/Dataplane-Pollers-for-AZ-Resiliency for details.
-+	// Empty value behaves the same as an expired time. If time specified in the value is expired, zone evacuation stops.
-+	zoneEvacuationExpiryLabelKey = "eks.amazonaws.com/evacuate-zone-expiry"
-+	// The current availability-zone-id the apiserver is operating in. This is an environment variable set in the
-+	// apiserver static pod manifest in https://gitlab.aws.dev/eks-dataplane/eks-kcp-ami-config
-+	// EKS assumes that all lease updates from controllers occur within the same host.
-+	currentZoneEnvironmentKey = "APISERVER_AVAILABILITY_ZONE"
-+)
-+
- // ListLeases retrieves a list of the current master IPs from storage
- func (s *storageLeases) ListLeases() ([]string, error) {
- 	ipInfoList := &corev1.EndpointsList{}
-@@ -156,6 +174,11 @@ func (r *leaseEndpointReconciler) ReconcileEndpoints(serviceName string, ip net.
+ // Leases is an interface which assists in managing the set of active masters
+@@ -156,6 +158,11 @@ func (r *leaseEndpointReconciler) ReconcileEndpoints(serviceName string, ip net.
  		return nil
  	}
  
@@ -59,7 +345,7 @@ index ca3e1dee04b..b0761ed4394 100644
  	// Refresh the TTL on our key, independently of whether any error or
  	// update conflict happens below. This makes sure that at least some of
  	// the masters will add our endpoint.
-@@ -163,11 +186,14 @@ func (r *leaseEndpointReconciler) ReconcileEndpoints(serviceName string, ip net.
+@@ -163,11 +170,14 @@ func (r *leaseEndpointReconciler) ReconcileEndpoints(serviceName string, ip net.
  		return err
  	}
  
@@ -77,7 +363,20 @@ index ca3e1dee04b..b0761ed4394 100644
  	shouldCreate := false
  	if err != nil {
  		if !errors.IsNotFound(err) {
-@@ -299,7 +325,8 @@ func (r *leaseEndpointReconciler) RemoveEndpoints(serviceName string, ip net.IP,
+@@ -245,9 +255,9 @@ func (r *leaseEndpointReconciler) doReconcile(serviceName string, endpointPorts
+ // format ReconcileEndpoints expects when the controller is using leases.
+ //
+ // Return values:
+-// * formatCorrect is true if exactly one subset is found.
+-// * ipsCorrect when the addresses in the endpoints match the expected addresses list
+-// * portsCorrect is true when endpoint ports exactly match provided ports.
++//   - formatCorrect is true if exactly one subset is found.
++//   - ipsCorrect when the addresses in the endpoints match the expected addresses list
++//   - portsCorrect is true when endpoint ports exactly match provided ports.
+ //     portsCorrect is only evaluated when reconcilePorts is set to true.
+ func checkEndpointSubsetFormatWithLease(e *corev1.Endpoints, expectedIPs []string, ports []corev1.EndpointPort, reconcilePorts bool) (formatCorrect bool, ipsCorrect bool, portsCorrect bool) {
+ 	if len(e.Subsets) != 1 {
+@@ -299,7 +309,8 @@ func (r *leaseEndpointReconciler) RemoveEndpoints(serviceName string, ip net.IP,
  		return err
  	}
  
@@ -87,7 +386,7 @@ index ca3e1dee04b..b0761ed4394 100644
  }
  
  func (r *leaseEndpointReconciler) StopReconciling() {
-@@ -307,3 +334,43 @@ func (r *leaseEndpointReconciler) StopReconciling() {
+@@ -307,3 +318,31 @@ func (r *leaseEndpointReconciler) StopReconciling() {
  	defer r.reconcilingLock.Unlock()
  	r.stopReconcilingCalled = true
  }
@@ -95,11 +394,11 @@ index ca3e1dee04b..b0761ed4394 100644
 +func (r *leaseEndpointReconciler) shouldStopEndpointReconciliation(e *corev1.Endpoints, ip net.IP) bool {
 +	// the second parameters are excluded from check because we expect the strings to be non empty for the logic.
 +	// found vs not found will yield the same results for the string
-+	excludedZone, _ := e.GetLabels()[zoneEvacuationLabelKey]
-+	zoneEvacuationExpiry, _ := e.GetLabels()[zoneEvacuationExpiryLabelKey]
-+	currentZone, _ := os.LookupEnv(currentZoneEnvironmentKey)
++	excludedZone, _ := e.GetLabels()[az.ZoneEvacuationLabelKey]
++	zoneEvacuationExpiry, _ := e.GetLabels()[az.ZoneEvacuationExpiryLabelKey]
++	currentZone, _ := os.LookupEnv(az.CurrentZoneEnvironmentKey)
 +
-+	if excludedZone != "" && currentZone != "" && isEpochCurrent(zoneEvacuationExpiry) && excludedZone == currentZone {
++	if excludedZone != "" && currentZone != "" && az.IsEpochCurrent(zoneEvacuationExpiry) && excludedZone == currentZone {
 +		if masterIPs, err := r.masterLeases.ListLeases(); err == nil {
 +			if len(masterIPs) >= 2 {
 +				// Exit only if another apiserver is updating the endpoints.
@@ -119,23 +418,11 @@ index ca3e1dee04b..b0761ed4394 100644
 +	}
 +	return false
 +}
-+
-+// expiryEpoch is Unix epoch in seconds. isEpochCurrent returns true if expiryEpoch is greater than current Unix epoch
-+func isEpochCurrent(zoneEvacuationExpiry string) bool {
-+	if zoneEvacuationExpiry == "" {
-+		return false
-+	}
-+
-+	if expiryEpoch, err := strconv.ParseInt(zoneEvacuationExpiry, 10, 64); err == nil && expiryEpoch > time.Now().UTC().Unix() {
-+		return true
-+	}
-+	return false
-+}
 diff --git a/pkg/controlplane/reconcilers/lease_test.go b/pkg/controlplane/reconcilers/lease_test.go
-index 21fdde8865f..bec154e5351 100644
+index 21fdde8865f..97bf9f80455 100644
 --- a/pkg/controlplane/reconcilers/lease_test.go
 +++ b/pkg/controlplane/reconcilers/lease_test.go
-@@ -24,8 +24,11 @@ https://github.com/openshift/origin/blob/bb340c5dd5ff72718be86fb194dedc0faed7f4c
+@@ -24,13 +24,17 @@ https://github.com/openshift/origin/blob/bb340c5dd5ff72718be86fb194dedc0faed7f4c
  import (
  	"context"
  	"net"
@@ -147,7 +434,13 @@ index 21fdde8865f..bec154e5351 100644
  
  	corev1 "k8s.io/api/core/v1"
  	discoveryv1 "k8s.io/api/discovery/v1"
-@@ -580,6 +583,625 @@ func TestLeaseEndpointReconciler(t *testing.T) {
+ 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+ 	"k8s.io/client-go/kubernetes/fake"
++	az "k8s.io/kubernetes/pkg/kubeapiserver/az"
+ )
+ 
+ type fakeLeases struct {
+@@ -580,6 +584,625 @@ func TestLeaseEndpointReconciler(t *testing.T) {
  	}
  }
  
@@ -159,12 +452,12 @@ index 21fdde8865f..bec154e5351 100644
 +			Namespace: ns,
 +			Name:      name,
 +			Labels: map[string]string{
-+				discoveryv1.LabelSkipMirror:  "true",
-+				zoneEvacuationExpiryLabelKey: futureExpiryEpoch,
++				discoveryv1.LabelSkipMirror:     "true",
++				az.ZoneEvacuationExpiryLabelKey: futureExpiryEpoch,
 +			},
 +		}
 +		if applyLabel {
-+			o.Labels[zoneEvacuationLabelKey] = evacuateAZ
++			o.Labels[az.ZoneEvacuationLabelKey] = evacuateAZ
 +		}
 +
 +		return o
@@ -356,8 +649,8 @@ index 21fdde8865f..bec154e5351 100644
 +	}
 +	for _, test := range reconcileTests {
 +		t.Run(test.testName, func(t *testing.T) {
-+			os.Setenv(currentZoneEnvironmentKey, test.currentZone)
-+			defer os.Unsetenv(currentZoneEnvironmentKey)
++			os.Setenv(az.CurrentZoneEnvironmentKey, test.currentZone)
++			defer os.Unsetenv(az.CurrentZoneEnvironmentKey)
 +			fakeLeases := newFakeLeases()
 +			fakeLeases.SetKeys(test.endpointKeys)
 +			clientset := fake.NewSimpleClientset()
@@ -381,8 +674,8 @@ index 21fdde8865f..bec154e5351 100644
 +				t.Errorf("case %q: unexpected error: %v", test.testName, err)
 +			}
 +			if test.expectEndpoints != nil {
-+				delete(actualEndpoints.Labels, zoneEvacuationExpiryLabelKey)
-+				delete(test.expectEndpoints.Labels, zoneEvacuationExpiryLabelKey)
++				delete(actualEndpoints.Labels, az.ZoneEvacuationExpiryLabelKey)
++				delete(test.expectEndpoints.Labels, az.ZoneEvacuationExpiryLabelKey)
 +				if e, a := test.expectEndpoints, actualEndpoints; !reflect.DeepEqual(e, a) {
 +					t.Errorf("case %q: expected update:\n%#v\ngot:\n%#v\n", test.testName, e, a)
 +				}
@@ -403,12 +696,12 @@ index 21fdde8865f..bec154e5351 100644
 +			Namespace: ns,
 +			Name:      name,
 +			Labels: map[string]string{
-+				discoveryv1.LabelSkipMirror:  "true",
-+				zoneEvacuationExpiryLabelKey: expiredExpiryEpoch,
++				discoveryv1.LabelSkipMirror:     "true",
++				az.ZoneEvacuationExpiryLabelKey: expiredExpiryEpoch,
 +			},
 +		}
 +		if applyLabel {
-+			o.Labels[zoneEvacuationLabelKey] = evacuateAZ
++			o.Labels[az.ZoneEvacuationLabelKey] = evacuateAZ
 +		}
 +
 +		return o
@@ -571,8 +864,8 @@ index 21fdde8865f..bec154e5351 100644
 +	}
 +	for _, test := range reconcileTests {
 +		t.Run(test.testName, func(t *testing.T) {
-+			os.Setenv(currentZoneEnvironmentKey, test.currentZone)
-+			defer os.Unsetenv(currentZoneEnvironmentKey)
++			os.Setenv(az.CurrentZoneEnvironmentKey, test.currentZone)
++			defer os.Unsetenv(az.CurrentZoneEnvironmentKey)
 +			fakeLeases := newFakeLeases()
 +			fakeLeases.SetKeys(test.endpointKeys)
 +			clientset := fake.NewSimpleClientset()
@@ -596,8 +889,8 @@ index 21fdde8865f..bec154e5351 100644
 +				t.Errorf("case %q: unexpected error: %v", test.testName, err)
 +			}
 +			if test.expectEndpoints != nil {
-+				delete(actualEndpoints.Labels, zoneEvacuationExpiryLabelKey)
-+				delete(test.expectEndpoints.Labels, zoneEvacuationExpiryLabelKey)
++				delete(actualEndpoints.Labels, az.ZoneEvacuationExpiryLabelKey)
++				delete(test.expectEndpoints.Labels, az.ZoneEvacuationExpiryLabelKey)
 +				if e, a := test.expectEndpoints, actualEndpoints; !reflect.DeepEqual(e, a) {
 +					t.Errorf("case %q: expected update:\n%#v\ngot:\n%#v\n", test.testName, e, a)
 +				}
@@ -643,7 +936,7 @@ index 21fdde8865f..bec154e5351 100644
 +			endpointKeys:  []string{"4.3.2.1"},
 +			endpoints: &corev1.EndpointsList{
 +				Items: []corev1.Endpoints{{
-+					ObjectMeta: om("foo", map[string]string{zoneEvacuationLabelKey: "az1"}),
++					ObjectMeta: om("foo", map[string]string{az.ZoneEvacuationLabelKey: "az1"}),
 +					Subsets: []corev1.EndpointSubset{{
 +						Addresses: []corev1.EndpointAddress{
 +							{IP: "4.3.2.1"},
@@ -653,7 +946,7 @@ index 21fdde8865f..bec154e5351 100644
 +				}},
 +			},
 +			expectEndpoints: &corev1.Endpoints{
-+				ObjectMeta: om("foo", map[string]string{zoneEvacuationLabelKey: "az1"}),
++				ObjectMeta: om("foo", map[string]string{az.ZoneEvacuationLabelKey: "az1"}),
 +				Subsets: []corev1.EndpointSubset{{
 +					Addresses: []corev1.EndpointAddress{
 +						{IP: "4.3.2.1"},
@@ -674,7 +967,7 @@ index 21fdde8865f..bec154e5351 100644
 +			endpointKeys:  []string{"4.3.2.1"},
 +			endpoints: &corev1.EndpointsList{
 +				Items: []corev1.Endpoints{{
-+					ObjectMeta: om("foo", map[string]string{zoneEvacuationLabelKey: "az1", zoneEvacuationExpiryLabelKey: ""}),
++					ObjectMeta: om("foo", map[string]string{az.ZoneEvacuationLabelKey: "az1", az.ZoneEvacuationExpiryLabelKey: ""}),
 +					Subsets: []corev1.EndpointSubset{{
 +						Addresses: []corev1.EndpointAddress{
 +							{IP: "4.3.2.1"},
@@ -684,7 +977,7 @@ index 21fdde8865f..bec154e5351 100644
 +				}},
 +			},
 +			expectEndpoints: &corev1.Endpoints{
-+				ObjectMeta: om("foo", map[string]string{zoneEvacuationLabelKey: "az1", zoneEvacuationExpiryLabelKey: ""}),
++				ObjectMeta: om("foo", map[string]string{az.ZoneEvacuationLabelKey: "az1", az.ZoneEvacuationExpiryLabelKey: ""}),
 +				Subsets: []corev1.EndpointSubset{{
 +					Addresses: []corev1.EndpointAddress{
 +						{IP: "4.3.2.1"},
@@ -705,7 +998,7 @@ index 21fdde8865f..bec154e5351 100644
 +			endpointKeys:  []string{"4.3.2.1"},
 +			endpoints: &corev1.EndpointsList{
 +				Items: []corev1.Endpoints{{
-+					ObjectMeta: om("foo", map[string]string{zoneEvacuationLabelKey: "az1", zoneEvacuationExpiryLabelKey: "abc"}),
++					ObjectMeta: om("foo", map[string]string{az.ZoneEvacuationLabelKey: "az1", az.ZoneEvacuationExpiryLabelKey: "abc"}),
 +					Subsets: []corev1.EndpointSubset{{
 +						Addresses: []corev1.EndpointAddress{
 +							{IP: "4.3.2.1"},
@@ -715,7 +1008,7 @@ index 21fdde8865f..bec154e5351 100644
 +				}},
 +			},
 +			expectEndpoints: &corev1.Endpoints{
-+				ObjectMeta: om("foo", map[string]string{zoneEvacuationLabelKey: "az1", zoneEvacuationExpiryLabelKey: "abc"}),
++				ObjectMeta: om("foo", map[string]string{az.ZoneEvacuationLabelKey: "az1", az.ZoneEvacuationExpiryLabelKey: "abc"}),
 +				Subsets: []corev1.EndpointSubset{{
 +					Addresses: []corev1.EndpointAddress{
 +						{IP: "4.3.2.1"},
@@ -731,8 +1024,8 @@ index 21fdde8865f..bec154e5351 100644
 +	}
 +	for _, test := range reconcileTests {
 +		t.Run(test.testName, func(t *testing.T) {
-+			os.Setenv(currentZoneEnvironmentKey, test.currentZone)
-+			defer os.Unsetenv(currentZoneEnvironmentKey)
++			os.Setenv(az.CurrentZoneEnvironmentKey, test.currentZone)
++			defer os.Unsetenv(az.CurrentZoneEnvironmentKey)
 +			fakeLeases := newFakeLeases()
 +			fakeLeases.SetKeys(test.endpointKeys)
 +			clientset := fake.NewSimpleClientset()
@@ -756,8 +1049,8 @@ index 21fdde8865f..bec154e5351 100644
 +				t.Errorf("case %q: unexpected error: %v", test.testName, err)
 +			}
 +			if test.expectEndpoints != nil {
-+				delete(actualEndpoints.Labels, zoneEvacuationExpiryLabelKey)
-+				delete(test.expectEndpoints.Labels, zoneEvacuationExpiryLabelKey)
++				delete(actualEndpoints.Labels, az.ZoneEvacuationExpiryLabelKey)
++				delete(test.expectEndpoints.Labels, az.ZoneEvacuationExpiryLabelKey)
 +				if e, a := test.expectEndpoints, actualEndpoints; !reflect.DeepEqual(e, a) {
 +					t.Errorf("case %q: expected update:\n%#v\ngot:\n%#v\n", test.testName, e, a)
 +				}
@@ -773,3 +1066,58 @@ index 21fdde8865f..bec154e5351 100644
  func TestLeaseRemoveEndpoints(t *testing.T) {
  	ns := corev1.NamespaceDefault
  	om := func(name string, skipMirrorLabel bool) metav1.ObjectMeta {
+diff --git a/pkg/kubeapiserver/az/utils.go b/pkg/kubeapiserver/az/utils.go
+new file mode 100644
+index 00000000000..3edf0779bb3
+--- /dev/null
++++ b/pkg/kubeapiserver/az/utils.go
+@@ -0,0 +1,49 @@
++/*
++Copyright 2017 The Kubernetes Authors.
++
++Licensed under the Apache License, Version 2.0 (the "License");
++you may not use this file except in compliance with the License.
++You may obtain a copy of the License at
++
++    http://www.apache.org/licenses/LICENSE-2.0
++
++Unless required by applicable law or agreed to in writing, software
++distributed under the License is distributed on an "AS IS" BASIS,
++WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++See the License for the specific language governing permissions and
++limitations under the License.
++*/
++
++package az
++
++import (
++	"strconv"
++	"time"
++)
++
++const (
++	// Label applied on the lease object. The value must be availability-zone-id
++	// The label is applied by the az resiliency poller https://gitlab.aws.dev/eks-dataplane/eks-dataplane-az-poller
++	// Refer https://quip-amazon.com/bgPkAo16pbXT/Dataplane-Pollers-for-AZ-Resiliency for details.
++	ZoneEvacuationLabelKey = "eks.amazonaws.com/evacuate-zone"
++	// Label applied on the lease object. The value must be an Unix epoch seconds. Unix epoch always represents UTC time.
++	// The label is applied by the az resiliency poller https://gitlab.aws.dev/eks-dataplane/eks-dataplane-az-poller
++	// Refer https://quip-amazon.com/bgPkAo16pbXT/Dataplane-Pollers-for-AZ-Resiliency for details.
++	// Empty value behaves the same as an expired time. If time specified in the value is expired, zone evacuation stops.
++	ZoneEvacuationExpiryLabelKey = "eks.amazonaws.com/evacuate-zone-expiry"
++	// The current availability-zone-id the apiserver is operating in. This is an environment variable set in the
++	// apiserver static pod manifest in https://gitlab.aws.dev/eks-dataplane/eks-kcp-ami-config
++	// EKS assumes that all lease updates from controllers occur within the same host.
++	CurrentZoneEnvironmentKey = "APISERVER_AVAILABILITY_ZONE"
++)
++
++func IsEpochCurrent(zoneEvacuationExpiry string) bool {
++	if zoneEvacuationExpiry == "" {
++		return false
++	}
++
++	if expiryEpoch, err := strconv.ParseInt(zoneEvacuationExpiry, 10, 64); err == nil && expiryEpoch > time.Now().UTC().Unix() {
++		return true
++	}
++	return false
++}
