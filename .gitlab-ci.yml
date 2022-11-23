@@ -8,15 +8,15 @@
   - ./hack/apply_patches.sh ./patches/$MINOR_VERSION/ ./kubernetes/
 
 .script_prepare_patches: &script_prepare_patches
- - ./hack/prepare_patches.sh ./kubernetes/ ./patches/$MINOR_VERSION/
- - git diff --quiet
+  - ./hack/prepare_patches.sh ./kubernetes/ ./patches/$MINOR_VERSION/
+  - git diff --quiet
 
 default:
   image: bitnami/git
   before_script:
     - *script_git_config
   cache:
-    key: $MINOR_VERSION
+    key: $MINOR_VERSION-$CI_COMMIT_SHORT_SHA
     paths:
       - kubernetes/
 
@@ -46,7 +46,7 @@ workflow:
   script:
    - *script_prepare_patches
   rules:
-   - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
 
 .test_unit:
   tags:

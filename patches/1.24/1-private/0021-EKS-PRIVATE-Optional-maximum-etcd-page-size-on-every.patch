@@ -1,18 +1,18 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: Cenk Alti <alticen@amazon.com>
-Date: Wed, 14 Sep 2022 18:13:30 -0400
+From: Ernest Wong <ernwong@amazon.com>
+Date: Wed, 23 Nov 2022 20:00:37 +0000
 Subject: [PATCH] --EKS-PRIVATE-- Optional maximum etcd page size on every list
 
 ---
  .../apiserver/pkg/server/options/etcd.go      |   3 +
  .../pkg/storage/etcd3/metrics/metrics.go      |  15 ++
  .../apiserver/pkg/storage/etcd3/store.go      |  55 +++--
- .../apiserver/pkg/storage/etcd3/store_test.go | 198 ++++++++++++++++--
+ .../apiserver/pkg/storage/etcd3/store_test.go | 203 ++++++++++++++++--
  .../pkg/storage/etcd3/watcher_test.go         |   8 +-
  .../pkg/storage/storagebackend/config.go      |   3 +-
  .../storage/storagebackend/factory/etcd3.go   |   3 +-
  .../pkg/storage/tests/cacher_test.go          |   4 +-
- 8 files changed, 259 insertions(+), 30 deletions(-)
+ 8 files changed, 262 insertions(+), 32 deletions(-)
 
 diff --git a/staging/src/k8s.io/apiserver/pkg/server/options/etcd.go b/staging/src/k8s.io/apiserver/pkg/server/options/etcd.go
 index 1ff41c6bcb9..bd2bdc387b5 100644
@@ -69,7 +69,7 @@ index dc9917cef91..d876664aae2 100644
  func RecordEtcdBookmark(resource string) {
  	etcdBookmarkCounts.WithLabelValues(resource).Inc()
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go
-index f97bc3833e7..097a53d36c0 100644
+index 0e2fb368705..959e9f63a03 100644
 --- a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go
 @@ -81,9 +81,24 @@ type store struct {
@@ -97,7 +97,7 @@ index f97bc3833e7..097a53d36c0 100644
  type objState struct {
  	obj   runtime.Object
  	meta  *storage.ResponseMeta
-@@ -93,18 +108,19 @@ type objState struct {
+@@ -93,11 +108,11 @@ type objState struct {
  }
  
  // New returns an etcd3 implementation of storage.Interface.
@@ -110,18 +110,18 @@ index f97bc3833e7..097a53d36c0 100644
 -func newStore(c *clientv3.Client, codec runtime.Codec, newFunc func() runtime.Object, prefix string, groupResource schema.GroupResource, transformer value.Transformer, pagingEnabled bool, leaseManagerConfig LeaseManagerConfig) *store {
 +func newStore(c *clientv3.Client, codec runtime.Codec, newFunc func() runtime.Object, prefix string, groupResource schema.GroupResource, transformer value.Transformer, pagingConfig PagingConfig, leaseManagerConfig LeaseManagerConfig) *store {
  	versioner := APIObjectVersioner{}
- 	result := &store{
- 		client:        c,
- 		codec:         codec,
- 		versioner:     versioner,
- 		transformer:   transformer,
--		pagingEnabled: pagingEnabled,
-+		pagingEnabled: pagingConfig.PagingEnabled,
-+		maxPageSize:   pagingConfig.MaximumPageSize,
- 		// for compatibility with etcd2 impl.
- 		// no-op for default prefix of '/registry'.
- 		// keeps compatibility with etcd2 impl for custom prefixes that don't start with '/'
-@@ -114,6 +130,9 @@ func newStore(c *clientv3.Client, codec runtime.Codec, newFunc func() runtime.Ob
+ 	// for compatibility with etcd2 impl.
+ 	// no-op for default prefix of '/registry'.
+@@ -112,13 +127,17 @@ func newStore(c *clientv3.Client, codec runtime.Codec, newFunc func() runtime.Ob
+ 		codec:               codec,
+ 		versioner:           versioner,
+ 		transformer:         transformer,
+-		pagingEnabled:       pagingEnabled,
+ 		pathPrefix:          pathPrefix,
++		pagingEnabled:       pagingConfig.PagingEnabled,
++		maxPageSize:         pagingConfig.MaximumPageSize,
+ 		groupResource:       groupResource,
+ 		groupResourceString: groupResource.String(),
  		watcher:             newWatcher(c, codec, newFunc, versioner, transformer),
  		leaseManager:        newDefaultLeaseManager(c, leaseManagerConfig),
  	}
@@ -131,7 +131,7 @@ index f97bc3833e7..097a53d36c0 100644
  	return result
  }
  
-@@ -595,7 +614,11 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
+@@ -619,7 +638,11 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
  	var limitOption *clientv3.OpOption
  	var limit int64 = pred.Limit
  	options := make([]clientv3.OpOption, 0, 4)
@@ -144,7 +144,7 @@ index f97bc3833e7..097a53d36c0 100644
  		options = append(options, clientv3.WithLimit(limit))
  		limitOption = &options[len(options)-1]
  	}
-@@ -635,7 +658,7 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
+@@ -659,7 +682,7 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
  			withRev = continueRV
  			returnedRV = continueRV
  		}
@@ -153,7 +153,7 @@ index f97bc3833e7..097a53d36c0 100644
  		if fromRV != nil {
  			switch match {
  			case metav1.ResourceVersionMatchNotOlderThan:
-@@ -645,7 +668,7 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
+@@ -669,7 +692,7 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
  				returnedRV = int64(*fromRV)
  				withRev = returnedRV
  			case "": // legacy case
@@ -162,7 +162,7 @@ index f97bc3833e7..097a53d36c0 100644
  					returnedRV = int64(*fromRV)
  					withRev = returnedRV
  				}
-@@ -685,9 +708,16 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
+@@ -709,9 +732,16 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
  	var getResp *clientv3.GetResponse
  	var numFetched int
  	var numEvald int
@@ -179,7 +179,7 @@ index f97bc3833e7..097a53d36c0 100644
  		numReturn := v.Len()
  		metrics.RecordStorageListMetrics(s.groupResourceString, numFetched, numEvald, numReturn)
  	}()
-@@ -703,6 +733,7 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
+@@ -727,6 +757,7 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
  			return interpretListError(err, len(pred.Continue) > 0, continueKey, keyPrefix)
  		}
  		numFetched += len(getResp.Kvs)
@@ -187,7 +187,7 @@ index f97bc3833e7..097a53d36c0 100644
  		if err = s.validateMinimumResourceVersion(resourceVersion, uint64(getResp.Header.Revision)); err != nil {
  			return err
  		}
-@@ -722,7 +753,7 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
+@@ -746,7 +777,7 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
  
  		// take items from the response until the bucket is full, filtering as we go
  		for i, kv := range getResp.Kvs {
@@ -196,7 +196,7 @@ index f97bc3833e7..097a53d36c0 100644
  				hasMore = true
  				break
  			}
-@@ -752,16 +783,16 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
+@@ -776,16 +807,16 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
  			break
  		}
  		// we're paging but we have filled our bucket
@@ -218,22 +218,24 @@ index f97bc3833e7..097a53d36c0 100644
  			*limitOption = clientv3.WithLimit(limit)
  		}
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store_test.go b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store_test.go
-index 6ace3f68bc8..f529593d304 100644
+index 811036a7cdf..7de416f794e 100644
 --- a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store_test.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store_test.go
-@@ -63,7 +63,10 @@ import (
+@@ -63,8 +63,11 @@ import (
  var scheme = runtime.NewScheme()
  var codecs = serializer.NewCodecFactory(scheme)
  
 -const defaultTestPrefix = "test!"
+-const basePath = "/keybase"
 +const (
++	basePath                = "/keybase"
 +	defaultTestPrefix       = "test!"
 +	defaultListEtcdMaxLimit = 500
 +)
  
  func init() {
  	metav1.AddToGroupVersion(scheme, metav1.SchemeGroupVersion)
-@@ -1036,7 +1039,8 @@ func TestGuaranteedUpdateWithSuggestionAndConflict(t *testing.T) {
+@@ -1037,7 +1040,8 @@ func TestGuaranteedUpdateWithSuggestionAndConflict(t *testing.T) {
  func TestTransformationFailure(t *testing.T) {
  	client := testserver.RunEtcd(t, nil)
  	codec := apitesting.TestCodec(codecs, examplev1.SchemeGroupVersion)
@@ -243,7 +245,7 @@ index 6ace3f68bc8..f529593d304 100644
  	ctx := context.Background()
  
  	preset := []struct {
-@@ -1116,8 +1120,10 @@ func TestList(t *testing.T) {
+@@ -1117,8 +1121,10 @@ func TestList(t *testing.T) {
  	client := testserver.RunEtcd(t, nil)
  	defer featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.RemainingItemCount, true)()
  	codec := apitesting.TestCodec(codecs, examplev1.SchemeGroupVersion)
@@ -256,7 +258,7 @@ index 6ace3f68bc8..f529593d304 100644
  	ctx := context.Background()
  
  	// Setup storage with the following structure:
-@@ -1632,7 +1638,8 @@ func TestListContinuation(t *testing.T) {
+@@ -1633,7 +1639,8 @@ func TestListContinuation(t *testing.T) {
  	transformer := &prefixTransformer{prefix: []byte(defaultTestPrefix)}
  	recorder := &clientRecorder{KV: etcdClient.KV}
  	etcdClient.KV = recorder
@@ -266,7 +268,7 @@ index 6ace3f68bc8..f529593d304 100644
  	ctx := context.Background()
  
  	// Setup storage with the following structure:
-@@ -1790,7 +1797,8 @@ func TestListPaginationRareObject(t *testing.T) {
+@@ -1791,7 +1798,8 @@ func TestListPaginationRareObject(t *testing.T) {
  	transformer := &prefixTransformer{prefix: []byte(defaultTestPrefix)}
  	recorder := &clientRecorder{KV: etcdClient.KV}
  	etcdClient.KV = recorder
@@ -276,7 +278,7 @@ index 6ace3f68bc8..f529593d304 100644
  	ctx := context.Background()
  
  	podCount := 1000
-@@ -1845,6 +1853,166 @@ func TestListPaginationRareObject(t *testing.T) {
+@@ -1846,6 +1854,166 @@ func TestListPaginationRareObject(t *testing.T) {
  	recorder.resetReads()
  }
  
@@ -294,7 +296,7 @@ index 6ace3f68bc8..f529593d304 100644
 +	podCount := 2000
 +	var pods []*example.Pod
 +	for i := 0; i < podCount; i++ {
-+		key := fmt.Sprintf("/one-level/pod-%04d", i)
++		key := fmt.Sprintf("%s/one-level/pod-%04d", basePath, i)
 +		obj := &example.Pod{ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("pod-%04d", i)}}
 +		storedObj := &example.Pod{}
 +		err := store.Create(ctx, key, obj, storedObj, 0)
@@ -415,7 +417,7 @@ index 6ace3f68bc8..f529593d304 100644
 +		}
 +
 +		out := &example.PodList{}
-+		if err := store.GetList(ctx, "/", options, out); err != nil {
++		if err := store.GetList(ctx, basePath, options, out); err != nil {
 +			t.Fatalf("Unable to get initial list: %v", err)
 +		}
 +		if tc.expectContinue != (len(out.Continue) != 0) {
@@ -443,7 +445,7 @@ index 6ace3f68bc8..f529593d304 100644
  type clientRecorder struct {
  	reads uint64
  	clientv3.KV
-@@ -1865,7 +2033,8 @@ func TestListContinuationWithFilter(t *testing.T) {
+@@ -1866,7 +2034,8 @@ func TestListContinuationWithFilter(t *testing.T) {
  	transformer := &prefixTransformer{prefix: []byte(defaultTestPrefix)}
  	recorder := &clientRecorder{KV: etcdClient.KV}
  	etcdClient.KV = recorder
@@ -453,7 +455,7 @@ index 6ace3f68bc8..f529593d304 100644
  	ctx := context.Background()
  
  	preset := []struct {
-@@ -1973,7 +2142,8 @@ func TestListContinuationWithFilter(t *testing.T) {
+@@ -1974,7 +2143,8 @@ func TestListContinuationWithFilter(t *testing.T) {
  func TestListInconsistentContinuation(t *testing.T) {
  	client := testserver.RunEtcd(t, nil)
  	codec := apitesting.TestCodec(codecs, examplev1.SchemeGroupVersion)
@@ -463,7 +465,7 @@ index 6ace3f68bc8..f529593d304 100644
  	ctx := context.Background()
  
  	// Setup storage with the following structure:
-@@ -2141,7 +2311,8 @@ func newTestLeaseManagerConfig() LeaseManagerConfig {
+@@ -2142,7 +2312,8 @@ func newTestLeaseManagerConfig() LeaseManagerConfig {
  func testSetup(t *testing.T) (context.Context, *store, *clientv3.Client) {
  	client := testserver.RunEtcd(t, nil)
  	codec := apitesting.TestCodec(codecs, examplev1.SchemeGroupVersion)
@@ -473,8 +475,8 @@ index 6ace3f68bc8..f529593d304 100644
  	ctx := context.Background()
  	return ctx, store, client
  }
-@@ -2182,7 +2353,8 @@ func TestPrefix(t *testing.T) {
- 		"/registry":         "/registry",
+@@ -2183,7 +2354,8 @@ func TestPrefix(t *testing.T) {
+ 		"/registry":         "/registry/",
  	}
  	for configuredPrefix, effectivePrefix := range testcases {
 -		store := newStore(client, codec, nil, configuredPrefix, schema.GroupResource{Resource: "widgets"}, transformer, true, newTestLeaseManagerConfig())
@@ -483,7 +485,7 @@ index 6ace3f68bc8..f529593d304 100644
  		if store.pathPrefix != effectivePrefix {
  			t.Errorf("configured prefix of %s, expected effective prefix of %s, got %s", configuredPrefix, effectivePrefix, store.pathPrefix)
  		}
-@@ -2377,7 +2549,8 @@ func TestConsistentList(t *testing.T) {
+@@ -2378,7 +2550,8 @@ func TestConsistentList(t *testing.T) {
  	transformer := &fancyTransformer{
  		transformer: &prefixTransformer{prefix: []byte(defaultTestPrefix)},
  	}
@@ -493,7 +495,7 @@ index 6ace3f68bc8..f529593d304 100644
  	transformer.store = store
  
  	for i := 0; i < 5; i++ {
-@@ -2482,7 +2655,8 @@ func TestCount(t *testing.T) {
+@@ -2483,7 +2656,8 @@ func TestCount(t *testing.T) {
  func TestLeaseMaxObjectCount(t *testing.T) {
  	codec := apitesting.TestCodec(codecs, examplev1.SchemeGroupVersion)
  	client := testserver.RunEtcd(t, nil)
@@ -503,6 +505,17 @@ index 6ace3f68bc8..f529593d304 100644
  		ReuseDurationSeconds: defaultLeaseReuseDurationSeconds,
  		MaxObjectCount:       2,
  	})
+@@ -2568,8 +2742,9 @@ func TestValidateKey(t *testing.T) {
+ 	)
+ 	client := testserver.RunEtcd(t, nil)
+ 	codec := apitesting.TestCodec(codecs, examplev1.SchemeGroupVersion)
++	pagingConfig := PagingConfig{PagingEnabled: true, MaximumPageSize: defaultListEtcdMaxLimit}
+ 	store := newStore(client, codec, newPod, pathPrefix, schema.GroupResource{Resource: "pods"},
+-		&prefixTransformer{prefix: []byte(defaultTestPrefix)}, true, newTestLeaseManagerConfig())
++		&prefixTransformer{prefix: []byte(defaultTestPrefix)}, pagingConfig, newTestLeaseManagerConfig())
+ 
+ 	for _, key := range validKeys {
+ 		k, err := store.prepareKey(key)
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher_test.go b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher_test.go
 index eb3d76fc379..9a0b4d97b23 100644
 --- a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher_test.go
