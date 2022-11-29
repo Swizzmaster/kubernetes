@@ -1,7 +1,8 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Wojciech=20Tyczy=C5=84ski?= <wojtekt@google.com>
 Date: Thu, 24 Nov 2022 11:26:11 +0100
-Subject: [PATCH] Fix endpoint reconciler failing to delete masterlease
+Subject: [PATCH] --EKS-PATCH-- Fix endpoint reconciler failing to delete
+ masterlease
 
 add regression test as a different file for endpoint reconciler leases,
 since the original test can not be backported cleanly.

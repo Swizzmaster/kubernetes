@@ -1,7 +1,8 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Wojciech=20Tyczy=C5=84ski?= <wojtekt@google.com>
 Date: Thu, 24 Nov 2022 11:26:11 +0100
-Subject: [PATCH] Fix endpoint reconciler failing to delete masterlease
+Subject: [PATCH] --EKS-PATCH-- Fix endpoint reconciler failing to delete
+ masterlease
 
 add regression test as a different file for endpoint reconciler leases,
 since the original test can not be backported cleanly.
@@ -9,8 +10,8 @@ since the original test can not be backported cleanly.
  .../reconcilers/endpointsadapter.go           |   1 +
  pkg/controlplane/reconcilers/helpers_test.go  | 133 +++++
  pkg/controlplane/reconcilers/lease.go         |   3 +-
- .../reconcilers/lease_issue114049_test.go     | 555 ++++++++++++++++++
- 4 files changed, 691 insertions(+), 1 deletion(-)
+ .../reconcilers/lease_issue114049_test.go     | 554 ++++++++++++++++++
+ 4 files changed, 690 insertions(+), 1 deletion(-)
  create mode 100644 pkg/controlplane/reconcilers/helpers_test.go
  create mode 100644 pkg/controlplane/reconcilers/lease_issue114049_test.go
 
@@ -181,10 +182,10 @@ index ca3e1dee04b..1012194318b 100644
  // NewLeases creates a new etcd-based Leases implementation.
 diff --git a/pkg/controlplane/reconcilers/lease_issue114049_test.go b/pkg/controlplane/reconcilers/lease_issue114049_test.go
 new file mode 100644
-index 00000000000..99d410117c5
+index 00000000000..0ba9e7fd820
 --- /dev/null
 +++ b/pkg/controlplane/reconcilers/lease_issue114049_test.go
-@@ -0,0 +1,555 @@
+@@ -0,0 +1,554 @@
 +/*
 +Copyright 2022 The Kubernetes Authors.
 +
@@ -222,7 +223,6 @@ index 00000000000..99d410117c5
 +	"k8s.io/apimachinery/pkg/api/apitesting"
 +	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 +	"k8s.io/apimachinery/pkg/runtime"
-+	"k8s.io/apimachinery/pkg/runtime/schema"
 +	"k8s.io/apimachinery/pkg/runtime/serializer"
 +	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 +	"k8s.io/apiserver/pkg/storage"
@@ -284,7 +284,7 @@ index 00000000000..99d410117c5
 +	newFunc := func() runtime.Object { return &corev1.Endpoints{} }
 +	sc.Codec = apitesting.TestStorageCodec(codecs, corev1.SchemeGroupVersion)
 +
-+	s, dFunc, err := factory.Create(*sc.ForResource(schema.GroupResource{Resource: "endpoints"}), newFunc)
++	s, dFunc, err := factory.Create(*sc, newFunc)
 +	if err != nil {
 +		t.Fatalf("Error creating storage: %v", err)
 +	}
@@ -647,7 +647,7 @@ index 00000000000..99d410117c5
 +	newFunc := func() runtime.Object { return &corev1.Endpoints{} }
 +	sc.Codec = apitesting.TestStorageCodec(codecs, corev1.SchemeGroupVersion)
 +
-+	s, dFunc, err := factory.Create(*sc.ForResource(schema.GroupResource{Resource: "pods"}), newFunc)
++	s, dFunc, err := factory.Create(*sc, newFunc)
 +	if err != nil {
 +		t.Fatalf("Error creating storage: %v", err)
 +	}
