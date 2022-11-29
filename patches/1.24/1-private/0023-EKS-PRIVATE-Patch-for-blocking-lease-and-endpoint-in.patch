@@ -314,7 +314,7 @@ index 2d102c6a154..a5b7a119c0f 100644
 +	}
 +}
 diff --git a/pkg/controlplane/reconcilers/lease.go b/pkg/controlplane/reconcilers/lease.go
-index 891ab31c4d7..92a5311f736 100644
+index 953c76bae9c..9d3c4194e12 100644
 --- a/pkg/controlplane/reconcilers/lease.go
 +++ b/pkg/controlplane/reconcilers/lease.go
 @@ -24,6 +24,7 @@ https://github.com/openshift/origin/blob/bb340c5dd5ff72718be86fb194dedc0faed7f4c
@@ -333,7 +333,7 @@ index 891ab31c4d7..92a5311f736 100644
  )
  
  // Leases is an interface which assists in managing the set of active masters
-@@ -157,6 +159,11 @@ func (r *leaseEndpointReconciler) ReconcileEndpoints(serviceName string, ip net.
+@@ -158,6 +160,11 @@ func (r *leaseEndpointReconciler) ReconcileEndpoints(serviceName string, ip net.
  		return nil
  	}
  
@@ -345,7 +345,7 @@ index 891ab31c4d7..92a5311f736 100644
  	// Refresh the TTL on our key, independently of whether any error or
  	// update conflict happens below. This makes sure that at least some of
  	// the masters will add our endpoint.
-@@ -164,11 +171,14 @@ func (r *leaseEndpointReconciler) ReconcileEndpoints(serviceName string, ip net.
+@@ -165,11 +172,14 @@ func (r *leaseEndpointReconciler) ReconcileEndpoints(serviceName string, ip net.
  		return err
  	}
  
@@ -363,7 +363,7 @@ index 891ab31c4d7..92a5311f736 100644
  	shouldCreate := false
  	if err != nil {
  		if !errors.IsNotFound(err) {
-@@ -246,9 +256,9 @@ func (r *leaseEndpointReconciler) doReconcile(serviceName string, endpointPorts
+@@ -247,9 +257,9 @@ func (r *leaseEndpointReconciler) doReconcile(serviceName string, endpointPorts
  // format ReconcileEndpoints expects when the controller is using leases.
  //
  // Return values:
@@ -376,7 +376,7 @@ index 891ab31c4d7..92a5311f736 100644
  //     portsCorrect is only evaluated when reconcilePorts is set to true.
  func checkEndpointSubsetFormatWithLease(e *corev1.Endpoints, expectedIPs []string, ports []corev1.EndpointPort, reconcilePorts bool) (formatCorrect bool, ipsCorrect bool, portsCorrect bool) {
  	if len(e.Subsets) != 1 {
-@@ -300,7 +310,8 @@ func (r *leaseEndpointReconciler) RemoveEndpoints(serviceName string, ip net.IP,
+@@ -301,7 +311,8 @@ func (r *leaseEndpointReconciler) RemoveEndpoints(serviceName string, ip net.IP,
  		return err
  	}
  
@@ -386,7 +386,7 @@ index 891ab31c4d7..92a5311f736 100644
  }
  
  func (r *leaseEndpointReconciler) StopReconciling() {
-@@ -308,3 +319,31 @@ func (r *leaseEndpointReconciler) StopReconciling() {
+@@ -309,3 +320,31 @@ func (r *leaseEndpointReconciler) StopReconciling() {
  	defer r.reconcilingLock.Unlock()
  	r.stopReconcilingCalled = true
  }
