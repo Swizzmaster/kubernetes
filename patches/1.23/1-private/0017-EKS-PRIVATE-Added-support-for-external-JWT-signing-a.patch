@@ -9,7 +9,7 @@ ref. https://github.com/micahhausler/kubernetes/commit/147f45449d6d750c848751eb7
 1.22: Support for multiple issuers was added, so that migration is
 possible from 1 issuer to another, so this patch needed to be rebased.
 ---
- cmd/kube-apiserver/app/options/validation.go  |  25 ++
+ cmd/kube-apiserver/app/options/validation.go  |  26 ++
  cmd/kube-apiserver/app/server.go              |  20 ++
  ...ate-generated-externalsigner-dockerized.sh |  63 ++++
  hack/update-generated-externalsigner.sh       |  29 ++
@@ -26,7 +26,7 @@ possible from 1 issuer to another, so this patch needed to be rebased.
  staging/src/k8s.io/client-go/util/cert/pem.go |   7 +-
  .../go-jose.v2/cryptosigner/cryptosigner.go   | 138 ++++++++
  vendor/modules.txt                            |   1 +
- 17 files changed, 1152 insertions(+), 64 deletions(-)
+ 17 files changed, 1153 insertions(+), 64 deletions(-)
  create mode 100755 hack/update-generated-externalsigner-dockerized.sh
  create mode 100755 hack/update-generated-externalsigner.sh
  create mode 100755 hack/verify-generated-externalsigner.sh
@@ -37,10 +37,18 @@ possible from 1 issuer to another, so this patch needed to be rebased.
  create mode 100644 vendor/gopkg.in/square/go-jose.v2/cryptosigner/cryptosigner.go
 
 diff --git a/cmd/kube-apiserver/app/options/validation.go b/cmd/kube-apiserver/app/options/validation.go
-index f2f92c6584a..4a383c294a9 100644
+index 4bf416d6961..566077609ac 100644
 --- a/cmd/kube-apiserver/app/options/validation.go
 +++ b/cmd/kube-apiserver/app/options/validation.go
-@@ -160,6 +160,24 @@ func validateAPIPriorityAndFairness(options *ServerRunOptions) []error {
+@@ -19,6 +19,7 @@ package options
+ import (
+ 	"errors"
+ 	"fmt"
++	"k8s.io/kubernetes/pkg/features"
+ 	"net"
+ 	"strings"
+ 
+@@ -153,6 +154,24 @@ func validateAPIPriorityAndFairness(options *ServerRunOptions) []error {
  	return nil
  }
  
@@ -65,7 +73,7 @@ index f2f92c6584a..4a383c294a9 100644
  func validateAPIServerIdentity(options *ServerRunOptions) []error {
  	var errs []error
  	if options.IdentityLeaseDurationSeconds <= 0 {
-@@ -168,6 +186,13 @@ func validateAPIServerIdentity(options *ServerRunOptions) []error {
+@@ -161,6 +180,13 @@ func validateAPIServerIdentity(options *ServerRunOptions) []error {
  	if options.IdentityLeaseRenewIntervalSeconds <= 0 {
  		errs = append(errs, fmt.Errorf("--identity-lease-renew-interval-seconds should be a positive number, but value '%d' provided", options.IdentityLeaseRenewIntervalSeconds))
  	}
@@ -80,10 +88,10 @@ index f2f92c6584a..4a383c294a9 100644
  }
  
 diff --git a/cmd/kube-apiserver/app/server.go b/cmd/kube-apiserver/app/server.go
-index 485b9a5ce54..f4c16c3a4e0 100644
+index b9b694701fc..c54b5963954 100644
 --- a/cmd/kube-apiserver/app/server.go
 +++ b/cmd/kube-apiserver/app/server.go
-@@ -600,7 +600,27 @@ func Complete(s *options.ServerRunOptions) (completedServerRunOptions, error) {
+@@ -612,7 +612,27 @@ func Complete(s *options.ServerRunOptions) (completedServerRunOptions, error) {
  		if err != nil {
  			return options, fmt.Errorf("failed to build token generator: %v", err)
  		}
@@ -267,12 +275,12 @@ index 00000000000..8f66dc9b437
 +    exit 1
 +fi
 diff --git a/pkg/features/kube_features.go b/pkg/features/kube_features.go
-index c628e3eb13a..61db14afc44 100644
+index 566e037827c..b083f9cec8b 100644
 --- a/pkg/features/kube_features.go
 +++ b/pkg/features/kube_features.go
-@@ -175,6 +175,12 @@ const (
- 	// intended to be used for service account token verification.
- 	ServiceAccountIssuerDiscovery featuregate.Feature = "ServiceAccountIssuerDiscovery"
+@@ -139,6 +139,12 @@ const (
+ 	// Postpone deletion of a PV or a PVC when they are being used
+ 	StorageObjectInUseProtection featuregate.Feature = "StorageObjectInUseProtection"
  
 +	// owner: @micahhausler
 +	// alpha: v1.16
@@ -283,13 +291,13 @@ index c628e3eb13a..61db14afc44 100644
  	// owner: @saad-ali
  	// ga: 	  v1.10
  	//
-@@ -828,6 +834,7 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
- 	SupportNodePidsLimit:                           {Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 1.23
- 	BoundServiceAccountTokenVolume:                 {Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 1.23
- 	ServiceAccountIssuerDiscovery:                  {Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 1.22
+@@ -881,6 +887,7 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
+ 	CPUCFSQuotaPeriod:                              {Default: false, PreRelease: featuregate.Alpha},
+ 	TopologyManager:                                {Default: true, PreRelease: featuregate.Beta},
+ 	StorageObjectInUseProtection:                   {Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 1.25
 +	ExternalKeyService:                             {Default: false, PreRelease: featuregate.Alpha},
  	CSIMigration:                                   {Default: true, PreRelease: featuregate.Beta},
- 	CSIMigrationGCE:                                {Default: false, PreRelease: featuregate.Beta}, // Off by default (requires GCE PD CSI Driver)
+ 	CSIMigrationGCE:                                {Default: true, PreRelease: featuregate.Beta}, // On by default in 1.23 (requires GCE PD CSI Driver)
  	InTreePluginGCEUnregister:                      {Default: false, PreRelease: featuregate.Alpha},
 diff --git a/pkg/kubeapiserver/authenticator/config.go b/pkg/kubeapiserver/authenticator/config.go
 index e6c00731746..f29c3277d7e 100644
@@ -353,7 +361,7 @@ index e6c00731746..f29c3277d7e 100644
  
  func newWebhookTokenAuthenticator(config Config) (authenticator.Token, error) {
 diff --git a/pkg/kubeapiserver/options/authentication.go b/pkg/kubeapiserver/options/authentication.go
-index 550f3d86e51..6709530b6aa 100644
+index d7747f73fb5..35440907bd2 100644
 --- a/pkg/kubeapiserver/options/authentication.go
 +++ b/pkg/kubeapiserver/options/authentication.go
 @@ -90,6 +90,7 @@ type ServiceAccountAuthenticationOptions struct {
@@ -364,9 +372,9 @@ index 550f3d86e51..6709530b6aa 100644
  	ExtendExpiration bool
  }
  
-@@ -342,6 +343,9 @@ func (o *BuiltInAuthenticationOptions) AddFlags(fs *pflag.FlagSet) {
- 			"API server's external (as auto-detected or overridden with external-hostname). "+
- 			"Only valid if the ServiceAccountIssuerDiscovery feature gate is enabled.")
+@@ -341,6 +342,9 @@ func (o *BuiltInAuthenticationOptions) AddFlags(fs *pflag.FlagSet) {
+ 			"and key set are served to relying parties from a URL other than the "+
+ 			"API server's external (as auto-detected or overridden with external-hostname). ")
  
 +		fs.StringVar(&o.ServiceAccounts.KeyServiceURL, "key-service-url", o.ServiceAccounts.KeyServiceURL, ""+
 +			"Path to a unix socket for external signing of service account tokens. (Requires the 'TokenRequest' and 'ExternalKeyService' feature gates.)")
@@ -374,7 +382,7 @@ index 550f3d86e51..6709530b6aa 100644
  		// Deprecated in 1.13
  		fs.StringSliceVar(&o.APIAudiences, "service-account-api-audiences", o.APIAudiences, ""+
  			"Identifiers of the API. The service account token authenticator will validate that "+
-@@ -429,6 +433,7 @@ func (o *BuiltInAuthenticationOptions) ToAuthenticationConfig() (kubeauthenticat
+@@ -428,6 +432,7 @@ func (o *BuiltInAuthenticationOptions) ToAuthenticationConfig() (kubeauthenticat
  		ret.ServiceAccountKeyFiles = o.ServiceAccounts.KeyFiles
  		ret.ServiceAccountIssuers = o.ServiceAccounts.Issuers
  		ret.ServiceAccountLookup = o.ServiceAccounts.Lookup
@@ -1516,10 +1524,10 @@ index 00000000000..0ec98768eb1
 +	return out, err
 +}
 diff --git a/vendor/modules.txt b/vendor/modules.txt
-index 90600521f7f..76695ab63a2 100644
+index 79fc28faffb..1f801ed95d3 100644
 --- a/vendor/modules.txt
 +++ b/vendor/modules.txt
-@@ -1244,6 +1244,7 @@ gopkg.in/natefinch/lumberjack.v2
+@@ -1283,6 +1283,7 @@ gopkg.in/natefinch/lumberjack.v2
  ## explicit
  gopkg.in/square/go-jose.v2
  gopkg.in/square/go-jose.v2/cipher
