@@ -88,10 +88,10 @@ index 4bf416d6961..566077609ac 100644
  }
  
 diff --git a/cmd/kube-apiserver/app/server.go b/cmd/kube-apiserver/app/server.go
-index b9b694701fc..c54b5963954 100644
+index e265f03c8d9..84c10c024ef 100644
 --- a/cmd/kube-apiserver/app/server.go
 +++ b/cmd/kube-apiserver/app/server.go
-@@ -612,7 +612,27 @@ func Complete(s *options.ServerRunOptions) (completedServerRunOptions, error) {
+@@ -605,7 +605,27 @@ func Complete(s *options.ServerRunOptions) (completedServerRunOptions, error) {
  		if err != nil {
  			return options, fmt.Errorf("failed to build token generator: %v", err)
  		}
@@ -275,10 +275,10 @@ index 00000000000..8f66dc9b437
 +    exit 1
 +fi
 diff --git a/pkg/features/kube_features.go b/pkg/features/kube_features.go
-index 566e037827c..b083f9cec8b 100644
+index c1a3e6e7f9a..a774203b534 100644
 --- a/pkg/features/kube_features.go
 +++ b/pkg/features/kube_features.go
-@@ -139,6 +139,12 @@ const (
+@@ -142,6 +142,12 @@ const (
  	// Postpone deletion of a PV or a PVC when they are being used
  	StorageObjectInUseProtection featuregate.Feature = "StorageObjectInUseProtection"
  
@@ -291,7 +291,7 @@ index 566e037827c..b083f9cec8b 100644
  	// owner: @saad-ali
  	// ga: 	  v1.10
  	//
-@@ -881,6 +887,7 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
+@@ -908,6 +914,7 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
  	CPUCFSQuotaPeriod:                              {Default: false, PreRelease: featuregate.Alpha},
  	TopologyManager:                                {Default: true, PreRelease: featuregate.Beta},
  	StorageObjectInUseProtection:                   {Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 1.25
@@ -300,18 +300,18 @@ index 566e037827c..b083f9cec8b 100644
  	CSIMigrationGCE:                                {Default: true, PreRelease: featuregate.Beta}, // On by default in 1.23 (requires GCE PD CSI Driver)
  	InTreePluginGCEUnregister:                      {Default: false, PreRelease: featuregate.Alpha},
 diff --git a/pkg/kubeapiserver/authenticator/config.go b/pkg/kubeapiserver/authenticator/config.go
-index e6c00731746..f29c3277d7e 100644
+index 67f9922abf2..9d6b78c4e57 100644
 --- a/pkg/kubeapiserver/authenticator/config.go
 +++ b/pkg/kubeapiserver/authenticator/config.go
-@@ -35,6 +35,7 @@ import (
- 	"k8s.io/apiserver/pkg/authentication/token/tokenfile"
+@@ -36,6 +36,7 @@ import (
  	tokenunion "k8s.io/apiserver/pkg/authentication/token/union"
  	"k8s.io/apiserver/pkg/server/dynamiccertificates"
+ 	webhookutil "k8s.io/apiserver/pkg/util/webhook"
 +	utilfeature "k8s.io/apiserver/pkg/util/feature"
  	"k8s.io/apiserver/plugin/pkg/authenticator/token/oidc"
  	"k8s.io/apiserver/plugin/pkg/authenticator/token/webhook"
  	"k8s.io/kube-openapi/pkg/validation/spec"
-@@ -42,6 +43,7 @@ import (
+@@ -43,6 +44,7 @@ import (
  	// Initialize all known client auth plugins.
  	_ "k8s.io/client-go/plugin/pkg/client/auth"
  	"k8s.io/client-go/util/keyutil"
@@ -319,7 +319,7 @@ index e6c00731746..f29c3277d7e 100644
  	"k8s.io/kubernetes/pkg/serviceaccount"
  )
  
-@@ -63,6 +65,7 @@ type Config struct {
+@@ -64,6 +66,7 @@ type Config struct {
  	ServiceAccountKeyFiles      []string
  	ServiceAccountLookup        bool
  	ServiceAccountIssuers       []string
@@ -327,7 +327,7 @@ index e6c00731746..f29c3277d7e 100644
  	APIAudiences                authenticator.Audiences
  	WebhookTokenAuthnConfigFile string
  	WebhookTokenAuthnVersion    string
-@@ -131,7 +134,7 @@ func (config Config) New() (authenticator.Request, *spec.SecurityDefinitions, er
+@@ -132,7 +135,7 @@ func (config Config) New() (authenticator.Request, *spec.SecurityDefinitions, er
  		tokenAuthenticators = append(tokenAuthenticators, serviceAccountAuth)
  	}
  	if len(config.ServiceAccountIssuers) > 0 {
@@ -336,7 +336,7 @@ index e6c00731746..f29c3277d7e 100644
  		if err != nil {
  			return nil, nil, err
  		}
-@@ -280,7 +283,11 @@ func newLegacyServiceAccountAuthenticator(keyfiles []string, lookup bool, apiAud
+@@ -281,7 +284,11 @@ func newLegacyServiceAccountAuthenticator(keyfiles []string, lookup bool, apiAud
  }
  
  // newServiceAccountAuthenticator returns an authenticator.Token or an error
@@ -349,7 +349,7 @@ index e6c00731746..f29c3277d7e 100644
  	allPublicKeys := []interface{}{}
  	for _, keyfile := range keyfiles {
  		publicKeys, err := keyutil.PublicKeysFromFile(keyfile)
-@@ -289,9 +296,7 @@ func newServiceAccountAuthenticator(issuers []string, keyfiles []string, apiAudi
+@@ -290,9 +297,7 @@ func newServiceAccountAuthenticator(issuers []string, keyfiles []string, apiAudi
  		}
  		allPublicKeys = append(allPublicKeys, publicKeys...)
  	}
@@ -361,7 +361,7 @@ index e6c00731746..f29c3277d7e 100644
  
  func newWebhookTokenAuthenticator(config Config) (authenticator.Token, error) {
 diff --git a/pkg/kubeapiserver/options/authentication.go b/pkg/kubeapiserver/options/authentication.go
-index d7747f73fb5..35440907bd2 100644
+index 9fc64598746..732be196e96 100644
 --- a/pkg/kubeapiserver/options/authentication.go
 +++ b/pkg/kubeapiserver/options/authentication.go
 @@ -90,6 +90,7 @@ type ServiceAccountAuthenticationOptions struct {
@@ -1524,10 +1524,10 @@ index 00000000000..0ec98768eb1
 +	return out, err
 +}
 diff --git a/vendor/modules.txt b/vendor/modules.txt
-index 5cabe30db8e..0efd7d5e393 100644
+index 5a37feffdfc..a16bf886ba6 100644
 --- a/vendor/modules.txt
 +++ b/vendor/modules.txt
-@@ -1283,6 +1283,7 @@ gopkg.in/natefinch/lumberjack.v2
+@@ -1236,6 +1236,7 @@ gopkg.in/natefinch/lumberjack.v2
  ## explicit
  gopkg.in/square/go-jose.v2
  gopkg.in/square/go-jose.v2/cipher
