@@ -16,7 +16,7 @@ default:
   before_script:
     - *script_git_config
   cache:
-    key: $MINOR_VERSION-$CI_COMMIT_SHORT_SHA
+    key: $MINOR_VERSION
     paths:
       - kubernetes/
 
