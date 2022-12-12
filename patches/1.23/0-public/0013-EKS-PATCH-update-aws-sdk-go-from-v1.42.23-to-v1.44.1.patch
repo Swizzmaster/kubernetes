@@ -108,7 +108,7 @@ Adds me-central-1 region
  100 files changed, 36488 insertions(+), 21599 deletions(-)
 
 diff --git a/go.mod b/go.mod
-index 9a911e023be..b94a364d0e4 100644
+index 88eb298c21d..38862b553a2 100644
 --- a/go.mod
 +++ b/go.mod
 @@ -20,7 +20,7 @@ require (
@@ -139,7 +139,7 @@ index 9a911e023be..b94a364d0e4 100644
  	github.com/beorn7/perks => github.com/beorn7/perks v1.0.1
  	github.com/bgentry/speakeasy => github.com/bgentry/speakeasy v0.1.0
 diff --git a/go.sum b/go.sum
-index 623f0064b63..d429b01213a 100644
+index f1db8b6ac06..68bc1ba461b 100644
 --- a/go.sum
 +++ b/go.sum
 @@ -61,8 +61,8 @@ github.com/asaskevich/govalidator v0.0.0-20190424111038-f61b66f89f4a h1:idn718Q4
@@ -166,7 +166,7 @@ index 622abaa7102..fa75faf7348 100644
  	k8s.io/apimachinery => ../apimachinery
  )
 diff --git a/staging/src/k8s.io/api/go.sum b/staging/src/k8s.io/api/go.sum
-index 888ad69e378..0ca41fc3ad0 100644
+index 4ef0e227012..f0ddf22ad88 100644
 --- a/staging/src/k8s.io/api/go.sum
 +++ b/staging/src/k8s.io/api/go.sum
 @@ -110,9 +110,7 @@ github.com/stretchr/testify v1.8.0/go.mod h1:yNjHg4UonilssWZ8iaSj1OCr/vHnekPRkoO
@@ -218,7 +218,7 @@ index 888ad69e378..0ca41fc3ad0 100644
  golang.org/x/text v0.3.6/go.mod h1:5Zoc/QRtKVWzQhOtBMvqHzDpF6irO9z98xDceosuGiQ=
  golang.org/x/text v0.3.7 h1:olpwvP2KacW1ZWvsR7uQhoyTYvKAupfQrRGBFM352Gk=
 diff --git a/staging/src/k8s.io/apiextensions-apiserver/go.mod b/staging/src/k8s.io/apiextensions-apiserver/go.mod
-index 5a6dbfbc596..2ee080d178b 100644
+index 0a61927e3f5..00ee984ebc8 100644
 --- a/staging/src/k8s.io/apiextensions-apiserver/go.mod
 +++ b/staging/src/k8s.io/apiextensions-apiserver/go.mod
 @@ -36,6 +36,7 @@ require (
@@ -230,7 +230,7 @@ index 5a6dbfbc596..2ee080d178b 100644
  	k8s.io/apiextensions-apiserver => ../apiextensions-apiserver
  	k8s.io/apimachinery => ../apimachinery
 diff --git a/staging/src/k8s.io/apiextensions-apiserver/go.sum b/staging/src/k8s.io/apiextensions-apiserver/go.sum
-index dae939c2e5f..c89a9b89843 100644
+index c14352108e4..bcc06554c9d 100644
 --- a/staging/src/k8s.io/apiextensions-apiserver/go.sum
 +++ b/staging/src/k8s.io/apiextensions-apiserver/go.sum
 @@ -545,7 +545,6 @@ go.uber.org/zap v1.19.0 h1:mZQZefskPPCMIBCSEH0v2/iUqqLrYtaeqwD6FUGUnFE=
@@ -313,10 +313,10 @@ index dae939c2e5f..c89a9b89843 100644
  golang.org/x/sys v0.0.0-20210423082822-04245dca01da/go.mod h1:h1NjWce9XRLGQEsW7wpKNCjG9DtNlClVuFLEZdDNbEs=
  golang.org/x/sys v0.0.0-20210510120138-977fb7262007/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
 diff --git a/staging/src/k8s.io/apimachinery/go.mod b/staging/src/k8s.io/apimachinery/go.mod
-index bf57400fc4f..f02a1ae9c74 100644
+index 34be0f79d78..f8eb10eaa7c 100644
 --- a/staging/src/k8s.io/apimachinery/go.mod
 +++ b/staging/src/k8s.io/apimachinery/go.mod
-@@ -23,7 +23,7 @@ require (
+@@ -22,7 +22,7 @@ require (
  	github.com/pkg/errors v0.9.1 // indirect
  	github.com/spf13/pflag v1.0.5
  	github.com/stretchr/testify v1.8.0
@@ -325,7 +325,7 @@ index bf57400fc4f..f02a1ae9c74 100644
  	golang.org/x/sys v0.0.0-20210831042530-f4d43177bf5e // indirect
  	golang.org/x/text v0.3.7 // indirect
  	gopkg.in/check.v1 v1.0.0-20200227125254-8fa46927fb4f // indirect
-@@ -37,4 +37,7 @@ require (
+@@ -36,4 +36,7 @@ require (
  	sigs.k8s.io/yaml v1.2.0
  )
  
@@ -335,7 +335,7 @@ index bf57400fc4f..f02a1ae9c74 100644
 +	k8s.io/apimachinery => ../apimachinery
 +)
 diff --git a/staging/src/k8s.io/apimachinery/go.sum b/staging/src/k8s.io/apimachinery/go.sum
-index d347474ed64..72d713661e9 100644
+index e6938753e9f..fa759de14ad 100644
 --- a/staging/src/k8s.io/apimachinery/go.sum
 +++ b/staging/src/k8s.io/apimachinery/go.sum
 @@ -121,9 +121,7 @@ github.com/stretchr/testify v1.8.0/go.mod h1:yNjHg4UonilssWZ8iaSj1OCr/vHnekPRkoO
@@ -388,7 +388,7 @@ index d347474ed64..72d713661e9 100644
  golang.org/x/text v0.3.6/go.mod h1:5Zoc/QRtKVWzQhOtBMvqHzDpF6irO9z98xDceosuGiQ=
  golang.org/x/text v0.3.7 h1:olpwvP2KacW1ZWvsR7uQhoyTYvKAupfQrRGBFM352Gk=
 diff --git a/staging/src/k8s.io/apiserver/go.mod b/staging/src/k8s.io/apiserver/go.mod
-index 32ad5877153..88eea11c198 100644
+index 8136c0b9beb..907e949a752 100644
 --- a/staging/src/k8s.io/apiserver/go.mod
 +++ b/staging/src/k8s.io/apiserver/go.mod
 @@ -37,7 +37,7 @@ require (
@@ -409,7 +409,7 @@ index 32ad5877153..88eea11c198 100644
  	k8s.io/apimachinery => ../apimachinery
  	k8s.io/apiserver => ../apiserver
 diff --git a/staging/src/k8s.io/apiserver/go.sum b/staging/src/k8s.io/apiserver/go.sum
-index 99f7e54c1b7..889906ebd94 100644
+index cf912bc4a05..52aa151e247 100644
 --- a/staging/src/k8s.io/apiserver/go.sum
 +++ b/staging/src/k8s.io/apiserver/go.sum
 @@ -537,7 +537,6 @@ go.uber.org/zap v1.19.0 h1:mZQZefskPPCMIBCSEH0v2/iUqqLrYtaeqwD6FUGUnFE=
@@ -502,7 +502,7 @@ index ec71129c1ad..a2bf6c23cbc 100644
  	k8s.io/apimachinery => ../apimachinery
  	k8s.io/cli-runtime => ../cli-runtime
 diff --git a/staging/src/k8s.io/cli-runtime/go.sum b/staging/src/k8s.io/cli-runtime/go.sum
-index 5a84b75d337..af23f7a4f6a 100644
+index 0dbb8459c8c..5da682bf14c 100644
 --- a/staging/src/k8s.io/cli-runtime/go.sum
 +++ b/staging/src/k8s.io/cli-runtime/go.sum
 @@ -417,7 +417,6 @@ go.uber.org/zap v1.10.0/go.mod h1:vwi/ZaCAaUcBkycHslxD9B2zi4UTXhF60s6SWpuDF0Q=
@@ -588,7 +588,7 @@ index 5a84b75d337..af23f7a4f6a 100644
  golang.org/x/sys v0.0.0-20210423082822-04245dca01da/go.mod h1:h1NjWce9XRLGQEsW7wpKNCjG9DtNlClVuFLEZdDNbEs=
  golang.org/x/sys v0.0.0-20210510120138-977fb7262007/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
 diff --git a/staging/src/k8s.io/client-go/go.mod b/staging/src/k8s.io/client-go/go.mod
-index aeaa8fa1703..f929bb1ed14 100644
+index ea38f03df57..be4d75bd9d9 100644
 --- a/staging/src/k8s.io/client-go/go.mod
 +++ b/staging/src/k8s.io/client-go/go.mod
 @@ -25,7 +25,7 @@ require (
@@ -609,7 +609,7 @@ index aeaa8fa1703..f929bb1ed14 100644
  	k8s.io/apimachinery => ../apimachinery
  	k8s.io/client-go => ../client-go
 diff --git a/staging/src/k8s.io/client-go/go.sum b/staging/src/k8s.io/client-go/go.sum
-index c75b6200554..8bdf7071abb 100644
+index bcbf4f43f5d..cd59b91c7dd 100644
 --- a/staging/src/k8s.io/client-go/go.sum
 +++ b/staging/src/k8s.io/client-go/go.sum
 @@ -258,11 +258,9 @@ go.opencensus.io v0.22.3/go.mod h1:yxeiOL68Rb0Xd1ddK5vPZ/oVn4vY4Ynel7k9FzqtOIw=
@@ -706,7 +706,7 @@ index 120a3e8aa0a..e1045522e71 100644
  	k8s.io/apimachinery => ../apimachinery
  	k8s.io/apiserver => ../apiserver
 diff --git a/staging/src/k8s.io/cloud-provider/go.sum b/staging/src/k8s.io/cloud-provider/go.sum
-index 554b29e479a..bd2e62e40c1 100644
+index 4800b0474b4..149c439813b 100644
 --- a/staging/src/k8s.io/cloud-provider/go.sum
 +++ b/staging/src/k8s.io/cloud-provider/go.sum
 @@ -533,7 +533,6 @@ go.uber.org/zap v1.19.0 h1:mZQZefskPPCMIBCSEH0v2/iUqqLrYtaeqwD6FUGUnFE=
@@ -799,7 +799,7 @@ index 192fefa45b9..1c00ac75c6e 100644
  	k8s.io/apimachinery => ../apimachinery
  	k8s.io/cluster-bootstrap => ../cluster-bootstrap
 diff --git a/staging/src/k8s.io/cluster-bootstrap/go.sum b/staging/src/k8s.io/cluster-bootstrap/go.sum
-index 97e44b59d71..314ba574d89 100644
+index 9eee2d946b2..9a7915de654 100644
 --- a/staging/src/k8s.io/cluster-bootstrap/go.sum
 +++ b/staging/src/k8s.io/cluster-bootstrap/go.sum
 @@ -109,9 +109,7 @@ github.com/stretchr/testify v1.8.0/go.mod h1:yNjHg4UonilssWZ8iaSj1OCr/vHnekPRkoO
@@ -845,7 +845,7 @@ index 97e44b59d71..314ba574d89 100644
  golang.org/x/sys v0.0.0-20210510120138-977fb7262007/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
  golang.org/x/sys v0.0.0-20210615035016-665e8c7367d1/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
 diff --git a/staging/src/k8s.io/code-generator/examples/go.sum b/staging/src/k8s.io/code-generator/examples/go.sum
-index 3f1360299dc..935494f4b39 100644
+index a28d54acbf5..d02993b5819 100644
 --- a/staging/src/k8s.io/code-generator/examples/go.sum
 +++ b/staging/src/k8s.io/code-generator/examples/go.sum
 @@ -329,8 +329,8 @@ golang.org/x/net v0.0.0-20210119194325-5f4716e94777/go.mod h1:m0MpNAwzfU5UDzcl9v
@@ -887,10 +887,10 @@ index 3f1360299dc..935494f4b39 100644
  golang.org/x/text v0.3.7/go.mod h1:u+2+/6zg+i71rQMx5EYifcz6MCKuco9NR6JIITiCfzQ=
  golang.org/x/time v0.0.0-20181108054448-85acf8d2951c/go.mod h1:tRJNPiyCQ0inRvYxbN9jk5I+vvW/OXSQhTDSoE431IQ=
 diff --git a/staging/src/k8s.io/code-generator/go.mod b/staging/src/k8s.io/code-generator/go.mod
-index 2d8857e7a07..c32470110d6 100644
+index 6c8e9046a24..3339f2c40ab 100644
 --- a/staging/src/k8s.io/code-generator/go.mod
 +++ b/staging/src/k8s.io/code-generator/go.mod
-@@ -14,7 +14,7 @@ require (
+@@ -13,7 +13,7 @@ require (
  	github.com/onsi/ginkgo v1.14.0 // indirect
  	github.com/spf13/pflag v1.0.5
  	github.com/stretchr/testify v1.8.0 // indirect
@@ -899,8 +899,8 @@ index 2d8857e7a07..c32470110d6 100644
  	golang.org/x/sys v0.0.0-20210831042530-f4d43177bf5e // indirect
  	golang.org/x/text v0.3.7 // indirect
  	golang.org/x/tools v0.1.6-0.20210820212750-d4cc65f0b2ff
-@@ -25,4 +25,7 @@ require (
- 	sigs.k8s.io/structured-merge-diff/v4 v4.2.1 // indirect
+@@ -24,4 +24,7 @@ require (
+ 	sigs.k8s.io/structured-merge-diff/v4 v4.2.3 // indirect
  )
  
 -replace k8s.io/code-generator => ../code-generator
@@ -909,7 +909,7 @@ index 2d8857e7a07..c32470110d6 100644
 +	k8s.io/code-generator => ../code-generator
 +)
 diff --git a/staging/src/k8s.io/code-generator/go.sum b/staging/src/k8s.io/code-generator/go.sum
-index b354de0546b..709134a20ae 100644
+index 91ca3cc3d6d..3a938a91d63 100644
 --- a/staging/src/k8s.io/code-generator/go.sum
 +++ b/staging/src/k8s.io/code-generator/go.sum
 @@ -124,9 +124,7 @@ github.com/yuin/goldmark v1.1.27/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9de
@@ -967,7 +967,7 @@ index 60a41a63076..e23bfb144b8 100644
  	k8s.io/apimachinery => ../apimachinery
  	k8s.io/client-go => ../client-go
 diff --git a/staging/src/k8s.io/component-base/go.sum b/staging/src/k8s.io/component-base/go.sum
-index 6d4f9c45d7c..88f55dfaf98 100644
+index 66dd72c2818..b77f753286f 100644
 --- a/staging/src/k8s.io/component-base/go.sum
 +++ b/staging/src/k8s.io/component-base/go.sum
 @@ -429,7 +429,6 @@ go.uber.org/zap v1.19.0 h1:mZQZefskPPCMIBCSEH0v2/iUqqLrYtaeqwD6FUGUnFE=
@@ -1058,7 +1058,7 @@ index a8fad7da5e3..32a39ee959c 100644
  	k8s.io/apimachinery => ../apimachinery
  	k8s.io/client-go => ../client-go
 diff --git a/staging/src/k8s.io/component-helpers/go.sum b/staging/src/k8s.io/component-helpers/go.sum
-index 7ef2767f2f7..6c9469a95bf 100644
+index 8635322dfc6..f46b56f13cb 100644
 --- a/staging/src/k8s.io/component-helpers/go.sum
 +++ b/staging/src/k8s.io/component-helpers/go.sum
 @@ -241,11 +241,9 @@ go.opencensus.io v0.22.3/go.mod h1:yxeiOL68Rb0Xd1ddK5vPZ/oVn4vY4Ynel7k9FzqtOIw=
@@ -1155,7 +1155,7 @@ index 97caa4128cd..b62620183a5 100644
  	k8s.io/apimachinery => ../apimachinery
  	k8s.io/apiserver => ../apiserver
 diff --git a/staging/src/k8s.io/controller-manager/go.sum b/staging/src/k8s.io/controller-manager/go.sum
-index dd6f663fb50..dec27895d68 100644
+index 0327b7a032b..aed2096e9f4 100644
 --- a/staging/src/k8s.io/controller-manager/go.sum
 +++ b/staging/src/k8s.io/controller-manager/go.sum
 @@ -530,7 +530,6 @@ go.uber.org/zap v1.19.0 h1:mZQZefskPPCMIBCSEH0v2/iUqqLrYtaeqwD6FUGUnFE=
@@ -1319,7 +1319,7 @@ index 208dd38d342..f75b29a70e1 100644
  	k8s.io/apimachinery => ../apimachinery
  	k8s.io/csi-translation-lib => ../csi-translation-lib
 diff --git a/staging/src/k8s.io/csi-translation-lib/go.sum b/staging/src/k8s.io/csi-translation-lib/go.sum
-index 9c6e1c369b8..96975d3fdba 100644
+index 64d00cbb7d3..0a5131d29f9 100644
 --- a/staging/src/k8s.io/csi-translation-lib/go.sum
 +++ b/staging/src/k8s.io/csi-translation-lib/go.sum
 @@ -110,9 +110,7 @@ github.com/stretchr/testify v1.8.0/go.mod h1:yNjHg4UonilssWZ8iaSj1OCr/vHnekPRkoO
@@ -1371,7 +1371,7 @@ index 9c6e1c369b8..96975d3fdba 100644
  golang.org/x/text v0.3.6/go.mod h1:5Zoc/QRtKVWzQhOtBMvqHzDpF6irO9z98xDceosuGiQ=
  golang.org/x/text v0.3.7 h1:olpwvP2KacW1ZWvsR7uQhoyTYvKAupfQrRGBFM352Gk=
 diff --git a/staging/src/k8s.io/kube-aggregator/go.mod b/staging/src/k8s.io/kube-aggregator/go.mod
-index 690d208951c..8ae0fd1781c 100644
+index 869b96a4d6b..c93cb6b4c23 100644
 --- a/staging/src/k8s.io/kube-aggregator/go.mod
 +++ b/staging/src/k8s.io/kube-aggregator/go.mod
 @@ -11,7 +11,7 @@ require (
@@ -1392,7 +1392,7 @@ index 690d208951c..8ae0fd1781c 100644
  	k8s.io/apimachinery => ../apimachinery
  	k8s.io/apiserver => ../apiserver
 diff --git a/staging/src/k8s.io/kube-aggregator/go.sum b/staging/src/k8s.io/kube-aggregator/go.sum
-index b05fa326be5..f4bbd5fddff 100644
+index dccef6287f3..127d83cb0f1 100644
 --- a/staging/src/k8s.io/kube-aggregator/go.sum
 +++ b/staging/src/k8s.io/kube-aggregator/go.sum
 @@ -532,7 +532,6 @@ go.uber.org/zap v1.19.0 h1:mZQZefskPPCMIBCSEH0v2/iUqqLrYtaeqwD6FUGUnFE=
@@ -1486,7 +1486,7 @@ index d2c13261f3d..78ad01b7b21 100644
  	k8s.io/apimachinery => ../apimachinery
  	k8s.io/apiserver => ../apiserver
 diff --git a/staging/src/k8s.io/kube-controller-manager/go.sum b/staging/src/k8s.io/kube-controller-manager/go.sum
-index 1e972dd7516..30c32d27ee0 100644
+index a4dee1a6c8e..a34a1f7244a 100644
 --- a/staging/src/k8s.io/kube-controller-manager/go.sum
 +++ b/staging/src/k8s.io/kube-controller-manager/go.sum
 @@ -454,7 +454,6 @@ go.uber.org/zap v1.17.0/go.mod h1:MXVU+bhUf/A7Xi2HNOnopQOrmycQ5Ih87HtOu4q5SSo=
@@ -1579,7 +1579,7 @@ index bb791295cba..a678b666d94 100644
  	k8s.io/apimachinery => ../apimachinery
  	k8s.io/client-go => ../client-go
 diff --git a/staging/src/k8s.io/kube-proxy/go.sum b/staging/src/k8s.io/kube-proxy/go.sum
-index 9a54048cecc..21a553b2e0d 100644
+index eb7febe9382..4daff9d8dda 100644
 --- a/staging/src/k8s.io/kube-proxy/go.sum
 +++ b/staging/src/k8s.io/kube-proxy/go.sum
 @@ -387,7 +387,6 @@ go.uber.org/zap v1.17.0/go.mod h1:MXVU+bhUf/A7Xi2HNOnopQOrmycQ5Ih87HtOu4q5SSo=
@@ -1670,7 +1670,7 @@ index b1bb3deea8e..4345af2582f 100644
  	k8s.io/apimachinery => ../apimachinery
  	k8s.io/client-go => ../client-go
 diff --git a/staging/src/k8s.io/kube-scheduler/go.sum b/staging/src/k8s.io/kube-scheduler/go.sum
-index 9a54048cecc..21a553b2e0d 100644
+index eb7febe9382..4daff9d8dda 100644
 --- a/staging/src/k8s.io/kube-scheduler/go.sum
 +++ b/staging/src/k8s.io/kube-scheduler/go.sum
 @@ -387,7 +387,6 @@ go.uber.org/zap v1.17.0/go.mod h1:MXVU+bhUf/A7Xi2HNOnopQOrmycQ5Ih87HtOu4q5SSo=
@@ -1761,7 +1761,7 @@ index 6e274600795..eba1c580f2a 100644
  	k8s.io/apimachinery => ../apimachinery
  	k8s.io/cli-runtime => ../cli-runtime
 diff --git a/staging/src/k8s.io/kubectl/go.sum b/staging/src/k8s.io/kubectl/go.sum
-index 3e4f360b860..34aa27e4269 100644
+index 4f069ce6964..db2c5e47f1f 100644
 --- a/staging/src/k8s.io/kubectl/go.sum
 +++ b/staging/src/k8s.io/kubectl/go.sum
 @@ -509,7 +509,6 @@ go.uber.org/zap v1.17.0/go.mod h1:MXVU+bhUf/A7Xi2HNOnopQOrmycQ5Ih87HtOu4q5SSo=
@@ -1864,7 +1864,7 @@ index 43ed8015fbd..c1ab6977af9 100644
  	k8s.io/apimachinery => ../apimachinery
  	k8s.io/client-go => ../client-go
 diff --git a/staging/src/k8s.io/kubelet/go.sum b/staging/src/k8s.io/kubelet/go.sum
-index af419915ff5..3f90430cb8c 100644
+index 8976b510b0e..acd8fb99565 100644
 --- a/staging/src/k8s.io/kubelet/go.sum
 +++ b/staging/src/k8s.io/kubelet/go.sum
 @@ -388,7 +388,6 @@ go.uber.org/zap v1.17.0/go.mod h1:MXVU+bhUf/A7Xi2HNOnopQOrmycQ5Ih87HtOu4q5SSo=
@@ -1965,7 +1965,7 @@ index f7d9bbc84e0..5c7f73fd9d7 100644
  	k8s.io/apimachinery => ../apimachinery
  	k8s.io/apiserver => ../apiserver
 diff --git a/staging/src/k8s.io/legacy-cloud-providers/go.sum b/staging/src/k8s.io/legacy-cloud-providers/go.sum
-index aaad4f34220..5cd1759e19c 100644
+index c52cc763b5e..4b446103226 100644
 --- a/staging/src/k8s.io/legacy-cloud-providers/go.sum
 +++ b/staging/src/k8s.io/legacy-cloud-providers/go.sum
 @@ -79,8 +79,8 @@ github.com/armon/circbuf v0.0.0-20150827004946-bbbad097214e/go.mod h1:3U/XgcO3hC
@@ -2070,7 +2070,7 @@ index 51d741d0000..ce1722800e7 100644
  	k8s.io/apimachinery => ../apimachinery
  	k8s.io/client-go => ../client-go
 diff --git a/staging/src/k8s.io/metrics/go.sum b/staging/src/k8s.io/metrics/go.sum
-index 4dcf6481939..b080c8ecdbd 100644
+index c626e52af74..748ebe226de 100644
 --- a/staging/src/k8s.io/metrics/go.sum
 +++ b/staging/src/k8s.io/metrics/go.sum
 @@ -255,11 +255,9 @@ go.opencensus.io v0.22.3/go.mod h1:yxeiOL68Rb0Xd1ddK5vPZ/oVn4vY4Ynel7k9FzqtOIw=
@@ -2168,7 +2168,7 @@ index 77394c555c4..5c59eb9d540 100644
  	k8s.io/apimachinery => ../apimachinery
  	k8s.io/apiserver => ../apiserver
 diff --git a/staging/src/k8s.io/pod-security-admission/go.sum b/staging/src/k8s.io/pod-security-admission/go.sum
-index d909ecfb14e..b767df369d7 100644
+index 9ca5a9ff1f6..9c3e5f91676 100644
 --- a/staging/src/k8s.io/pod-security-admission/go.sum
 +++ b/staging/src/k8s.io/pod-security-admission/go.sum
 @@ -531,7 +531,6 @@ go.uber.org/zap v1.19.0 h1:mZQZefskPPCMIBCSEH0v2/iUqqLrYtaeqwD6FUGUnFE=
@@ -2261,7 +2261,7 @@ index 79c0451ddea..4e5e786fb87 100644
  	k8s.io/apimachinery => ../apimachinery
  	k8s.io/apiserver => ../apiserver
 diff --git a/staging/src/k8s.io/sample-apiserver/go.sum b/staging/src/k8s.io/sample-apiserver/go.sum
-index 5ca3189d5bb..b681e4fc96c 100644
+index dd58274e119..af1b32e0f06 100644
 --- a/staging/src/k8s.io/sample-apiserver/go.sum
 +++ b/staging/src/k8s.io/sample-apiserver/go.sum
 @@ -531,7 +531,6 @@ go.uber.org/zap v1.19.0 h1:mZQZefskPPCMIBCSEH0v2/iUqqLrYtaeqwD6FUGUnFE=
@@ -2355,7 +2355,7 @@ index 50f2c18e9c2..2813ca00101 100644
  	k8s.io/apimachinery => ../apimachinery
  	k8s.io/cli-runtime => ../cli-runtime
 diff --git a/staging/src/k8s.io/sample-cli-plugin/go.sum b/staging/src/k8s.io/sample-cli-plugin/go.sum
-index 5a84b75d337..af23f7a4f6a 100644
+index 0dbb8459c8c..5da682bf14c 100644
 --- a/staging/src/k8s.io/sample-cli-plugin/go.sum
 +++ b/staging/src/k8s.io/sample-cli-plugin/go.sum
 @@ -417,7 +417,6 @@ go.uber.org/zap v1.10.0/go.mod h1:vwi/ZaCAaUcBkycHslxD9B2zi4UTXhF60s6SWpuDF0Q=
@@ -2453,7 +2453,7 @@ index efb025bd8c7..d8cc174d198 100644
  	k8s.io/apimachinery => ../apimachinery
  	k8s.io/client-go => ../client-go
 diff --git a/staging/src/k8s.io/sample-controller/go.sum b/staging/src/k8s.io/sample-controller/go.sum
-index 44b9ec0747f..c8f7c615c5e 100644
+index 33708e4cb24..f718a7fc5aa 100644
 --- a/staging/src/k8s.io/sample-controller/go.sum
 +++ b/staging/src/k8s.io/sample-controller/go.sum
 @@ -258,11 +258,9 @@ go.opencensus.io v0.22.3/go.mod h1:yxeiOL68Rb0Xd1ddK5vPZ/oVn4vY4Ynel7k9FzqtOIw=
@@ -87379,7 +87379,7 @@ index e2e1d6efe55..bf06b2e7d08 100644
  // It is important to note that this interface will have breaking changes
  // when the service model is updated and adds new API operations, paginators,
 diff --git a/vendor/modules.txt b/vendor/modules.txt
-index 90ba3dae79b..5cabe30db8e 100644
+index 62468886445..4cfbe1a27e3 100644
 --- a/vendor/modules.txt
 +++ b/vendor/modules.txt
 @@ -96,7 +96,7 @@ github.com/armon/circbuf
