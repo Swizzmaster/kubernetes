@@ -75,7 +75,7 @@ workflow:
 .kubernetes_versions: &kubernetes_matrix
   parallel:
     matrix:
-    - MINOR_VERSION: ["1.20", "1.21", "1.22", "1.23", "1.24", "1.25"]
+    - MINOR_VERSION: ["1.20", "1.21", "1.22", "1.23", "1.24", "1.25", "1.26"]
 
 build_update_patches_base_version:
   extends:

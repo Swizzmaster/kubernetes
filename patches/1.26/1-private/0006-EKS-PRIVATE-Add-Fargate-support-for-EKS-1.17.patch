@@ -1,0 +1,1286 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Rasita Pai <prasita@amazon.com>
+Date: Wed, 13 Oct 2021 12:52:13 -0700
+Subject: [PATCH] --EKS-PRIVATE-- Add Fargate support for EKS 1.17
+
+// owner: @saranbalaji90
+// alpha: TBD
+//
+// Enables kubelet to validate and restrict pods based on security contexts.
+PodSecurityValidator featuregate.Feature = "PodSecurityValidator"
+ref. https://code.amazon.com/packages/EKSDataPlaneKubernetes/logs/heads/release-1.16.8-eks
+
+Sri Saran Balaji Vellore Rajakumar
+Adding fargate support to aws cloud provider https://code.amazon.com/packages/EKSDataPlaneKubernetes/commits/cceb46f3b6a2228fabd0e3ca79bdc3b5caf43f76#
+
+Sri Saran Balaji Vellore Rajakumar
+Adding PodCPULimit check for fargate pods
+https://code.amazon.com/packages/EKSDataPlaneKubernetes/commits/cb1e0f769e04b6d5ec389ff0bf92bdded5360cdb#
+
+Sri Saran Balaji Vellore Rajakumar
+Removing fargate node prefix from NodeName before invoking DescribeENI
+https://code.amazon.com/packages/EKSDataPlaneKubernetes/commits/074acc3b1e409983f035abf024b3c876f5a567df#
+
+Sri Saran Balaji Vellore Rajakumar
+Support PrivateIP address in node name
+https://code.amazon.com/packages/EKSDataPlaneKubernetes/commits/b0e0580a0225c5afa4a36ebec4e1ff8b631a09c7#
+
+Signed-off-by: Jyoti Mahapatra<jyotima@amazon.com>
+---
+ pkg/features/kube_features.go                 |   8 +
+ pkg/kubelet/apis/config/fuzzer/fuzzer.go      |   1 +
+ pkg/kubelet/cm/helpers_linux.go               |  10 +-
+ pkg/kubelet/kubelet.go                        |   3 +
+ .../lifecycle/fargate_pod_admit_handler.go    |  45 +++
+ .../lifecycle/fargate_pod_validator.go        | 271 +++++++++++++++
+ pkg/kubelet/server/server.go                  |   3 +-
+ pkg/kubelet/util/util.go                      |  20 +-
+ .../k8s.io/legacy-cloud-providers/aws/aws.go  | 318 ++++++++++++++----
+ .../legacy-cloud-providers/aws/aws_fakes.go   |  29 ++
+ .../legacy-cloud-providers/aws/aws_routes.go  |   6 +-
+ .../legacy-cloud-providers/aws/aws_test.go    |  62 +++-
+ .../legacy-cloud-providers/aws/instances.go   |  14 +-
+ 13 files changed, 704 insertions(+), 86 deletions(-)
+ create mode 100644 pkg/kubelet/lifecycle/fargate_pod_admit_handler.go
+ create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator.go
+
+diff --git a/pkg/features/kube_features.go b/pkg/features/kube_features.go
+index 41498567846..437d15e9c01 100644
+--- a/pkg/features/kube_features.go
++++ b/pkg/features/kube_features.go
+@@ -706,6 +706,12 @@ const (
+ 	// Enables the PodSecurity admission plugin
+ 	PodSecurity featuregate.Feature = "PodSecurity"
+ 
++	// owner: @saranbalaji90
++	// alpha: TBD
++	//
++	// Enables kubelet to validate and restrict pods based on security contexts.
++	PodSecurityValidator featuregate.Feature = "PodSecurityValidator"
++
+ 	// owner: @ehashman
+ 	// alpha: v1.21
+ 	// beta: v1.22
+@@ -1109,6 +1115,8 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
+ 
+ 	PodSecurity: {Default: true, PreRelease: featuregate.GA, LockToDefault: true},
+ 
++	PodSecurityValidator: {Default: false, PreRelease: featuregate.Alpha},
++
+ 	ProbeTerminationGracePeriod: {Default: true, PreRelease: featuregate.Beta}, // Default to true in beta 1.25
+ 
+ 	ProcMountType: {Default: false, PreRelease: featuregate.Alpha},
+diff --git a/pkg/kubelet/apis/config/fuzzer/fuzzer.go b/pkg/kubelet/apis/config/fuzzer/fuzzer.go
+index 67aea014442..3047552d53a 100644
+--- a/pkg/kubelet/apis/config/fuzzer/fuzzer.go
++++ b/pkg/kubelet/apis/config/fuzzer/fuzzer.go
+@@ -110,6 +110,7 @@ func Funcs(codecs runtimeserializer.CodecFactory) []interface{} {
+ 			if obj.Logging.Format == "" {
+ 				obj.Logging.Format = "text"
+ 			}
++			obj.EnableProfilingHandler = true
+ 			obj.EnableSystemLogHandler = true
+ 			obj.MemoryThrottlingFactor = utilpointer.Float64Ptr(rand.Float64())
+ 			obj.LocalStorageCapacityIsolation = true
+diff --git a/pkg/kubelet/cm/helpers_linux.go b/pkg/kubelet/cm/helpers_linux.go
+index e0292496fe9..dd55e31192c 100644
+--- a/pkg/kubelet/cm/helpers_linux.go
++++ b/pkg/kubelet/cm/helpers_linux.go
+@@ -32,7 +32,8 @@ import (
+ 	v1helper "k8s.io/kubernetes/pkg/apis/core/v1/helper"
+ 	v1qos "k8s.io/kubernetes/pkg/apis/core/v1/helper/qos"
+ 	kubefeatures "k8s.io/kubernetes/pkg/features"
+-	"k8s.io/kubernetes/pkg/kubelet/cm/util"
++	cmutil "k8s.io/kubernetes/pkg/kubelet/cm/util"
++	util "k8s.io/kubernetes/pkg/kubelet/util"
+ )
+ 
+ const (
+@@ -137,6 +138,7 @@ func ResourceConfigForPod(pod *v1.Pod, enforceCPULimits bool, cpuPeriod uint64,
+ 	// convert to CFS values
+ 	cpuShares := MilliCPUToShares(cpuRequests)
+ 	cpuQuota := MilliCPUToQuota(cpuLimits, int64(cpuPeriod))
++	cpuQuota = util.GetPodMaxCpuQuota(cpuQuota)
+ 
+ 	// track if limits were applied for each resource.
+ 	memoryLimitsDeclared := true
+@@ -260,10 +262,10 @@ func getCgroupSubsystemsV2() (*CgroupSubsystems, error) {
+ 	mounts := []libcontainercgroups.Mount{}
+ 	mountPoints := make(map[string]string, len(controllers))
+ 	for _, controller := range controllers {
+-		mountPoints[controller] = util.CgroupRoot
++		mountPoints[controller] = cmutil.CgroupRoot
+ 		m := libcontainercgroups.Mount{
+-			Mountpoint: util.CgroupRoot,
+-			Root:       util.CgroupRoot,
++			Mountpoint: cmutil.CgroupRoot,
++			Root:       cmutil.CgroupRoot,
+ 			Subsystems: []string{controller},
+ 		}
+ 		mounts = append(mounts, m)
+diff --git a/pkg/kubelet/kubelet.go b/pkg/kubelet/kubelet.go
+index 1a03b11ed46..d474cfb8161 100644
+--- a/pkg/kubelet/kubelet.go
++++ b/pkg/kubelet/kubelet.go
+@@ -870,6 +870,9 @@ func NewMainKubelet(kubeCfg *kubeletconfiginternal.KubeletConfiguration,
+ 		klet.appArmorValidator = apparmor.NewValidator()
+ 		klet.softAdmitHandlers.AddPodAdmitHandler(lifecycle.NewAppArmorAdmitHandler(klet.appArmorValidator))
+ 	}
++	if utilfeature.DefaultFeatureGate.Enabled(features.PodSecurityValidator) {
++		klet.admitHandlers.AddPodAdmitHandler(lifecycle.NewFargatePodAdmitHandler())
++	}
+ 
+ 	leaseDuration := time.Duration(kubeCfg.NodeLeaseDurationSeconds) * time.Second
+ 	renewInterval := time.Duration(float64(leaseDuration) * nodeLeaseRenewIntervalFraction)
+diff --git a/pkg/kubelet/lifecycle/fargate_pod_admit_handler.go b/pkg/kubelet/lifecycle/fargate_pod_admit_handler.go
+new file mode 100644
+index 00000000000..b058b342349
+--- /dev/null
++++ b/pkg/kubelet/lifecycle/fargate_pod_admit_handler.go
+@@ -0,0 +1,45 @@
++package lifecycle
++
++import (
++	corev1 "k8s.io/api/core/v1"
++)
++
++var (
++	// unsupportedPodSpec is set on reason field for pods which cannot execute on this kubelet node
++	unsupportedPodSpecMessage = "UnsupportedPodSpec"
++)
++
++func NewFargatePodAdmitHandler() *fargatePodAdmitHandler {
++	return &fargatePodAdmitHandler{
++		podValidator: NewPodSpecValidator(),
++	}
++}
++
++// fargatePodAdmitHandler verifies security aspects of pod spec before admitting the pod.
++type fargatePodAdmitHandler struct {
++	podValidator PodValidator
++}
++
++// Admit checks security aspects of pod spec and decides whether pod spec is safe to run on this kubelet.
++// Currently fargatePodAdmitHandler runs fixed set of validation to verify if pod can run on fargate kubelet.
++func (f *fargatePodAdmitHandler) Admit(attrs *PodAdmitAttributes) PodAdmitResult {
++
++	admit, message := f.validate(attrs.Pod)
++
++	response := PodAdmitResult{
++		Admit: admit,
++	}
++	if !admit {
++		response.Message = message
++		response.Reason = unsupportedPodSpecMessage
++	}
++	return response
++}
++
++func (f *fargatePodAdmitHandler) validate(pod *corev1.Pod) (bool, string) {
++	err := f.podValidator.Validate(pod)
++	if err != nil {
++		return false, err.Error()
++	}
++	return true, ""
++}
+diff --git a/pkg/kubelet/lifecycle/fargate_pod_validator.go b/pkg/kubelet/lifecycle/fargate_pod_validator.go
+new file mode 100644
+index 00000000000..aca39d8c6f5
+--- /dev/null
++++ b/pkg/kubelet/lifecycle/fargate_pod_validator.go
+@@ -0,0 +1,271 @@
++package lifecycle
++
++import (
++	"fmt"
++	"strings"
++
++	corev1 "k8s.io/api/core/v1"
++)
++
++const (
++	fargateSchedulerName = "fargate-scheduler"
++)
++
++// Linux capabilities permitted in container security contexts.
++// Copied from https://github.com/containerd/containerd/blob/257a7498d00827fbca08078f664cc6b4be27d7aa/oci/spec.go#L93
++var permittedCaps = map[string]bool{
++	"AUDIT_WRITE":      true,
++	"CHOWN":            true,
++	"DAC_OVERRIDE":     true,
++	"FOWNER":           true,
++	"FSETID":           true,
++	"KILL":             true,
++	"MKNOD":            true,
++	"NET_BIND_SERVICE": true,
++	"NET_RAW":          true,
++	"SETFCAP":          true,
++	"SETGID":           true,
++	"SETPCAP":          true,
++	"SETUID":           true,
++	"SYS_CHROOT":       true,
++}
++
++type validationFuncs func(*corev1.Pod) (bool, string)
++
++// PodValidator validates pods to be launched on Fargate.
++type PodValidator interface {
++	Validate(*corev1.Pod) error
++}
++
++type podSpecValidator struct{}
++
++// NewPodSpecValidator returns a PodValidator.
++func NewPodSpecValidator() PodValidator {
++	return &podSpecValidator{}
++}
++
++// Validate checks if the pod is eligible to run on Fargate.
++func (v *podSpecValidator) Validate(pod *corev1.Pod) error {
++	var messages []string
++
++	// Run through all validators to communicate all violations.
++	validators := []validationFuncs{
++		validateSchedulerName,
++		validateOwnerReferences,
++		validateTopLevelFields,
++		validateVolumes,
++		validateSecurityContexts,
++		validateVolumeDevices,
++		validatePorts,
++	}
++
++	for _, fn := range validators {
++		admit, message := fn(pod)
++		if !admit {
++			messages = append(messages, message)
++		}
++	}
++
++	// All validators must pass for the pod to be admitted.
++	var err error
++	if len(messages) != 0 {
++		err = fmt.Errorf("Pod not supported: %s", strings.Join(messages, ", "))
++	}
++
++	return err
++}
++
++func validateSchedulerName(pod *corev1.Pod) (bool, string) {
++	// Scheduler name must be Fargate.
++	if pod.Spec.SchedulerName != fargateSchedulerName {
++		return false, fmt.Sprintf("SchedulerName is not %s", fargateSchedulerName)
++	}
++	return true, ""
++}
++
++func validateOwnerReferences(pod *corev1.Pod) (bool, string) {
++	ownerReferences := pod.ObjectMeta.OwnerReferences
++	if len(ownerReferences) > 0 {
++		for _, reference := range ownerReferences {
++			if reference.Kind == "DaemonSet" {
++				return false, "DaemonSet not supported"
++			}
++		}
++	}
++	return true, ""
++}
++
++func validateSecurityContexts(pod *corev1.Pod) (bool, string) {
++	var invalidFields []string
++
++	for _, container := range pod.Spec.InitContainers {
++		admitted, message := validateContainerSecurityContext(container.SecurityContext)
++		if !admitted {
++			invalidFields = append(invalidFields, message)
++		}
++	}
++	for _, container := range pod.Spec.Containers {
++		admitted, message := validateContainerSecurityContext(container.SecurityContext)
++		if !admitted {
++			invalidFields = append(invalidFields, message)
++		}
++	}
++
++	admitted, message := validatePodSecurityContext(pod.Spec.SecurityContext)
++	if !admitted {
++		invalidFields = append(invalidFields, message)
++	}
++
++	if len(invalidFields) != 0 {
++		message := fmt.Sprintf("invalid SecurityContext fields: %s", strings.Join(invalidFields, ","))
++		return false, message
++	}
++	return true, ""
++}
++
++// placeholder method. All PodSecurityContext fields are safe for warmpool fargate
++// at launch, but we may need to add restrictions based on what is added here later
++func validatePodSecurityContext(sc *corev1.PodSecurityContext) (bool, string) {
++	return true, ""
++}
++
++// Allow ambient capabilities to be added. This is useful if only one or more are desired
++// while the rest are dropped. Ex:
++//
++//   securityContext:
++//     allowPrivilegeEscalation: false
++//     capabilities:
++//       add:
++//       - NET_BIND_SERVICE
++//       drop:
++//       - all
++func validateAddedCapabilities(requested []corev1.Capability) (permitted bool, rejectedCaps []string) {
++	for _, req := range requested {
++		if _, ok := permittedCaps[string(req)]; !ok {
++			rejectedCaps = append(rejectedCaps, string(req))
++		}
++	}
++	if len(rejectedCaps) != 0 {
++		return false, rejectedCaps
++	}
++	return true, nil
++}
++
++func validateContainerSecurityContext(sc *corev1.SecurityContext) (bool, string) {
++	var invalidFields []string
++
++	if sc == nil {
++		return true, ""
++	}
++
++	if sc.Capabilities != nil && len(sc.Capabilities.Add) != 0 {
++		admit, rejectedCaps := validateAddedCapabilities(sc.Capabilities.Add)
++		if !admit {
++			invalidFields = append(invalidFields, fmt.Sprintf("Capabilities added: %s", strings.Join(rejectedCaps, ", ")))
++		}
++	}
++
++	if sc.AllowPrivilegeEscalation != nil && *sc.AllowPrivilegeEscalation == true {
++		invalidFields = append(invalidFields, "AllowPrivilegeEscalation")
++	}
++
++	if sc.Privileged != nil && *sc.Privileged == true {
++		invalidFields = append(invalidFields, "Privileged")
++	}
++
++	if len(invalidFields) != 0 {
++		return false, strings.Join(invalidFields, ", ")
++	}
++	return true, ""
++}
++
++func validateTopLevelFields(pod *corev1.Pod) (bool, string) {
++	var invalidFields []string
++
++	if pod.Spec.HostNetwork == true {
++		invalidFields = append(invalidFields, "HostNetwork")
++	}
++	if pod.Spec.HostPID == true {
++		invalidFields = append(invalidFields, "HostPID")
++	}
++	if pod.Spec.HostIPC == true {
++		invalidFields = append(invalidFields, "HostIPC")
++	}
++
++	if len(invalidFields) != 0 {
++		message := fmt.Sprintf("fields not supported: %s", strings.Join(invalidFields, ", "))
++		return false, message
++	}
++	return true, ""
++}
++
++func validateVolumes(pod *corev1.Pod) (bool, string) {
++	var volumeNames []string
++
++	for _, volume := range pod.Spec.Volumes {
++		if volume.EmptyDir == nil &&
++			volume.Secret == nil &&
++			volume.ConfigMap == nil &&
++			volume.Projected == nil &&
++			volume.DownwardAPI == nil &&
++			volume.NFS == nil {
++			volumeNames = append(volumeNames, volume.Name)
++		}
++	}
++
++	if len(volumeNames) != 0 {
++		message := fmt.Sprintf("volumes not supported: %s", strings.Join(volumeNames, ","))
++		return false, message
++	}
++	return true, ""
++}
++
++func validateVolumeDevices(pod *corev1.Pod) (bool, string) {
++	var invalidContainers []string
++
++	for _, container := range pod.Spec.InitContainers {
++		if len(container.VolumeDevices) > 0 {
++			invalidContainers = append(invalidContainers, container.Name)
++		}
++	}
++	for _, container := range pod.Spec.Containers {
++		if len(container.VolumeDevices) > 0 {
++			invalidContainers = append(invalidContainers, container.Name)
++		}
++	}
++	if len(invalidContainers) > 0 {
++		return false, "volumeDevices not supported"
++	}
++	return true, ""
++}
++
++func validatePort(port corev1.ContainerPort) bool {
++	if port.HostPort > 0 {
++		return false
++	}
++	if port.HostIP != "" {
++		return false
++	}
++	return true
++}
++
++// TODO: return more specific port violation messages later.
++func validatePorts(pod *corev1.Pod) (bool, string) {
++	message := "port contains HostIP or HostPort"
++
++	for _, container := range pod.Spec.InitContainers {
++		for _, port := range container.Ports {
++			if !validatePort(port) {
++				return false, message
++			}
++		}
++	}
++	for _, container := range pod.Spec.Containers {
++		for _, port := range container.Ports {
++			if !validatePort(port) {
++				return false, message
++			}
++		}
++	}
++	return true, ""
++}
+diff --git a/pkg/kubelet/server/server.go b/pkg/kubelet/server/server.go
+index c57b8c3f7be..77c8f980a44 100644
+--- a/pkg/kubelet/server/server.go
++++ b/pkg/kubelet/server/server.go
+@@ -518,8 +518,7 @@ func (s *Server) InstallDebuggingHandlers() {
+ 
+ 	s.addMetricsBucketMatcher("containerLogs")
+ 	ws = new(restful.WebService)
+-	ws.
+-		Path("/containerLogs")
++	ws.Path("/containerLogs")
+ 	ws.Route(ws.GET("/{podNamespace}/{podID}/{containerName}").
+ 		To(s.getContainerLogs).
+ 		Operation("getContainerLogs"))
+diff --git a/pkg/kubelet/util/util.go b/pkg/kubelet/util/util.go
+index c2969a51126..1f5edaee902 100644
+--- a/pkg/kubelet/util/util.go
++++ b/pkg/kubelet/util/util.go
+@@ -18,8 +18,10 @@ package util
+ 
+ import (
+ 	"fmt"
+-
++	"k8s.io/apimachinery/pkg/api/resource"
+ 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
++	"k8s.io/klog/v2"
++	"os"
+ )
+ 
+ // FromApiserverCache modifies <opts> so that the GET request will
+@@ -43,3 +45,19 @@ func GetNodenameForKernel(hostname string, hostDomainName string, setHostnameAsF
+ 	}
+ 	return kernelHostname, nil
+ }
++
++// GetPodMaxCpuQuota, returns the max CPU quota that can be allocated to pod.
++func GetPodMaxCpuQuota(currentCpuQuota int64) int64 {
++	fargatePodCPULimit := os.Getenv("FARGATE_POD_CPU_LIMIT")
++
++	if fargatePodCPULimit != "" {
++		fargatePodCPUResource := resource.MustParse(fargatePodCPULimit)
++		fargatePodCPUQuota := fargatePodCPUResource.MilliValue() * 100
++
++		if currentCpuQuota > fargatePodCPUQuota {
++			klog.Infof("updating cpuQuota for pod from %v to %v", currentCpuQuota, fargatePodCPUQuota)
++			return fargatePodCPUQuota
++		}
++	}
++	return currentCpuQuota
++}
+diff --git a/staging/src/k8s.io/legacy-cloud-providers/aws/aws.go b/staging/src/k8s.io/legacy-cloud-providers/aws/aws.go
+index 434df20cc2e..5731a30d0e3 100644
+--- a/staging/src/k8s.io/legacy-cloud-providers/aws/aws.go
++++ b/staging/src/k8s.io/legacy-cloud-providers/aws/aws.go
+@@ -253,6 +253,9 @@ const volumeAttachmentStuck = "VolumeAttachmentStuck"
+ // Indicates that a node has volumes stuck in attaching state and hence it is not fit for scheduling more pods
+ const nodeWithImpairedVolumes = "NodeWithImpairedVolumes"
+ 
++// privateDNSNamePrefix is the prefix added to ENI Private DNS Name.
++const privateDNSNamePrefix = "ip-"
++
+ const (
+ 	// volumeAttachmentConsecutiveErrorLimit is the number of consecutive errors we will ignore when waiting for a volume to attach/detach
+ 	volumeAttachmentStatusConsecutiveErrorLimit = 10
+@@ -285,6 +288,20 @@ const (
+ 	// Number of node names that can be added to a filter. The AWS limit is 200
+ 	// but we are using a lower limit on purpose
+ 	filterNodeLimit = 150
++
++	// fargateNodeNamePrefix string is added to awsInstance nodeName and providerID of Fargate nodes.
++	fargateNodeNamePrefix = "fargate-"
++)
++
++// computeType defines different compute types.
++type computeType string
++
++const (
++	// computeTypeFargate indicates its a Fargate node.
++	computeTypeFargate computeType = "FARGATE"
++
++	// computeTypeEC2 identifies its a EC2 node.
++	computeTypeEC2 computeType = "EC2"
+ )
+ 
+ const (
+@@ -369,6 +386,8 @@ type EC2 interface {
+ 	ModifyInstanceAttribute(request *ec2.ModifyInstanceAttributeInput) (*ec2.ModifyInstanceAttributeOutput, error)
+ 
+ 	DescribeVpcs(input *ec2.DescribeVpcsInput) (*ec2.DescribeVpcsOutput, error)
++
++	DescribeNetworkInterfaces(input *ec2.DescribeNetworkInterfacesInput) (*ec2.DescribeNetworkInterfacesOutput, error)
+ }
+ 
+ // ELB is a simple pass-through of AWS' ELB client interface, which allows for testing
+@@ -636,6 +655,18 @@ type CloudConfig struct {
+ 		//yourself in an non-AWS cloud and open an issue, please indicate that in the
+ 		//issue body.
+ 		DisableStrictZoneCheck bool
++
++		// Type of aws worker node. Indicates whether its FargateCompute/EC2/Other. Default is EC2
++		ComputeType computeType
++
++		// Private DNS name to be associated with Fargate node.
++		PrivateDNSName string
++
++		// IP Address to be associated with Fargate node.
++		IPAddress string
++
++		// Provider ID prefix to be used for Fargate node.
++		ProviderIDPrefix string
+ 	}
+ 	// [ServiceOverride "1"]
+ 	//  Service = s3
+@@ -1180,6 +1211,15 @@ func (s *awsSdkEC2) DescribeVpcs(request *ec2.DescribeVpcsInput) (*ec2.DescribeV
+ 	return s.ec2.DescribeVpcs(request)
+ }
+ 
++// DescribeNetworkInterfaces describes network interface provided in the input.
++func (s *awsSdkEC2) DescribeNetworkInterfaces(input *ec2.DescribeNetworkInterfacesInput) (*ec2.DescribeNetworkInterfacesOutput, error) {
++	requestTime := time.Now()
++	resp, err := s.ec2.DescribeNetworkInterfaces(input)
++	timeTaken := time.Since(requestTime).Seconds()
++	recordAWSMetric("describe_network_interfaces", timeTaken, err)
++	return resp, err
++}
++
+ func init() {
+ 	registerMetrics()
+ 	cloudprovider.RegisterCloudProvider(ProviderName, func(config io.Reader) (cloudprovider.Interface, error) {
+@@ -1232,9 +1272,11 @@ func getRegionFromMetadata(cfg *CloudConfig) (string, error) {
+ 		return "", fmt.Errorf("error creating AWS metadata client: %q", err)
+ 	}
+ 
+-	err = updateConfigZone(cfg, metadata)
+-	if err != nil {
+-		return "", fmt.Errorf("unable to determine AWS zone from cloud provider config or EC2 instance metadata: %v", err)
++	if cfg.Global.ComputeType != computeTypeFargate {
++		err = updateConfigZone(cfg, metadata)
++		if err != nil {
++			return "", fmt.Errorf("unable to determine AWS zone from cloud provider config or EC2 instance metadata: %v", err)
++		}
+ 	}
+ 
+ 	zone := cfg.Global.Zone
+@@ -1315,9 +1357,11 @@ func newAWSCloud(cfg CloudConfig, awsServices Services) (*Cloud, error) {
+ 		return nil, fmt.Errorf("error creating AWS metadata client: %q", err)
+ 	}
+ 
+-	err = updateConfigZone(&cfg, metadata)
+-	if err != nil {
+-		return nil, fmt.Errorf("unable to determine AWS zone from cloud provider config or EC2 instance metadata: %v", err)
++	if cfg.Global.ComputeType != computeTypeFargate {
++		err = updateConfigZone(&cfg, metadata)
++		if err != nil {
++			return nil, fmt.Errorf("unable to determine AWS zone from cloud provider config or EC2 instance metadata: %v", err)
++		}
+ 	}
+ 
+ 	zone := cfg.Global.Zone
+@@ -1401,8 +1445,8 @@ func newAWSCloud(cfg CloudConfig, awsServices Services) (*Cloud, error) {
+ 		if err := awsCloud.tagging.init(cfg.Global.KubernetesClusterTag, cfg.Global.KubernetesClusterID); err != nil {
+ 			return nil, err
+ 		}
+-	} else {
+-		// TODO: Clean up double-API query
++	} else if cfg.Global.ComputeType != computeTypeFargate {
++		// TODO: Clean up double-API query and Update tags for Fargate node.
+ 		info, err := awsCloud.selfAWSInstance.describeInstance()
+ 		if err != nil {
+ 			return nil, err
+@@ -1510,11 +1554,24 @@ func isAWSNotFound(err error) bool {
+ 	return false
+ }
+ 
++// getNodeAddressesForFargateNode generates list of Node addresses for Fargate node.
++func getNodeAddressesForFargateNode(privateDNSName, privateIP string) []v1.NodeAddress {
++	addresses := []v1.NodeAddress{}
++	addresses = append(addresses, v1.NodeAddress{Type: v1.NodeInternalIP, Address: privateIP})
++	if privateDNSName != "" {
++		addresses = append(addresses, v1.NodeAddress{Type: v1.NodeInternalDNS, Address: privateDNSName})
++	}
++	return addresses
++}
++
+ // NodeAddresses is an implementation of Instances.NodeAddresses.
+ func (c *Cloud) NodeAddresses(ctx context.Context, name types.NodeName) ([]v1.NodeAddress, error) {
+ 	if c.selfAWSInstance.nodeName == name || len(name) == 0 {
+-		addresses := []v1.NodeAddress{}
++		if isFargateNode(string(name)) {
++			return getNodeAddressesForFargateNode(c.cfg.Global.PrivateDNSName, c.cfg.Global.IPAddress), nil
++		}
+ 
++		addresses := []v1.NodeAddress{}
+ 		macs, err := c.metadata.GetMetadata("network/interfaces/macs/")
+ 		if err != nil {
+ 			return nil, fmt.Errorf("error querying AWS metadata for %q: %q", "network/interfaces/macs", err)
+@@ -1619,11 +1676,11 @@ func (c *Cloud) NodeAddresses(ctx context.Context, name types.NodeName) ([]v1.No
+ 		return addresses, nil
+ 	}
+ 
+-	instance, err := c.getInstanceByNodeName(name)
++	instance, err := c.getAwsInstanceByNodeName(name)
+ 	if err != nil {
+-		return nil, fmt.Errorf("getInstanceByNodeName failed for %q with %q", name, err)
++		return nil, fmt.Errorf("getAwsInstanceByNodeName failed for %q with %q", name, err)
+ 	}
+-	return extractNodeAddresses(instance)
++	return instance.addresses, err
+ }
+ 
+ // parseMetadataLocalHostname parses the output of "local-hostname" metadata.
+@@ -1726,6 +1783,14 @@ func (c *Cloud) NodeAddressesByProviderID(ctx context.Context, providerID string
+ 		return nil, err
+ 	}
+ 
++	if isFargateNode(string(instanceID)) {
++		eni, err := c.describeNetworkInterfaces(string(instanceID))
++		if eni == nil || err != nil {
++			return nil, err
++		}
++		return getNodeAddressesForFargateNode(aws.StringValue(eni.PrivateDnsName), aws.StringValue(eni.PrivateIpAddress)), nil
++	}
++
+ 	instance, err := describeInstance(c.ec2, instanceID)
+ 	if err != nil {
+ 		return nil, err
+@@ -1742,6 +1807,11 @@ func (c *Cloud) InstanceExistsByProviderID(ctx context.Context, providerID strin
+ 		return false, err
+ 	}
+ 
++	if isFargateNode(string(instanceID)) {
++		eni, err := c.describeNetworkInterfaces(string(instanceID))
++		return eni != nil, err
++	}
++
+ 	request := &ec2.DescribeInstancesInput{
+ 		InstanceIds: []*string{instanceID.awsString()},
+ 	}
+@@ -1777,6 +1847,11 @@ func (c *Cloud) InstanceShutdownByProviderID(ctx context.Context, providerID str
+ 		return false, err
+ 	}
+ 
++	if isFargateNode(string(instanceID)) {
++		eni, err := c.describeNetworkInterfaces(string(instanceID))
++		return eni != nil, err
++	}
++
+ 	request := &ec2.DescribeInstancesInput{
+ 		InstanceIds: []*string{instanceID.awsString()},
+ 	}
+@@ -1813,15 +1888,15 @@ func (c *Cloud) InstanceID(ctx context.Context, nodeName types.NodeName) (string
+ 	if c.selfAWSInstance.nodeName == nodeName {
+ 		return "/" + c.selfAWSInstance.availabilityZone + "/" + c.selfAWSInstance.awsID, nil
+ 	}
+-	inst, err := c.getInstanceByNodeName(nodeName)
++	inst, err := c.getAwsInstanceByNodeName(nodeName)
+ 	if err != nil {
+ 		if err == cloudprovider.InstanceNotFound {
+ 			// The Instances interface requires that we return InstanceNotFound (without wrapping)
+ 			return "", err
+ 		}
+-		return "", fmt.Errorf("getInstanceByNodeName failed for %q with %q", nodeName, err)
++		return "", fmt.Errorf("getAWSInstanceByNodeName failed for %q with %q", nodeName, err)
+ 	}
+-	return "/" + aws.StringValue(inst.Placement.AvailabilityZone) + "/" + aws.StringValue(inst.InstanceId), nil
++	return "/" + inst.availabilityZone + "/" + inst.awsID, nil
+ }
+ 
+ // InstanceTypeByProviderID returns the cloudprovider instance type of the node with the specified unique providerID
+@@ -1833,6 +1908,10 @@ func (c *Cloud) InstanceTypeByProviderID(ctx context.Context, providerID string)
+ 		return "", err
+ 	}
+ 
++	if isFargateNode(string(instanceID)) {
++		return "", fmt.Errorf("instance type is not supported for Fargate")
++	}
++
+ 	instance, err := describeInstance(c.ec2, instanceID)
+ 	if err != nil {
+ 		return "", err
+@@ -1846,11 +1925,11 @@ func (c *Cloud) InstanceType(ctx context.Context, nodeName types.NodeName) (stri
+ 	if c.selfAWSInstance.nodeName == nodeName {
+ 		return c.selfAWSInstance.instanceType, nil
+ 	}
+-	inst, err := c.getInstanceByNodeName(nodeName)
++	inst, err := c.getAwsInstanceByNodeName(nodeName)
+ 	if err != nil {
+-		return "", fmt.Errorf("getInstanceByNodeName failed for %q with %q", nodeName, err)
++		return "", fmt.Errorf("getAwsInstanceByNodeName failed for %q with %q", nodeName, err)
+ 	}
+-	return aws.StringValue(inst.InstanceType), nil
++	return inst.instanceType, nil
+ }
+ 
+ // GetCandidateZonesForDynamicVolume retrieves  a list of all the zones in which nodes are running
+@@ -1937,6 +2016,14 @@ func (c *Cloud) GetZoneByProviderID(ctx context.Context, providerID string) (clo
+ 	if err != nil {
+ 		return cloudprovider.Zone{}, err
+ 	}
++
++	if isFargateNode(string(instanceID)) {
++		return cloudprovider.Zone{
++			FailureDomain: c.cfg.Global.Zone,
++			Region:        c.region,
++		}, nil
++	}
++
+ 	instance, err := c.getInstanceByID(string(instanceID))
+ 	if err != nil {
+ 		return cloudprovider.Zone{}, err
+@@ -1954,12 +2041,12 @@ func (c *Cloud) GetZoneByProviderID(ctx context.Context, providerID string) (clo
+ // This is particularly useful in external cloud providers where the kubelet
+ // does not initialize node data.
+ func (c *Cloud) GetZoneByNodeName(ctx context.Context, nodeName types.NodeName) (cloudprovider.Zone, error) {
+-	instance, err := c.getInstanceByNodeName(nodeName)
++	instance, err := c.getAwsInstanceByNodeName(nodeName)
+ 	if err != nil {
+ 		return cloudprovider.Zone{}, err
+ 	}
+ 	zone := cloudprovider.Zone{
+-		FailureDomain: *(instance.Placement.AvailabilityZone),
++		FailureDomain: instance.availabilityZone,
+ 		Region:        c.region,
+ 	}
+ 
+@@ -2005,25 +2092,37 @@ type awsInstance struct {
+ 
+ 	// instance type
+ 	instanceType string
++
++	// IP addresses associated with the node.
++	addresses []v1.NodeAddress
++
++	// BlockDeviceMapping for the node.
++	blockDeviceMappings []*ec2.InstanceBlockDeviceMapping
+ }
+ 
+-// newAWSInstance creates a new awsInstance object
+-func newAWSInstance(ec2Service EC2, instance *ec2.Instance) *awsInstance {
++// buildAWSInstanceFromEC2 creates a new awsInstance object from EC2 instance.
++func buildAWSInstanceFromEC2(ec2Service EC2, instance *ec2.Instance) (*awsInstance, error) {
+ 	az := ""
+ 	if instance.Placement != nil {
+ 		az = aws.StringValue(instance.Placement.AvailabilityZone)
+ 	}
++	nodeAddresses, err := extractNodeAddresses(instance)
++	if err != nil {
++		return nil, err
++	}
+ 	self := &awsInstance{
+-		ec2:              ec2Service,
+-		awsID:            aws.StringValue(instance.InstanceId),
+-		nodeName:         mapInstanceToNodeName(instance),
+-		availabilityZone: az,
+-		instanceType:     aws.StringValue(instance.InstanceType),
+-		vpcID:            aws.StringValue(instance.VpcId),
+-		subnetID:         aws.StringValue(instance.SubnetId),
++		ec2:                 ec2Service,
++		awsID:               aws.StringValue(instance.InstanceId),
++		nodeName:            mapInstanceToNodeName(instance),
++		availabilityZone:    az,
++		instanceType:        aws.StringValue(instance.InstanceType),
++		vpcID:               aws.StringValue(instance.VpcId),
++		subnetID:            aws.StringValue(instance.SubnetId),
++		addresses:           nodeAddresses,
++		blockDeviceMappings: instance.BlockDeviceMappings,
+ 	}
+ 
+-	return self
++	return self, nil
+ }
+ 
+ // Gets the full information about this instance from the EC2 API
+@@ -2036,13 +2135,12 @@ func (i *awsInstance) describeInstance() (*ec2.Instance, error) {
+ // Otherwise the mountDevice is assigned by finding the first available mountDevice, and it is returned with alreadyAttached=false.
+ func (c *Cloud) getMountDevice(
+ 	i *awsInstance,
+-	info *ec2.Instance,
+ 	volumeID EBSVolumeID,
+ 	assign bool) (assigned mountDevice, alreadyAttached bool, err error) {
+ 
+ 	deviceMappings := map[mountDevice]EBSVolumeID{}
+ 	volumeStatus := map[EBSVolumeID]string{} // for better logging of volume status
+-	for _, blockDevice := range info.BlockDeviceMappings {
++	for _, blockDevice := range i.blockDeviceMappings {
+ 		name := aws.StringValue(blockDevice.DeviceName)
+ 		name = strings.TrimPrefix(name, "/dev/sd")
+ 		name = strings.TrimPrefix(name, "/dev/xvd")
+@@ -2413,12 +2511,17 @@ func (d *awsDisk) deleteVolume() (bool, error) {
+ 	return true, nil
+ }
+ 
+-// Builds the awsInstance for the EC2 instance on which we are running.
++// Builds the awsInstance for the aws compute on which we are running.
+ // This is called when the AWSCloud is initialized, and should not be called otherwise (because the awsInstance for the local instance is a singleton with drive mapping state)
+ func (c *Cloud) buildSelfAWSInstance() (*awsInstance, error) {
+ 	if c.selfAWSInstance != nil {
+ 		panic("do not call buildSelfAWSInstance directly")
+ 	}
++
++	if c.cfg.Global.ComputeType == computeTypeFargate {
++		return c.buildAWSInstanceForFargate()
++	}
++
+ 	instanceID, err := c.metadata.GetMetadata("instance-id")
+ 	if err != nil {
+ 		return nil, fmt.Errorf("error fetching instance-id from ec2 metadata service: %q", err)
+@@ -2436,7 +2539,7 @@ func (c *Cloud) buildSelfAWSInstance() (*awsInstance, error) {
+ 	if err != nil {
+ 		return nil, fmt.Errorf("error finding instance %s: %q", instanceID, err)
+ 	}
+-	return newAWSInstance(c.ec2, instance), nil
++	return buildAWSInstanceFromEC2(c.ec2, instance)
+ }
+ 
+ // wrapAttachError wraps the error returned by an AttachVolume request with
+@@ -2468,7 +2571,7 @@ func (c *Cloud) AttachDisk(diskName KubernetesVolumeID, nodeName types.NodeName)
+ 		return "", err
+ 	}
+ 
+-	awsInstance, info, err := c.getFullInstance(nodeName)
++	awsInstance, err := c.getFullInstance(nodeName)
+ 	if err != nil {
+ 		return "", fmt.Errorf("error finding instance %s: %q", nodeName, err)
+ 	}
+@@ -2489,7 +2592,7 @@ func (c *Cloud) AttachDisk(diskName KubernetesVolumeID, nodeName types.NodeName)
+ 		}
+ 	}()
+ 
+-	mountDevice, alreadyAttached, err = c.getMountDevice(awsInstance, info, disk.awsID, true)
++	mountDevice, alreadyAttached, err = c.getMountDevice(awsInstance, disk.awsID, true)
+ 	if err != nil {
+ 		return "", err
+ 	}
+@@ -2580,9 +2683,12 @@ func (c *Cloud) DetachDisk(diskName KubernetesVolumeID, nodeName types.NodeName)
+ 		return "", nil
+ 	}
+ 
+-	awsInstance := newAWSInstance(c.ec2, diskInfo.ec2Instance)
++	awsInstance, err := buildAWSInstanceFromEC2(c.ec2, diskInfo.ec2Instance)
++	if err != nil {
++		return "", err
++	}
+ 
+-	mountDevice, alreadyAttached, err := c.getMountDevice(awsInstance, diskInfo.ec2Instance, diskInfo.disk.awsID, false)
++	mountDevice, alreadyAttached, err := c.getMountDevice(awsInstance, diskInfo.disk.awsID, false)
+ 	if err != nil {
+ 		return "", err
+ 	}
+@@ -2920,7 +3026,7 @@ func (c *Cloud) DisksAreAttached(nodeDisks map[types.NodeName][]KubernetesVolume
+ 		for _, diskName := range diskNames {
+ 			setNodeDisk(attached, diskName, nodeName, false)
+ 		}
+-		nodeNames = append(nodeNames, mapNodeNameToPrivateDNSName(nodeName))
++		nodeNames = append(nodeNames, string(nodeName))
+ 	}
+ 
+ 	// Note that we get instances regardless of state.
+@@ -5008,12 +5114,6 @@ func (c *Cloud) describeInstances(filters []*ec2.Filter) ([]*ec2.Instance, error
+ 	return matches, nil
+ }
+ 
+-// mapNodeNameToPrivateDNSName maps a k8s NodeName to an AWS Instance PrivateDNSName
+-// This is a simple string cast
+-func mapNodeNameToPrivateDNSName(nodeName types.NodeName) string {
+-	return string(nodeName)
+-}
+-
+ // mapInstanceToNodeName maps a EC2 instance to a k8s NodeName, by extracting the PrivateDNSName
+ func mapInstanceToNodeName(i *ec2.Instance) types.NodeName {
+ 	return types.NodeName(aws.StringValue(i.PrivateDnsName))
+@@ -5027,12 +5127,15 @@ var aliveFilter = []string{
+ 	ec2.InstanceStateNameStopped,
+ }
+ 
+-// Returns the instance with the specified node name
++// Returns the aws instance with the specified node name
+ // Returns nil if it does not exist
+-func (c *Cloud) findInstanceByNodeName(nodeName types.NodeName) (*ec2.Instance, error) {
+-	privateDNSName := mapNodeNameToPrivateDNSName(nodeName)
++func (c *Cloud) findAwsInstanceByNodeName(nodeName types.NodeName) (*awsInstance, error) {
++	nn := string(nodeName)
++	if isFargateNode(nn) {
++		return c.buildAWSInstanceForFargateNode(nn)
++	}
+ 	filters := []*ec2.Filter{
+-		newEc2Filter("private-dns-name", privateDNSName),
++		newEc2Filter("private-dns-name", nn),
+ 		// exclude instances in "terminated" state
+ 		newEc2Filter("instance-state-name", aliveFilter...),
+ 	}
+@@ -5048,13 +5151,13 @@ func (c *Cloud) findInstanceByNodeName(nodeName types.NodeName) (*ec2.Instance,
+ 	if len(instances) > 1 {
+ 		return nil, fmt.Errorf("multiple instances found for name: %s", nodeName)
+ 	}
+-	return instances[0], nil
++	return buildAWSInstanceFromEC2(c.ec2, instances[0])
+ }
+ 
+ // Returns the instance with the specified node name
+-// Like findInstanceByNodeName, but returns error if node not found
+-func (c *Cloud) getInstanceByNodeName(nodeName types.NodeName) (*ec2.Instance, error) {
+-	var instance *ec2.Instance
++// Like findAwsInstanceByNodeName, but returns error if node not found
++func (c *Cloud) getAwsInstanceByNodeName(nodeName types.NodeName) (*awsInstance, error) {
++	var instance *awsInstance
+ 
+ 	// we leverage node cache to try to retrieve node's provider id first, as
+ 	// get instance by provider id is way more efficient than by filters in
+@@ -5062,9 +5165,14 @@ func (c *Cloud) getInstanceByNodeName(nodeName types.NodeName) (*ec2.Instance, e
+ 	awsID, err := c.nodeNameToProviderID(nodeName)
+ 	if err != nil {
+ 		klog.V(3).Infof("Unable to convert node name %q to aws instanceID, fall back to findInstanceByNodeName: %v", nodeName, err)
+-		instance, err = c.findInstanceByNodeName(nodeName)
++		instance, err = c.findAwsInstanceByNodeName(nodeName)
+ 	} else {
+-		instance, err = c.getInstanceByID(string(awsID))
++		var ec2Instance *ec2.Instance
++		ec2Instance, err = c.getInstanceByID(string(awsID))
++		if err != nil {
++			return nil, err
++		}
++		instance, err = buildAWSInstanceFromEC2(c.ec2, ec2Instance)
+ 	}
+ 	if err == nil && instance == nil {
+ 		return nil, cloudprovider.InstanceNotFound
+@@ -5072,17 +5180,16 @@ func (c *Cloud) getInstanceByNodeName(nodeName types.NodeName) (*ec2.Instance, e
+ 	return instance, err
+ }
+ 
+-func (c *Cloud) getFullInstance(nodeName types.NodeName) (*awsInstance, *ec2.Instance, error) {
++func (c *Cloud) getFullInstance(nodeName types.NodeName) (*awsInstance, error) {
+ 	if nodeName == "" {
+ 		instance, err := c.getInstanceByID(c.selfAWSInstance.awsID)
+-		return c.selfAWSInstance, instance, err
+-	}
+-	instance, err := c.getInstanceByNodeName(nodeName)
+-	if err != nil {
+-		return nil, nil, err
++		if err != nil {
++			return nil, err
++		}
++		return buildAWSInstanceFromEC2(c.ec2, instance)
+ 	}
+-	awsInstance := newAWSInstance(c.ec2, instance)
+-	return awsInstance, instance, err
++	instance, err := c.getAwsInstanceByNodeName(nodeName)
++	return instance, err
+ }
+ 
+ func (c *Cloud) nodeNameToProviderID(nodeName types.NodeName) (InstanceID, error) {
+@@ -5151,3 +5258,88 @@ func getInitialAttachDetachDelay(status string) time.Duration {
+ 	}
+ 	return volumeAttachmentStatusInitialDelay
+ }
++
++// isFargateNode returns true if given node runs on Fargate compute
++func isFargateNode(nodeName string) bool {
++	return strings.HasPrefix(nodeName, fargateNodeNamePrefix)
++}
++
++// buildAWSInstanceForFargate builds AWSInstance object from config file.
++// ProviderID will be <ProviderIDPrefix>/NodeName
++// NodeName will be fargate-PrivateDNSName
++func (c *Cloud) buildAWSInstanceForFargate() (*awsInstance, error) {
++	nodeName := buildNodeNameForFargate(c.cfg.Global.PrivateDNSName, c.cfg.Global.IPAddress)
++	return &awsInstance{
++		ec2:              c.ec2,
++		awsID:            buildProviderIDForFargateNode(c.cfg.Global.ProviderIDPrefix, nodeName),
++		nodeName:         types.NodeName(nodeName),
++		availabilityZone: c.cfg.Global.Zone,
++		vpcID:            c.cfg.Global.VPC,
++		subnetID:         c.cfg.Global.SubnetID,
++		addresses:        getNodeAddressesForFargateNode(c.cfg.Global.PrivateDNSName, c.cfg.Global.IPAddress),
++	}, nil
++}
++
++// buildNodeNameForFargate builds node name for Fargate.
++func buildNodeNameForFargate(privateDNSName, privateIP string) string {
++	if privateDNSName != "" {
++		return fmt.Sprintf("%s%s", fargateNodeNamePrefix, privateDNSName)
++	}
++	return fmt.Sprintf("%s%s", fargateNodeNamePrefix, privateIP)
++}
++
++// buildProviderIDForFargateNode builds providerID for Fargate.
++func buildProviderIDForFargateNode(providerIDPrefix, nodeName string) string {
++	return fmt.Sprintf("%s/%s", providerIDPrefix, nodeName)
++}
++
++// buildAWSInstanceForFargateNode builds awsInstance by describing network interface
++func (c *Cloud) buildAWSInstanceForFargateNode(nodeName string) (*awsInstance, error) {
++	networkInterface, err := c.describeNetworkInterfaces(nodeName)
++	if networkInterface == nil || err != nil {
++		return nil, err
++	}
++
++	return &awsInstance{
++		ec2:              c.ec2,
++		awsID:            buildProviderIDForFargateNode(c.cfg.Global.ProviderIDPrefix, nodeName),
++		nodeName:         types.NodeName(nodeName),
++		availabilityZone: aws.StringValue(networkInterface.AvailabilityZone),
++		vpcID:            aws.StringValue(networkInterface.VpcId),
++		subnetID:         aws.StringValue(networkInterface.SubnetId),
++		addresses:        getNodeAddressesForFargateNode(aws.StringValue(networkInterface.PrivateDnsName), aws.StringValue(networkInterface.PrivateIpAddress)),
++	}, nil
++}
++
++// describeNetworkInterfaces returns network interface information for the given DNS name.
++func (c *Cloud) describeNetworkInterfaces(nodeName string) (*ec2.NetworkInterface, error) {
++	eniIpOrDns := strings.TrimPrefix(nodeName, fargateNodeNamePrefix)
++
++	filters := []*ec2.Filter{
++		newEc2Filter("attachment.status", "attached"),
++		newEc2Filter("vpc-id", c.vpcID),
++	}
++
++	if strings.HasPrefix(eniIpOrDns, privateDNSNamePrefix) {
++		filters = append(filters, newEc2Filter("private-dns-name", eniIpOrDns))
++	} else {
++		filters = append(filters, newEc2Filter("private-ip-address", eniIpOrDns))
++	}
++
++	request := &ec2.DescribeNetworkInterfacesInput{
++		Filters: filters,
++	}
++
++	eni, err := c.ec2.DescribeNetworkInterfaces(request)
++	if err != nil {
++		return nil, err
++	}
++	if len(eni.NetworkInterfaces) == 0 {
++		return nil, nil
++	}
++	if len(eni.NetworkInterfaces) != 1 {
++		// This should not be possible - ids should be unique
++		return nil, fmt.Errorf("multiple interfaces found with same id %q", eni.NetworkInterfaces)
++	}
++	return eni.NetworkInterfaces[0], nil
++}
+diff --git a/staging/src/k8s.io/legacy-cloud-providers/aws/aws_fakes.go b/staging/src/k8s.io/legacy-cloud-providers/aws/aws_fakes.go
+index de39d4eb63b..0e7828ed09d 100644
+--- a/staging/src/k8s.io/legacy-cloud-providers/aws/aws_fakes.go
++++ b/staging/src/k8s.io/legacy-cloud-providers/aws/aws_fakes.go
+@@ -313,6 +313,35 @@ func (ec2i *FakeEC2Impl) DescribeVpcs(request *ec2.DescribeVpcsInput) (*ec2.Desc
+ 	return &ec2.DescribeVpcsOutput{Vpcs: []*ec2.Vpc{{CidrBlock: aws.String("172.20.0.0/16")}}}, nil
+ }
+ 
++// DescribeNetworkInterfaces returns list of ENIs for testing
++func (ec2i *FakeEC2Impl) DescribeNetworkInterfaces(input *ec2.DescribeNetworkInterfacesInput) (*ec2.DescribeNetworkInterfacesOutput, error) {
++	for _, filter := range input.Filters {
++		if *filter.Name == "private-dns-name" {
++			if strings.HasPrefix(*filter.Values[0], fargateNodeNamePrefix) {
++				panic("Invalid privateDNSName specified for DescribeNetworkInterface call")
++			}
++		}
++	}
++	networkInterface := []*ec2.NetworkInterface{
++		{
++			PrivateIpAddress: aws.String("1.2.3.4"),
++			AvailabilityZone: aws.String("us-west-2b"),
++			VpcId:            aws.String("vpc-123456"),
++			SubnetId:         aws.String("subnet-123456"),
++		},
++	}
++	for _, filter := range input.Filters {
++		// if filter contains privateDnsName then add privateDNSName to output
++		if *filter.Name == "private-dns-name" {
++			networkInterface[0].PrivateDnsName = aws.String("ip-1-2-3-4.compute.amazon.com")
++		}
++	}
++
++	return &ec2.DescribeNetworkInterfacesOutput{
++		NetworkInterfaces: networkInterface,
++	}, nil
++}
++
+ // FakeMetadata is a fake EC2 metadata service client used for testing
+ type FakeMetadata struct {
+ 	aws *FakeAWSServices
+diff --git a/staging/src/k8s.io/legacy-cloud-providers/aws/aws_routes.go b/staging/src/k8s.io/legacy-cloud-providers/aws/aws_routes.go
+index 6aed26db31c..c9a52ba4588 100644
+--- a/staging/src/k8s.io/legacy-cloud-providers/aws/aws_routes.go
++++ b/staging/src/k8s.io/legacy-cloud-providers/aws/aws_routes.go
+@@ -144,14 +144,14 @@ func (c *Cloud) configureInstanceSourceDestCheck(instanceID string, sourceDestCh
+ // CreateRoute implements Routes.CreateRoute
+ // Create the described route
+ func (c *Cloud) CreateRoute(ctx context.Context, clusterName string, nameHint string, route *cloudprovider.Route) error {
+-	instance, err := c.getInstanceByNodeName(route.TargetNode)
++	instance, err := c.getAwsInstanceByNodeName(route.TargetNode)
+ 	if err != nil {
+ 		return err
+ 	}
+ 
+ 	// In addition to configuring the route itself, we also need to configure the instance to accept that traffic
+ 	// On AWS, this requires turning source-dest checks off
+-	err = c.configureInstanceSourceDestCheck(aws.StringValue(instance.InstanceId), false)
++	err = c.configureInstanceSourceDestCheck(instance.awsID, false)
+ 	if err != nil {
+ 		return err
+ 	}
+@@ -190,7 +190,7 @@ func (c *Cloud) CreateRoute(ctx context.Context, clusterName string, nameHint st
+ 	request := &ec2.CreateRouteInput{}
+ 	// TODO: use ClientToken for idempotency?
+ 	request.DestinationCidrBlock = aws.String(route.DestinationCIDR)
+-	request.InstanceId = instance.InstanceId
++	request.InstanceId = aws.String(instance.awsID)
+ 	request.RouteTableId = table.RouteTableId
+ 
+ 	_, err = c.ec2.CreateRoute(request)
+diff --git a/staging/src/k8s.io/legacy-cloud-providers/aws/aws_test.go b/staging/src/k8s.io/legacy-cloud-providers/aws/aws_test.go
+index c379459b148..13aefcf3dd5 100644
+--- a/staging/src/k8s.io/legacy-cloud-providers/aws/aws_test.go
++++ b/staging/src/k8s.io/legacy-cloud-providers/aws/aws_test.go
+@@ -1529,20 +1529,20 @@ func TestFindInstanceByNodeNameExcludesTerminatedInstances(t *testing.T) {
+ 			return
+ 		}
+ 
+-		resultInstance, err := c.findInstanceByNodeName(nodeName)
++		resultInstance, err := c.findAwsInstanceByNodeName(nodeName)
+ 
+ 		if awsState.expected {
+ 			if err != nil || resultInstance == nil {
+ 				t.Errorf("Expected to find instance %v", *testInstance.InstanceId)
+ 				return
+ 			}
+-			if *resultInstance.InstanceId != *testInstance.InstanceId {
+-				t.Errorf("Wrong instance returned by findInstanceByNodeName() expected: %v, actual: %v", *testInstance.InstanceId, *resultInstance.InstanceId)
++			if resultInstance.awsID != *testInstance.InstanceId {
++				t.Errorf("Wrong instance returned by findInstanceByNodeName() expected: %v, actual: %v", *testInstance.InstanceId, resultInstance.awsID)
+ 				return
+ 			}
+ 		} else {
+ 			if err == nil && resultInstance != nil {
+-				t.Errorf("Did not expect to find instance %v", *resultInstance.InstanceId)
++				t.Errorf("Did not expect to find instance %v", resultInstance.awsID)
+ 				return
+ 			}
+ 		}
+@@ -3588,3 +3588,57 @@ func Test_parseStringSliceAnnotation(t *testing.T) {
+ 		})
+ 	}
+ }
++
++func TestNodeAddressesForFargate(t *testing.T) {
++	awsServices := newMockedFakeAWSServices(TestClusterID)
++	c, _ := newAWSCloud(CloudConfig{}, awsServices)
++	c.cfg.Global.IPAddress = "1.2.3.4"
++	c.cfg.Global.PrivateDNSName = "ip-1-2-3-4.compute.amazon.com"
++
++	nodeAddresses, _ := c.NodeAddresses(context.TODO(), "fargate-ip-1-2-3-4.compute.amazon.com")
++	verifyNodeAddressesForFargate(t, nodeAddresses)
++}
++
++func TestBuildFargateTaskFromDescribeNetworkInterfaces(t *testing.T) {
++	awsServices := newMockedFakeAWSServices(TestClusterID)
++	c, _ := newAWSCloud(CloudConfig{}, awsServices)
++	c.cfg.Global.ProviderIDPrefix = "fargateTest"
++
++	awsInstance, _ := c.buildAWSInstanceForFargateNode("fargate-ip-1-2-3-4.compute.amazon.com")
++	assert.Equal(t, "vpc-123456", awsInstance.vpcID)
++	assert.Equal(t, "subnet-123456", awsInstance.subnetID)
++	assert.Equal(t, "1.2.3.4", awsInstance.addresses[0].Address)
++	assert.Equal(t, "us-west-2b", awsInstance.availabilityZone)
++	assert.Equal(t, "fargateTest/fargate-ip-1-2-3-4.compute.amazon.com", awsInstance.awsID)
++}
++
++func TestNodeAddressesByProviderIDForFargate(t *testing.T) {
++	awsServices := newMockedFakeAWSServices(TestClusterID)
++	c, _ := newAWSCloud(CloudConfig{}, awsServices)
++	c.cfg.Global.IPAddress = "1.2.3.4"
++	c.cfg.Global.PrivateDNSName = "ip-1-2-3-4.compute.amazon.com"
++
++	nodeAddresses, _ := c.NodeAddressesByProviderID(context.TODO(), "fargateTest/fargate-ip-1-2-3-4.compute.amazon.com")
++	verifyNodeAddressesForFargate(t, nodeAddresses)
++}
++
++func verifyNodeAddressesForFargate(t *testing.T, nodeAddresses []v1.NodeAddress) {
++	assert.Equal(t, 2, len(nodeAddresses))
++	assert.Equal(t, "1.2.3.4", nodeAddresses[0].Address)
++	assert.Equal(t, v1.NodeInternalIP, nodeAddresses[0].Type)
++	assert.Equal(t, "ip-1-2-3-4.compute.amazon.com", nodeAddresses[1].Address)
++	assert.Equal(t, v1.NodeInternalDNS, nodeAddresses[1].Type)
++}
++
++func TestBuildFargateTaskUsingPrivateIpFromDescribeNetworkInterfaces(t *testing.T) {
++	awsServices := newMockedFakeAWSServices(TestClusterID)
++	c, _ := newAWSCloud(CloudConfig{}, awsServices)
++	c.cfg.Global.ProviderIDPrefix = "fargateTest"
++	nodeName := "fargate-1.2.3.4"
++
++	awsInstance, _ := c.buildAWSInstanceForFargateNode(nodeName)
++	assert.Equal(t, "1.2.3.4", awsInstance.addresses[0].Address)
++	assert.Equal(t, string(awsInstance.nodeName), nodeName)
++	assert.Equal(t, "fargateTest/fargate-1.2.3.4", awsInstance.awsID)
++	assert.Equal(t, 1, len(awsInstance.addresses))
++}
+diff --git a/staging/src/k8s.io/legacy-cloud-providers/aws/instances.go b/staging/src/k8s.io/legacy-cloud-providers/aws/instances.go
+index c2970382759..37fef2d353a 100644
+--- a/staging/src/k8s.io/legacy-cloud-providers/aws/instances.go
++++ b/staging/src/k8s.io/legacy-cloud-providers/aws/instances.go
+@@ -74,17 +74,13 @@ func (name KubernetesInstanceID) MapToAWSInstanceID() (InstanceID, error) {
+ 
+ 	awsID := ""
+ 	tokens := strings.Split(strings.Trim(url.Path, "/"), "/")
+-	if len(tokens) == 1 {
+-		// instanceId
+-		awsID = tokens[0]
+-	} else if len(tokens) == 2 {
+-		// az/instanceId
+-		awsID = tokens[1]
++	if len(tokens) > 0 {
++		awsID = tokens[len(tokens)-1]
+ 	}
+ 
+-	// We sanity check the resulting volume; the two known formats are
+-	// i-12345678 and i-12345678abcdef01
+-	if awsID == "" || !awsInstanceRegMatch.MatchString(awsID) {
++	// We sanity check the resulting volume; the known formats are
++	// i-12345678, i-12345678abcdef01 and fargate-dnsName
++	if awsID == "" || !(awsInstanceRegMatch.MatchString(awsID) || isFargateNode(awsID)) {
+ 		return "", fmt.Errorf("Invalid format for AWS instance (%s)", name)
+ 	}
+ 
