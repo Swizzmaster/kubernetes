@@ -62,7 +62,7 @@ export KUBE_STATIC_OVERRIDES="cmd/kubelet \
         cmd/kube-controller-manager \
         cmd/kube-scheduler"
 make generated_files
-export KUBE_BUILD_PLATFORMS="linux/amd64"
+export KUBE_BUILD_PLATFORMS="linux/amd64 linux/arm64"
 	hack/make-rules/build.sh -trimpath cmd/kubelet \
         cmd/kube-proxy \
         cmd/kubectl \
