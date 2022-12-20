@@ -63,7 +63,7 @@ set K8S_ROOT ""
 set K8S_GIT_TAG "v1.XX.YY"
 set K8S_MINOR_VERSION "1.XX"
 
-# For bash, zsh, and other such garbage
+# For bash, zsh, and other shells
 PATCHES_ROOT=""
 K8S_ROOT=""
 K8S_GIT_TAG="v1.XX.YY"
