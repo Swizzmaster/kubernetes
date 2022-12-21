@@ -188,7 +188,8 @@ function prepare_patches {
   local RANGE_END=$5
 
   pushd "$KUBERNETES_DIR"
-  git format-patch \
+  git -c diff.noprefix=false format-patch \
+    --abbrev=11 \
     --zero-commit \
     --no-numbered \
     --no-signature \

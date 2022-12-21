@@ -18,7 +18,8 @@ Signed-off-by: Gyuho Lee <leegyuho@amazon.com>
 ---
  .../src/k8s.io/apiserver/pkg/server/healthz/healthz.go    | 8 ++++++--
  .../k8s.io/apiserver/pkg/server/healthz/healthz_test.go   | 2 +-
- 2 files changed, 7 insertions(+), 3 deletions(-)
+ .../controlplane/transformation/transformation_test.go    | 8 ++++++++
+ 3 files changed, 15 insertions(+), 3 deletions(-)
 
 diff --git a/staging/src/k8s.io/apiserver/pkg/server/healthz/healthz.go b/staging/src/k8s.io/apiserver/pkg/server/healthz/healthz.go
 index 63ff59750f0..d02601cb0fd 100644
@@ -52,3 +53,29 @@ index 89937987e2c..42951e25434 100644
  		{"/ping", "ok", http.StatusOK, false},
  		{"", "ok", http.StatusOK, false},
  		{"?verbose", fmt.Sprintf("[+]ping ok\n[-]bad failed: reason withheld\n%s check failed\n", name), http.StatusInternalServerError, true},
+diff --git a/test/integration/controlplane/transformation/transformation_test.go b/test/integration/controlplane/transformation/transformation_test.go
+index d2e58595ffa..b7e6a4786fe 100644
+--- a/test/integration/controlplane/transformation/transformation_test.go
++++ b/test/integration/controlplane/transformation/transformation_test.go
+@@ -20,6 +20,7 @@ import (
+ 	"bytes"
+ 	"context"
+ 	"encoding/json"
++	"flag"
+ 	"fmt"
+ 	"os"
+ 	"path"
+@@ -101,6 +102,13 @@ func newTransformTest(l kubeapiservertesting.Logger, transformerConfigYAML strin
+ 		e.configDir = configDir
+ 	}
+ 
++	// See EKS-PRIVATE-apiserver-healthz-upper-log-verbosity-fo.patch
++	prev := flag.Lookup("v").Value.(flag.Getter).Get().(klog.Level)
++	flag.Set("v", "6")
++	defer func() {
++		flag.Set("v", prev.String())
++	}()
++
+ 	if e.kubeAPIServer, err = kubeapiservertesting.StartTestServer(l, nil, e.getEncryptionOptions(reload), e.storageConfig); err != nil {
+ 		return nil, fmt.Errorf("failed to start KubeAPI server: %v", err)
+ 	}
