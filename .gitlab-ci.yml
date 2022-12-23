@@ -44,6 +44,7 @@ workflow:
 .test_prepare_patches:
   stage: test
   script:
+   - *script_apply_patches
    - *script_prepare_patches
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
