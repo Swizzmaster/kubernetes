@@ -4,13 +4,13 @@ Date: Wed, 21 Dec 2022 20:12:26 -0600
 Subject: [PATCH] --EKS-PATCH-- admission webhook exclusion from file
 
 ---
- .../generic/exclusionrules/exclusion.go       | 124 ++++++
- .../generic/exclusionrules/exclusion_test.go  | 405 ++++++++++++++++++
+ .../generic/exclusionrules/exclusion.go       | 129 ++++++
+ .../generic/exclusionrules/exclusion_test.go  | 425 ++++++++++++++++++
  .../webhook/generic/exclusionrules/matcher.go |  81 ++++
  .../generic/exclusionrules/matcher_test.go    | 333 ++++++++++++++
  .../plugin/webhook/generic/webhook.go         |   5 +
  .../webhook_exclusion_rules_test.go           | 231 ++++++++++
- 6 files changed, 1179 insertions(+)
+ 6 files changed, 1204 insertions(+)
  create mode 100644 staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/generic/exclusionrules/exclusion.go
  create mode 100644 staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/generic/exclusionrules/exclusion_test.go
  create mode 100644 staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/generic/exclusionrules/matcher.go
@@ -19,10 +19,10 @@ Subject: [PATCH] --EKS-PATCH-- admission webhook exclusion from file
 
 diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/generic/exclusionrules/exclusion.go b/staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/generic/exclusionrules/exclusion.go
 new file mode 100644
-index 00000000000..e2b7725eb7a
+index 00000000000..ea1cc6f98d5
 --- /dev/null
 +++ b/staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/generic/exclusionrules/exclusion.go
-@@ -0,0 +1,124 @@
+@@ -0,0 +1,129 @@
 +package exclusionrules
 +
 +import (
@@ -95,6 +95,11 @@ index 00000000000..e2b7725eb7a
 +	// * not allowed for Scope, APIVersion, APIGroup, Namespace or Kind
 +	filteredRules := []ExclusionRule{}
 +	for _, rule := range inputExclusionRules {
++		if rule.Scope == nil {
++			klog.Errorf("Invalid webhook admission exclusion rule, scope not set")
++			continue
++		}
++		
 +		// No wildcards
 +		if *rule.Scope == v1.AllScopes || rule.APIGroup == "*" || rule.APIVersion == "*" || rule.Namespace == "*" || rule.Kind == "*" {
 +			klog.Errorf("Invalid webhook admission exclusion rule, wildcard not allowed, skipping rule")
@@ -149,10 +154,10 @@ index 00000000000..e2b7725eb7a
 +}
 diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/generic/exclusionrules/exclusion_test.go b/staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/generic/exclusionrules/exclusion_test.go
 new file mode 100644
-index 00000000000..ee49842b9a1
+index 00000000000..ab6da215728
 --- /dev/null
 +++ b/staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/generic/exclusionrules/exclusion_test.go
-@@ -0,0 +1,405 @@
+@@ -0,0 +1,425 @@
 +package exclusionrules
 +
 +import (
@@ -263,7 +268,6 @@ index 00000000000..ee49842b9a1
 +			attr:           getAttributes(),
 +		},
 +	}
-+	ShouldSkipWebhookDueToExclusionRules(nil) //trigger sync.Once to go one time
 +	for _, testcase := range testcases {
 +		t.Run(testcase.name, func(t *testing.T) {
 +			exclusionRules = testcase.exclusionRules
@@ -368,6 +372,27 @@ index 00000000000..ee49842b9a1
 +					Name:       []string{"testName"},
 +					Namespace:  "*",
 +					Scope:      &namespace,
++				},
++			},
++			expectedOutputRules: 1,
++		},
++		{
++			name: "No Empty Scope",
++			inputRules: []ExclusionRule{
++				{
++					APIGroup:   "apps",
++					APIVersion: "v1",
++					Kind:       "Deployment",
++					Name:       []string{"testName"},
++					Namespace:  "ns",
++					Scope:      &namespace,
++				},
++				{
++					APIGroup:   "apps",
++					APIVersion: "v1",
++					Kind:       "Deployment",
++					Name:       []string{"testName"},
++					Namespace:  "ns",
 +				},
 +			},
 +			expectedOutputRules: 1,

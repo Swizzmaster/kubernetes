@@ -4,13 +4,13 @@ Date: Wed, 21 Dec 2022 20:12:26 -0600
 Subject: [PATCH] --EKS-PATCH-- admission webhook exclusion from file
 
 ---
- .../generic/exclusionrules/exclusion.go       | 124 ++++++
- .../generic/exclusionrules/exclusion_test.go  | 405 ++++++++++++++++++
+ .../generic/exclusionrules/exclusion.go       | 149 ++++++
+ .../generic/exclusionrules/exclusion_test.go  | 425 ++++++++++++++++++
  .../webhook/generic/exclusionrules/matcher.go |  81 ++++
  .../generic/exclusionrules/matcher_test.go    | 333 ++++++++++++++
  .../plugin/webhook/generic/webhook.go         |   5 +
- .../webhook_exclusion_rules_test.go           | 231 ++++++++++
- 6 files changed, 1179 insertions(+)
+ .../webhook_exclusion_rules_test.go           | 278 ++++++++++++
+ 6 files changed, 1271 insertions(+)
  create mode 100644 staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/generic/exclusionrules/exclusion.go
  create mode 100644 staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/generic/exclusionrules/exclusion_test.go
  create mode 100644 staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/generic/exclusionrules/matcher.go
@@ -19,10 +19,10 @@ Subject: [PATCH] --EKS-PATCH-- admission webhook exclusion from file
 
 diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/generic/exclusionrules/exclusion.go b/staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/generic/exclusionrules/exclusion.go
 new file mode 100644
-index 00000000000..e2b7725eb7a
+index 00000000000..fdbba4ae997
 --- /dev/null
 +++ b/staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/generic/exclusionrules/exclusion.go
-@@ -0,0 +1,124 @@
+@@ -0,0 +1,149 @@
 +package exclusionrules
 +
 +import (
@@ -73,21 +73,41 @@ index 00000000000..e2b7725eb7a
 +var exclusionRules []ExclusionRule
 +
 +func readFile() []ExclusionRule {
-+	data := []ExclusionRule{}
++	//Default values for backwards compatability for eks-d
++	defaultExclusion := []ExclusionRule{
++		{
++			APIGroup:   "coordination.k8s.io",
++			APIVersion: "v1",
++			Kind:       "Lease",
++			Namespace:  "kube-system",
++			Name:       []string{"kube-controller-manager", "kube-scheduler"},
++		},
++		{
++			APIGroup:   "",
++			APIVersion: "v1",
++			Kind:       "Endpoints",
++			Namespace:  "kube-system",
++			Name:       []string{"kube-controller-manager", "kube-scheduler"},
++		},
++	}
++
 +	if fileLocation, ok := os.LookupEnv(ADMISSION_WEBHOOK_EXCLUSION_ENV_VAR); ok {
 +		file, err := os.ReadFile(fileLocation)
 +		if err != nil {
 +			klog.Errorf("Error reading %v file: %v", ADMISSION_WEBHOOK_EXCLUSION_ENV_VAR, err)
-+			return data
++			return defaultExclusion
 +		}
++		data := []ExclusionRule{}
 +		err = json.Unmarshal(file, &data)
 +		if err != nil {
 +			klog.Errorf("Error converting %v file to exclusion rules: %v", ADMISSION_WEBHOOK_EXCLUSION_ENV_VAR, err)
-+			return data
++			return defaultExclusion
 +		}
++		klog.Infof("Successfully found and loaded %v exclusion rules", len(data))
++		return data
 +	}
-+	klog.Infof("Successfully found and loaded %v exclusion rules", len(data))
-+	return data
++	klog.Info("No environment variable set, using default exclusion rules")
++	return defaultExclusion
 +}
 +
 +func filterValidRules(inputExclusionRules []ExclusionRule) []ExclusionRule {
@@ -95,6 +115,11 @@ index 00000000000..e2b7725eb7a
 +	// * not allowed for Scope, APIVersion, APIGroup, Namespace or Kind
 +	filteredRules := []ExclusionRule{}
 +	for _, rule := range inputExclusionRules {
++		if rule.Scope == nil {
++			klog.Errorf("Invalid webhook admission exclusion rule, scope not set")
++			continue
++		}
++
 +		// No wildcards
 +		if *rule.Scope == v1.AllScopes || rule.APIGroup == "*" || rule.APIVersion == "*" || rule.Namespace == "*" || rule.Kind == "*" {
 +			klog.Errorf("Invalid webhook admission exclusion rule, wildcard not allowed, skipping rule")
@@ -149,10 +174,10 @@ index 00000000000..e2b7725eb7a
 +}
 diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/generic/exclusionrules/exclusion_test.go b/staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/generic/exclusionrules/exclusion_test.go
 new file mode 100644
-index 00000000000..ee49842b9a1
+index 00000000000..ab6da215728
 --- /dev/null
 +++ b/staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/generic/exclusionrules/exclusion_test.go
-@@ -0,0 +1,405 @@
+@@ -0,0 +1,425 @@
 +package exclusionrules
 +
 +import (
@@ -263,7 +288,6 @@ index 00000000000..ee49842b9a1
 +			attr:           getAttributes(),
 +		},
 +	}
-+	ShouldSkipWebhookDueToExclusionRules(nil) //trigger sync.Once to go one time
 +	for _, testcase := range testcases {
 +		t.Run(testcase.name, func(t *testing.T) {
 +			exclusionRules = testcase.exclusionRules
@@ -368,6 +392,27 @@ index 00000000000..ee49842b9a1
 +					Name:       []string{"testName"},
 +					Namespace:  "*",
 +					Scope:      &namespace,
++				},
++			},
++			expectedOutputRules: 1,
++		},
++		{
++			name: "No Empty Scope",
++			inputRules: []ExclusionRule{
++				{
++					APIGroup:   "apps",
++					APIVersion: "v1",
++					Kind:       "Deployment",
++					Name:       []string{"testName"},
++					Namespace:  "ns",
++					Scope:      &namespace,
++				},
++				{
++					APIGroup:   "apps",
++					APIVersion: "v1",
++					Kind:       "Deployment",
++					Name:       []string{"testName"},
++					Namespace:  "ns",
 +				},
 +			},
 +			expectedOutputRules: 1,
@@ -1009,15 +1054,16 @@ index c04225e94f7..f12f920e29e 100644
  		m := rules.Matcher{Rule: r, Attr: attr}
 diff --git a/test/integration/apiserver/admissionwebhook/webhook_exclusion_rules_test.go b/test/integration/apiserver/admissionwebhook/webhook_exclusion_rules_test.go
 new file mode 100644
-index 00000000000..f89b972275f
+index 00000000000..0575b054b10
 --- /dev/null
 +++ b/test/integration/apiserver/admissionwebhook/webhook_exclusion_rules_test.go
-@@ -0,0 +1,231 @@
+@@ -0,0 +1,278 @@
 +package admissionwebhook
 +
 +import (
 +	"context"
 +	"fmt"
++	coordinationv1 "k8s.io/api/coordination/v1"
 +	"k8s.io/apiserver/pkg/admission/plugin/webhook/generic/exclusionrules"
 +	"os"
 +	"testing"
@@ -1036,6 +1082,9 @@ index 00000000000..f89b972275f
 +	exclusionRulesFile           = "exclusion-rules-config.json"
 +	webhookNameExclusionRules    = "integration-exclusion-rules-test-webhook-config"
 +	deploymentNameExclusionRules = "integration-exclusion-rules-test-deployment"
++	kubeSystem                   = "kube-system"
++	kubeControllerManager        = "kube-controller-manager"
++	kubeScheduler                = "kube-scheduler"
 +)
 +
 +func TestWebhookExclusionRulesNoEnvVarSet(t *testing.T) {
@@ -1048,11 +1097,13 @@ index 00000000000..f89b972275f
 +		t.Fatalf("unexpected error: %v", err)
 +	}
 +	createBrokenWebhook(t, client)
-+	//Creating deployment that should be blocked by webhook
++	// Creating deployment that should be blocked by webhook
 +	_, err = client.AppsV1().Deployments("default").Create(context.TODO(), exampleDeploymentExclusionRules(deploymentNameExclusionRules), metav1.CreateOptions{})
 +	if err == nil {
 +		t.Fatalf("was able to create deployment but should've been blocked: %v", err)
 +	}
++	// Default rules should be set
++	validateDefaultExclusionRulesSet(t, client)
 +}
 +
 +func TestWebhookExclusionRulesEnvVarSetNoFile(t *testing.T) {
@@ -1064,7 +1115,7 @@ index 00000000000..f89b972275f
 +		t.Fatalf("unexpected error: %v", err)
 +	}
 +
-+	//Test env var set but no file, should be broken webhook
++	// Test env var set but no file, should be broken webhook
 +	err = os.Setenv(exclusionrules.ADMISSION_WEBHOOK_EXCLUSION_ENV_VAR, exclusionRulesFile)
 +	if err != nil {
 +		t.Fatalf("unexpected error clearing %v env var", exclusionrules.ADMISSION_WEBHOOK_EXCLUSION_ENV_VAR)
@@ -1078,6 +1129,8 @@ index 00000000000..f89b972275f
 +	if err == nil {
 +		t.Fatalf("was able to create deployment but should've been blocked: %v", err)
 +	}
++	// Default rules should be set
++	validateDefaultExclusionRulesSet(t, client)
 +}
 +
 +func TestWebhookExclusionRulesEnvVarSetBadFile(t *testing.T) {
@@ -1107,6 +1160,8 @@ index 00000000000..f89b972275f
 +	if err == nil {
 +		t.Fatalf("was able to create deployment but should've been blocked: %v", err)
 +	}
++	// Default rules should be set
++	validateDefaultExclusionRulesSet(t, client)
 +}
 +
 +func TestWebhookExclusionRules(t *testing.T) {
@@ -1154,6 +1209,25 @@ index 00000000000..f89b972275f
 +	_, err = client.AppsV1().Deployments("default").Create(context.TODO(), exampleDeploymentExclusionRules("test-different-name"), metav1.CreateOptions{})
 +	if err == nil {
 +		t.Fatalf("was able to create deployment but should've been blocked: %v", err)
++	}
++}
++
++func validateDefaultExclusionRulesSet(t *testing.T, client *kubernetes.Clientset) {
++	_, err := client.CoreV1().Endpoints("kube-system").Create(context.TODO(), exampleEndpoints(kubeControllerManager), metav1.CreateOptions{})
++	if err != nil {
++		t.Fatalf("was not able to create endpoint but should've been allowed: %v", err)
++	}
++	_, err = client.CoreV1().Endpoints("kube-system").Create(context.TODO(), exampleEndpoints(kubeScheduler), metav1.CreateOptions{})
++	if err != nil {
++		t.Fatalf("was not able to create endpoint but should've been allowed: %v", err)
++	}
++	_, err = client.CoordinationV1().Leases("kube-system").Create(context.TODO(), exampleLease(kubeControllerManager), metav1.CreateOptions{})
++	if err != nil {
++		t.Fatalf("was not able to create lease but should've been allowed: %v", err)
++	}
++	_, err = client.CoordinationV1().Leases("kube-system").Create(context.TODO(), exampleLease(kubeScheduler), metav1.CreateOptions{})
++	if err != nil {
++		t.Fatalf("was not able to create lease but should've been allowed: %v", err)
 +	}
 +}
 +
@@ -1205,6 +1279,24 @@ index 00000000000..f89b972275f
 +					},
 +				},
 +			},
++		},
++	}
++}
++
++func exampleEndpoints(name string) *corev1.Endpoints {
++	return &corev1.Endpoints{
++		ObjectMeta: metav1.ObjectMeta{
++			Name:      name,
++			Namespace: kubeSystem,
++		},
++	}
++}
++
++func exampleLease(name string) *coordinationv1.Lease {
++	return &coordinationv1.Lease{
++		ObjectMeta: metav1.ObjectMeta{
++			Name:      name,
++			Namespace: kubeSystem,
 +		},
 +	}
 +}
