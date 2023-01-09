@@ -33,6 +33,7 @@ Signed-off-by: Jyoti Mahapatra<jyotima@amazon.com>
  pkg/kubelet/apis/config/fuzzer/fuzzer.go      |   1 +
  pkg/kubelet/cm/helpers_linux.go               |  10 +-
  pkg/kubelet/kubelet.go                        |   3 +
+ .../kuberuntime_container_linux.go            |   3 +
  .../lifecycle/fargate_pod_admit_handler.go    |  46 +++
  .../lifecycle/fargate_pod_validator.go        | 348 ++++++++++++++++++
  .../lifecycle/fargate_pod_validator_test.go   | 154 ++++++++
@@ -56,7 +57,7 @@ Signed-off-by: Jyoti Mahapatra<jyotima@amazon.com>
  .../legacy-cloud-providers/aws/aws_routes.go  |   6 +-
  .../legacy-cloud-providers/aws/aws_test.go    |  62 +++-
  .../legacy-cloud-providers/aws/instances.go   |  14 +-
- 27 files changed, 1365 insertions(+), 86 deletions(-)
+ 28 files changed, 1368 insertions(+), 86 deletions(-)
  create mode 100644 pkg/kubelet/lifecycle/fargate_pod_admit_handler.go
  create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator.go
  create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator_test.go
@@ -162,6 +163,27 @@ index 1a03b11ed46..2e5936dcf4c 100644
  
  	leaseDuration := time.Duration(kubeCfg.NodeLeaseDurationSeconds) * time.Second
  	renewInterval := time.Duration(float64(leaseDuration) * nodeLeaseRenewIntervalFraction)
+diff --git a/pkg/kubelet/kuberuntime/kuberuntime_container_linux.go b/pkg/kubelet/kuberuntime/kuberuntime_container_linux.go
+index 7bcc139e7e8..5a5304ebb87 100644
+--- a/pkg/kubelet/kuberuntime/kuberuntime_container_linux.go
++++ b/pkg/kubelet/kuberuntime/kuberuntime_container_linux.go
+@@ -35,6 +35,7 @@ import (
+ 	kubecontainer "k8s.io/kubernetes/pkg/kubelet/container"
+ 	"k8s.io/kubernetes/pkg/kubelet/qos"
+ 	kubelettypes "k8s.io/kubernetes/pkg/kubelet/types"
++	"k8s.io/kubernetes/pkg/kubelet/util"
+ )
+ 
+ // applyPlatformSpecificContainerConfig applies platform specific configurations to runtimeapi.ContainerConfig.
+@@ -171,6 +172,8 @@ func (m *kubeGenericRuntimeManager) calculateLinuxResources(cpuRequest, cpuLimit
+ 			cpuPeriod = int64(m.cpuCFSQuotaPeriod.Duration / time.Microsecond)
+ 		}
+ 		cpuQuota := milliCPUToQuota(cpuLimit.MilliValue(), cpuPeriod)
++		cpuQuota = util.GetPodMaxCpuQuota(cpuQuota)
++
+ 		resources.CpuQuota = cpuQuota
+ 		resources.CpuPeriod = cpuPeriod
+ 	}
 diff --git a/pkg/kubelet/lifecycle/fargate_pod_admit_handler.go b/pkg/kubelet/lifecycle/fargate_pod_admit_handler.go
 new file mode 100644
 index 00000000000..dda6d97448d
