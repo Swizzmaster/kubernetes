@@ -8,6 +8,8 @@ ref. https://github.com/micahhausler/kubernetes/commit/147f45449d6d750c848751eb7
 
 1.22: Support for multiple issuers was added, so that migration is
 possible from 1 issuer to another, so this patch needed to be rebased.
+
+- Check token issuer before calling key-server to avoid pointless calls for aws-iam-authenticator token
 ---
  cmd/kube-apiserver/app/options/validation.go  |  32 ++
  cmd/kube-apiserver/app/server.go              |  20 ++
@@ -20,13 +22,13 @@ possible from 1 issuer to another, so this patch needed to be rebased.
  .../externalsigner/v1alpha1/service.pb.go     | 317 ++++++++++++++++++
  .../externalsigner/v1alpha1/service.proto     |  40 +++
  pkg/serviceaccount/jwt.go                     |  18 +-
- pkg/serviceaccount/jwt_external.go            | 187 +++++++++++
- pkg/serviceaccount/jwt_external_test.go       | 128 +++++++
- pkg/serviceaccount/jwt_test.go                | 171 +++++++---
+ pkg/serviceaccount/jwt_external.go            | 225 +++++++++++++
+ pkg/serviceaccount/jwt_external_test.go       | 130 +++++++
+ pkg/serviceaccount/jwt_test.go                | 193 ++++++++---
  staging/src/k8s.io/client-go/util/cert/pem.go |   7 +-
  .../go-jose.v2/cryptosigner/cryptosigner.go   | 138 ++++++++
  vendor/modules.txt                            |   1 +
- 17 files changed, 1160 insertions(+), 64 deletions(-)
+ 17 files changed, 1222 insertions(+), 64 deletions(-)
  create mode 100755 hack/update-generated-externalsigner-dockerized.sh
  create mode 100755 hack/update-generated-externalsigner.sh
  create mode 100755 hack/verify-generated-externalsigner.sh
@@ -814,10 +816,10 @@ index 6722b206d1d..96765506aa5 100644
  		return nil, fmt.Errorf("failed to create signer: %v", err)
 diff --git a/pkg/serviceaccount/jwt_external.go b/pkg/serviceaccount/jwt_external.go
 new file mode 100644
-index 00000000000..29014dfbac1
+index 00000000000..8ce8140fcb5
 --- /dev/null
 +++ b/pkg/serviceaccount/jwt_external.go
-@@ -0,0 +1,187 @@
+@@ -0,0 +1,225 @@
 +/*
 +Copyright 2019 The Kubernetes Authors.
 +
@@ -838,7 +840,10 @@ index 00000000000..29014dfbac1
 +
 +import (
 +	"context"
++	"encoding/base64"
++	"encoding/json"
 +	"fmt"
++	"strings"
 +
 +	"google.golang.org/grpc"
 +	jose "gopkg.in/square/go-jose.v2"
@@ -964,11 +969,16 @@ index 00000000000..29014dfbac1
 +type ExternalTokenAuthenticator struct {
 +	Client       externalsigner.KeyServiceClient
 +	Issuers      []string
++	IssuersMap   map[string]bool
 +	Validator    Validator
 +	ImplicitAuds authenticator.Audiences
 +}
 +
 +func (a *ExternalTokenAuthenticator) AuthenticateToken(ctx context.Context, tokenData string) (*authenticator.Response, bool, error) {
++	if !a.hasCorrectIssuer(tokenData) {
++		return nil, false, nil
++	}
++
 +	keyResp, err := a.Client.ListPublicKeys(ctx, &externalsigner.ListPublicKeysRequest{})
 +	if err != nil {
 +		return nil, false, err
@@ -998,19 +1008,49 @@ index 00000000000..29014dfbac1
 +	if err != nil {
 +		return nil, err
 +	}
++	issuersMap := make(map[string]bool)
++	for _, issuer := range issuers {
++		issuersMap[issuer] = true
++	}
 +	return &ExternalTokenAuthenticator{
 +		Client:       externalsigner.NewKeyServiceClient(conn),
 +		Issuers:      issuers,
++		IssuersMap:   issuersMap,
 +		Validator:    validator,
 +		ImplicitAuds: implicitAuds,
 +	}, nil
 +}
++
++// hasCorrectIssuer returns true if tokenData is a valid JWT in compact
++// serialization format and the "iss" claim matches the iss field of this token
++// authenticator, and otherwise returns false.
++//
++// Note: go-jose currently does not allow access to unverified JWS payloads.
++// See https://github.com/square/go-jose/issues/169
++func (a *ExternalTokenAuthenticator) hasCorrectIssuer(tokenData string) bool {
++	parts := strings.Split(tokenData, ".")
++	if len(parts) != 3 {
++		return false
++	}
++	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
++	if err != nil {
++		return false
++	}
++	claims := struct {
++		// WARNING: this JWT is not verified. Do not trust these claims.
++		Issuer string `json:"iss"`
++	}{}
++	if err := json.Unmarshal(payload, &claims); err != nil {
++		return false
++	}
++	return a.IssuersMap[claims.Issuer]
++}
 diff --git a/pkg/serviceaccount/jwt_external_test.go b/pkg/serviceaccount/jwt_external_test.go
 new file mode 100644
-index 00000000000..d806e346589
+index 00000000000..510c36ec553
 --- /dev/null
 +++ b/pkg/serviceaccount/jwt_external_test.go
-@@ -0,0 +1,128 @@
+@@ -0,0 +1,130 @@
 +/*
 +Copyright 2019 The Kubernetes Authors.
 +
@@ -1075,7 +1115,8 @@ index 00000000000..d806e346589
 +}
 +
 +type mockKeyServiceClient struct {
-+	key interface{}
++	key                 interface{}
++	listPublicKeysCalls int
 +}
 +
 +func (c *mockKeyServiceClient) SignPayload(ctx context.Context, in *externalsigner.SignPayloadRequest, opts ...grpc.CallOption) (*externalsigner.SignPayloadResponse, error) {
@@ -1094,6 +1135,7 @@ index 00000000000..d806e346589
 +}
 +
 +func (c *mockKeyServiceClient) ListPublicKeys(ctx context.Context, in *externalsigner.ListPublicKeysRequest, opts ...grpc.CallOption) (*externalsigner.ListPublicKeysResponse, error) {
++	c.listPublicKeysCalls++
 +	var alg jose.SignatureAlgorithm
 +	var kU []byte
 +	var err error
@@ -1140,7 +1182,7 @@ index 00000000000..d806e346589
 +
 +}
 diff --git a/pkg/serviceaccount/jwt_test.go b/pkg/serviceaccount/jwt_test.go
-index 675e43cf3a9..17d5370d014 100644
+index 675e43cf3a9..29d9208352b 100644
 --- a/pkg/serviceaccount/jwt_test.go
 +++ b/pkg/serviceaccount/jwt_test.go
 @@ -33,8 +33,10 @@ import (
@@ -1198,7 +1240,7 @@ index 675e43cf3a9..17d5370d014 100644
  	// Generate signer with same keys as RSA signer but different unrecognized issuer
  	badIssuerGenerator, err := serviceaccount.JWTTokenGenerator("foo", getPrivateKey(rsaPrivateKey))
  	if err != nil {
-@@ -218,11 +243,14 @@ func TestTokenGenerateAndValidate(t *testing.T) {
+@@ -218,11 +243,15 @@ func TestTokenGenerateAndValidate(t *testing.T) {
  		Keys   []interface{}
  		Token  string
  
@@ -1207,44 +1249,54 @@ index 675e43cf3a9..17d5370d014 100644
 -		ExpectedUserName string
 -		ExpectedUserUID  string
 -		ExpectedGroups   []string
-+		ExpectedErr           bool
-+		ExpectedOK            bool
-+		ExpectedUserName      string
-+		ExpectedUserUID       string
-+		ExpectedGroups        []string
-+		Authenticator         authenticator.Token
-+		ExternalServiceClient externalsigner.KeyServiceClient
-+		Issuer                []string
++		ExpectedErr                 bool
++		ExpectedOK                  bool
++		ExpectedUserName            string
++		ExpectedUserUID             string
++		ExpectedGroups              []string
++		Authenticator               authenticator.Token
++		ExternalServiceClient       externalsigner.KeyServiceClient
++		ExpectedListPublicKeysCalls int
++		Issuer                      []string
  	}{
  		"no keys": {
  			Token:       rsaToken,
-@@ -326,58 +354,93 @@ func TestTokenGenerateAndValidate(t *testing.T) {
+@@ -326,58 +355,114 @@ func TestTokenGenerateAndValidate(t *testing.T) {
  			ExpectedErr: true,
  			ExpectedOK:  false,
  		},
 +		"valid (external rsa)": {
-+			Token:                 remoteRsaToken,
-+			Client:                fake.NewSimpleClientset(serviceAccount),
-+			Keys:                  nil,
-+			ExpectedErr:           false,
-+			ExpectedOK:            true,
-+			ExpectedUserName:      expectedUserName,
-+			ExpectedUserUID:       expectedUserUID,
-+			ExpectedGroups:        []string{"system:serviceaccounts", "system:serviceaccounts:test"},
-+			ExternalServiceClient: newMockKeyServiceClient(getPrivateKey(rsaPrivateKey)),
-+			Issuer:                newIssuer,
++			Token:                       remoteRsaToken,
++			Client:                      fake.NewSimpleClientset(serviceAccount),
++			Keys:                        nil,
++			ExpectedErr:                 false,
++			ExpectedOK:                  true,
++			ExpectedUserName:            expectedUserName,
++			ExpectedUserUID:             expectedUserUID,
++			ExpectedGroups:              []string{"system:serviceaccounts", "system:serviceaccounts:test"},
++			ExternalServiceClient:       newMockKeyServiceClient(getPrivateKey(rsaPrivateKey)),
++			ExpectedListPublicKeysCalls: 1,
++			Issuer:                      newIssuer,
 +		},
-+		"invalid key (external)": {
-+			Token:                 remoteRsaToken,
-+			Client:                fake.NewSimpleClientset(serviceAccount),
-+			Keys:                  nil,
-+			ExpectedErr:           true,
-+			ExpectedOK:            false,
-+			ExpectedUserName:      expectedUserName,
-+			ExpectedUserUID:       expectedUserUID,
-+			ExpectedGroups:        []string{"system:serviceaccounts", "system:serviceaccounts:test"},
-+			ExternalServiceClient: newMockKeyServiceClient(getPrivateKey(ecdsaPrivateKey)),
-+			Issuer:                newIssuer,
++		"invalid key (external rsa)": {
++			Token:                       remoteRsaToken,
++			Client:                      nil,
++			Keys:                        nil,
++			ExpectedErr:                 true,
++			ExpectedOK:                  false,
++			ExternalServiceClient:       newMockKeyServiceClient(getPrivateKey(ecdsaPrivateKey)),
++			ExpectedListPublicKeysCalls: 1,
++			Issuer:                      newIssuer,
++		},
++		"valid key, invalid issuer (external rsa)": {
++			Token:                       badIssuerToken,
++			Client:                      nil,
++			Keys:                        []interface{}{getPublicKey(rsaPublicKey)},
++			ExpectedErr:                 false,
++			ExpectedOK:                  false,
++			ExternalServiceClient:       newMockKeyServiceClient(getPrivateKey(rsaPrivateKey)),
++			ExpectedListPublicKeysCalls: 0,
++			Issuer:                      newIssuer,
 +		},
  	}
  
@@ -1314,9 +1366,14 @@ index 675e43cf3a9..17d5370d014 100644
 +			)
 +			var authn authenticator.Token
 +			if tc.ExternalServiceClient != nil {
++				issuersMap := make(map[string]bool)
++				for _, issuer := range tc.Issuer {
++					issuersMap[issuer] = true
++				}
 +				authn = &serviceaccount.ExternalTokenAuthenticator{
 +					Client:       tc.ExternalServiceClient,
 +					Issuers:      tc.Issuer,
++					IssuersMap:   issuersMap,
 +					ImplicitAuds: nil,
 +					Validator:    serviceaccount.NewValidator(getter),
 +				}
@@ -1339,6 +1396,13 @@ index 675e43cf3a9..17d5370d014 100644
 +			if ok != tc.ExpectedOK {
 +				t.Errorf("%s: Expected ok=%v, got %v", k, tc.ExpectedOK, ok)
 +				return
++			}
++
++			if tc.ExternalServiceClient != nil {
++				listPublicKeysCalls := tc.ExternalServiceClient.(*mockKeyServiceClient).listPublicKeysCalls
++				if listPublicKeysCalls != tc.ExpectedListPublicKeysCalls {
++					t.Errorf("%s: Expected listPublicKeysCalls=%v, got %v", k, tc.ExpectedListPublicKeysCalls, listPublicKeysCalls)
++				}
 +			}
 +
 +			if err != nil || !ok {
