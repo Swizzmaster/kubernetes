@@ -9,7 +9,7 @@
 
 .script_prepare_patches: &script_prepare_patches
   - ./hack/prepare_patches.sh ./kubernetes/ ./patches/$MINOR_VERSION/
-  - git diff --quiet
+  - git diff --exit-code
 
 default:
   image: bitnami/git
