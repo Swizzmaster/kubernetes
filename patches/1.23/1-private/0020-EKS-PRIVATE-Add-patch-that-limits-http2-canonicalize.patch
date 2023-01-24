@@ -10,16 +10,16 @@ Related: https://code.amazon.com/packages/GoLang/commits/2930a16312c510134f18224
  1 file changed, 2 insertions(+), 1 deletion(-)
 
 diff --git a/vendor/golang.org/x/net/http2/server.go b/vendor/golang.org/x/net/http2/server.go
-index d219dc4c76d..46e006c6d80 100644
+index 4eb7617fa0d..dabcf5afa39 100644
 --- a/vendor/golang.org/x/net/http2/server.go
 +++ b/vendor/golang.org/x/net/http2/server.go
-@@ -725,7 +725,8 @@ func (sc *serverConn) canonicalHeader(v string) string {
- 	// so high as to permit unreaasonable memory usage if the peer sends an unbounded
- 	// number of unique header keys.
- 	const maxCachedCanonicalHeaders = 32
--	if len(sc.canonHeader) < maxCachedCanonicalHeaders {
-+	const maxCachedCanonicalHeadersKeysSize = 1 << 10
-+	if len(sc.canonHeader) < maxCachedCanonicalHeaders && len(cv) < maxCachedCanonicalHeadersKeysSize {
- 		sc.canonHeader[v] = cv
+@@ -790,7 +790,8 @@ func (sc *serverConn) canonicalHeader(v string) string {
  	}
- 	return cv
+ 	cv = http.CanonicalHeaderKey(v)
+ 	size := 100 + len(v)*2 // 100 bytes of map overhead + key + value
+-	if sc.canonHeaderKeysSize+size <= maxCachedCanonicalHeadersKeysSize {
++	const maximumCachedCanonicalHeadersKeysSize = 1 << 10
++	if sc.canonHeaderKeysSize+size <= maxCachedCanonicalHeadersKeysSize && len(cv) < maximumCachedCanonicalHeadersKeysSize {
+ 		sc.canonHeader[v] = cv
+ 		sc.canonHeaderKeysSize += size
+ 	}

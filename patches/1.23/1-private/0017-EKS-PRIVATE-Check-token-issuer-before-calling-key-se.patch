@@ -106,7 +106,7 @@ index d806e346589..510c36ec553 100644
  	var kU []byte
  	var err error
 diff --git a/pkg/serviceaccount/jwt_test.go b/pkg/serviceaccount/jwt_test.go
-index fbace2fb7f2..e87b6a40146 100644
+index e0ef8eaba48..8d62cdf30f8 100644
 --- a/pkg/serviceaccount/jwt_test.go
 +++ b/pkg/serviceaccount/jwt_test.go
 @@ -243,14 +243,15 @@ func TestTokenGenerateAndValidate(t *testing.T) {

@@ -135,7 +135,7 @@ index 25ff3f13b82..e5be07f50b1 100644
  		}
  		mounts = append(mounts, m)
 diff --git a/pkg/kubelet/kubelet.go b/pkg/kubelet/kubelet.go
-index 3e753c93bc2..e173b17c463 100644
+index f7a949e99e9..1aa2284190a 100644
 --- a/pkg/kubelet/kubelet.go
 +++ b/pkg/kubelet/kubelet.go
 @@ -805,6 +805,9 @@ func NewMainKubelet(kubeCfg *kubeletconfiginternal.KubeletConfiguration,
@@ -548,10 +548,10 @@ index c2969a51126..1f5edaee902 100644
 +	return currentCpuQuota
 +}
 diff --git a/staging/src/k8s.io/legacy-cloud-providers/aws/aws.go b/staging/src/k8s.io/legacy-cloud-providers/aws/aws.go
-index 280e3d830a5..242abd45b50 100644
+index 434df20cc2e..5731a30d0e3 100644
 --- a/staging/src/k8s.io/legacy-cloud-providers/aws/aws.go
 +++ b/staging/src/k8s.io/legacy-cloud-providers/aws/aws.go
-@@ -251,6 +251,9 @@ const volumeAttachmentStuck = "VolumeAttachmentStuck"
+@@ -253,6 +253,9 @@ const volumeAttachmentStuck = "VolumeAttachmentStuck"
  // Indicates that a node has volumes stuck in attaching state and hence it is not fit for scheduling more pods
  const nodeWithImpairedVolumes = "NodeWithImpairedVolumes"
  
@@ -561,7 +561,7 @@ index 280e3d830a5..242abd45b50 100644
  const (
  	// volumeAttachmentConsecutiveErrorLimit is the number of consecutive errors we will ignore when waiting for a volume to attach/detach
  	volumeAttachmentStatusConsecutiveErrorLimit = 10
-@@ -283,6 +286,20 @@ const (
+@@ -285,6 +288,20 @@ const (
  	// Number of node names that can be added to a filter. The AWS limit is 200
  	// but we are using a lower limit on purpose
  	filterNodeLimit = 150
@@ -582,7 +582,7 @@ index 280e3d830a5..242abd45b50 100644
  )
  
  const (
-@@ -367,6 +384,8 @@ type EC2 interface {
+@@ -369,6 +386,8 @@ type EC2 interface {
  	ModifyInstanceAttribute(request *ec2.ModifyInstanceAttributeInput) (*ec2.ModifyInstanceAttributeOutput, error)
  
  	DescribeVpcs(input *ec2.DescribeVpcsInput) (*ec2.DescribeVpcsOutput, error)
@@ -591,7 +591,7 @@ index 280e3d830a5..242abd45b50 100644
  }
  
  // ELB is a simple pass-through of AWS' ELB client interface, which allows for testing
-@@ -634,6 +653,18 @@ type CloudConfig struct {
+@@ -636,6 +655,18 @@ type CloudConfig struct {
  		//yourself in an non-AWS cloud and open an issue, please indicate that in the
  		//issue body.
  		DisableStrictZoneCheck bool
@@ -610,7 +610,7 @@ index 280e3d830a5..242abd45b50 100644
  	}
  	// [ServiceOverride "1"]
  	//  Service = s3
-@@ -1178,6 +1209,15 @@ func (s *awsSdkEC2) DescribeVpcs(request *ec2.DescribeVpcsInput) (*ec2.DescribeV
+@@ -1180,6 +1211,15 @@ func (s *awsSdkEC2) DescribeVpcs(request *ec2.DescribeVpcsInput) (*ec2.DescribeV
  	return s.ec2.DescribeVpcs(request)
  }
  
@@ -626,7 +626,7 @@ index 280e3d830a5..242abd45b50 100644
  func init() {
  	registerMetrics()
  	cloudprovider.RegisterCloudProvider(ProviderName, func(config io.Reader) (cloudprovider.Interface, error) {
-@@ -1230,9 +1270,11 @@ func getRegionFromMetadata(cfg *CloudConfig) (string, error) {
+@@ -1232,9 +1272,11 @@ func getRegionFromMetadata(cfg *CloudConfig) (string, error) {
  		return "", fmt.Errorf("error creating AWS metadata client: %q", err)
  	}
  
@@ -641,7 +641,7 @@ index 280e3d830a5..242abd45b50 100644
  	}
  
  	zone := cfg.Global.Zone
-@@ -1313,9 +1355,11 @@ func newAWSCloud(cfg CloudConfig, awsServices Services) (*Cloud, error) {
+@@ -1315,9 +1357,11 @@ func newAWSCloud(cfg CloudConfig, awsServices Services) (*Cloud, error) {
  		return nil, fmt.Errorf("error creating AWS metadata client: %q", err)
  	}
  
@@ -656,7 +656,7 @@ index 280e3d830a5..242abd45b50 100644
  	}
  
  	zone := cfg.Global.Zone
-@@ -1399,8 +1443,8 @@ func newAWSCloud(cfg CloudConfig, awsServices Services) (*Cloud, error) {
+@@ -1401,8 +1445,8 @@ func newAWSCloud(cfg CloudConfig, awsServices Services) (*Cloud, error) {
  		if err := awsCloud.tagging.init(cfg.Global.KubernetesClusterTag, cfg.Global.KubernetesClusterID); err != nil {
  			return nil, err
  		}
@@ -667,7 +667,7 @@ index 280e3d830a5..242abd45b50 100644
  		info, err := awsCloud.selfAWSInstance.describeInstance()
  		if err != nil {
  			return nil, err
-@@ -1508,11 +1552,24 @@ func isAWSNotFound(err error) bool {
+@@ -1510,11 +1554,24 @@ func isAWSNotFound(err error) bool {
  	return false
  }
  
@@ -693,7 +693,7 @@ index 280e3d830a5..242abd45b50 100644
  		macs, err := c.metadata.GetMetadata("network/interfaces/macs/")
  		if err != nil {
  			return nil, fmt.Errorf("error querying AWS metadata for %q: %q", "network/interfaces/macs", err)
-@@ -1617,11 +1674,11 @@ func (c *Cloud) NodeAddresses(ctx context.Context, name types.NodeName) ([]v1.No
+@@ -1619,11 +1676,11 @@ func (c *Cloud) NodeAddresses(ctx context.Context, name types.NodeName) ([]v1.No
  		return addresses, nil
  	}
  
@@ -708,7 +708,7 @@ index 280e3d830a5..242abd45b50 100644
  }
  
  // parseMetadataLocalHostname parses the output of "local-hostname" metadata.
-@@ -1724,6 +1781,14 @@ func (c *Cloud) NodeAddressesByProviderID(ctx context.Context, providerID string
+@@ -1726,6 +1783,14 @@ func (c *Cloud) NodeAddressesByProviderID(ctx context.Context, providerID string
  		return nil, err
  	}
  
@@ -723,7 +723,7 @@ index 280e3d830a5..242abd45b50 100644
  	instance, err := describeInstance(c.ec2, instanceID)
  	if err != nil {
  		return nil, err
-@@ -1740,6 +1805,11 @@ func (c *Cloud) InstanceExistsByProviderID(ctx context.Context, providerID strin
+@@ -1742,6 +1807,11 @@ func (c *Cloud) InstanceExistsByProviderID(ctx context.Context, providerID strin
  		return false, err
  	}
  
@@ -735,7 +735,7 @@ index 280e3d830a5..242abd45b50 100644
  	request := &ec2.DescribeInstancesInput{
  		InstanceIds: []*string{instanceID.awsString()},
  	}
-@@ -1775,6 +1845,11 @@ func (c *Cloud) InstanceShutdownByProviderID(ctx context.Context, providerID str
+@@ -1777,6 +1847,11 @@ func (c *Cloud) InstanceShutdownByProviderID(ctx context.Context, providerID str
  		return false, err
  	}
  
@@ -747,7 +747,7 @@ index 280e3d830a5..242abd45b50 100644
  	request := &ec2.DescribeInstancesInput{
  		InstanceIds: []*string{instanceID.awsString()},
  	}
-@@ -1811,15 +1886,15 @@ func (c *Cloud) InstanceID(ctx context.Context, nodeName types.NodeName) (string
+@@ -1813,15 +1888,15 @@ func (c *Cloud) InstanceID(ctx context.Context, nodeName types.NodeName) (string
  	if c.selfAWSInstance.nodeName == nodeName {
  		return "/" + c.selfAWSInstance.availabilityZone + "/" + c.selfAWSInstance.awsID, nil
  	}
@@ -766,7 +766,7 @@ index 280e3d830a5..242abd45b50 100644
  }
  
  // InstanceTypeByProviderID returns the cloudprovider instance type of the node with the specified unique providerID
-@@ -1831,6 +1906,10 @@ func (c *Cloud) InstanceTypeByProviderID(ctx context.Context, providerID string)
+@@ -1833,6 +1908,10 @@ func (c *Cloud) InstanceTypeByProviderID(ctx context.Context, providerID string)
  		return "", err
  	}
  
@@ -777,7 +777,7 @@ index 280e3d830a5..242abd45b50 100644
  	instance, err := describeInstance(c.ec2, instanceID)
  	if err != nil {
  		return "", err
-@@ -1844,11 +1923,11 @@ func (c *Cloud) InstanceType(ctx context.Context, nodeName types.NodeName) (stri
+@@ -1846,11 +1925,11 @@ func (c *Cloud) InstanceType(ctx context.Context, nodeName types.NodeName) (stri
  	if c.selfAWSInstance.nodeName == nodeName {
  		return c.selfAWSInstance.instanceType, nil
  	}
@@ -792,7 +792,7 @@ index 280e3d830a5..242abd45b50 100644
  }
  
  // GetCandidateZonesForDynamicVolume retrieves  a list of all the zones in which nodes are running
-@@ -1935,6 +2014,14 @@ func (c *Cloud) GetZoneByProviderID(ctx context.Context, providerID string) (clo
+@@ -1937,6 +2016,14 @@ func (c *Cloud) GetZoneByProviderID(ctx context.Context, providerID string) (clo
  	if err != nil {
  		return cloudprovider.Zone{}, err
  	}
@@ -807,7 +807,7 @@ index 280e3d830a5..242abd45b50 100644
  	instance, err := c.getInstanceByID(string(instanceID))
  	if err != nil {
  		return cloudprovider.Zone{}, err
-@@ -1952,12 +2039,12 @@ func (c *Cloud) GetZoneByProviderID(ctx context.Context, providerID string) (clo
+@@ -1954,12 +2041,12 @@ func (c *Cloud) GetZoneByProviderID(ctx context.Context, providerID string) (clo
  // This is particularly useful in external cloud providers where the kubelet
  // does not initialize node data.
  func (c *Cloud) GetZoneByNodeName(ctx context.Context, nodeName types.NodeName) (cloudprovider.Zone, error) {
@@ -822,7 +822,7 @@ index 280e3d830a5..242abd45b50 100644
  		Region:        c.region,
  	}
  
-@@ -2003,25 +2090,37 @@ type awsInstance struct {
+@@ -2005,25 +2092,37 @@ type awsInstance struct {
  
  	// instance type
  	instanceType string
@@ -870,7 +870,7 @@ index 280e3d830a5..242abd45b50 100644
  }
  
  // Gets the full information about this instance from the EC2 API
-@@ -2034,13 +2133,12 @@ func (i *awsInstance) describeInstance() (*ec2.Instance, error) {
+@@ -2036,13 +2135,12 @@ func (i *awsInstance) describeInstance() (*ec2.Instance, error) {
  // Otherwise the mountDevice is assigned by finding the first available mountDevice, and it is returned with alreadyAttached=false.
  func (c *Cloud) getMountDevice(
  	i *awsInstance,
@@ -885,7 +885,7 @@ index 280e3d830a5..242abd45b50 100644
  		name := aws.StringValue(blockDevice.DeviceName)
  		name = strings.TrimPrefix(name, "/dev/sd")
  		name = strings.TrimPrefix(name, "/dev/xvd")
-@@ -2411,12 +2509,17 @@ func (d *awsDisk) deleteVolume() (bool, error) {
+@@ -2413,12 +2511,17 @@ func (d *awsDisk) deleteVolume() (bool, error) {
  	return true, nil
  }
  
@@ -904,7 +904,7 @@ index 280e3d830a5..242abd45b50 100644
  	instanceID, err := c.metadata.GetMetadata("instance-id")
  	if err != nil {
  		return nil, fmt.Errorf("error fetching instance-id from ec2 metadata service: %q", err)
-@@ -2434,7 +2537,7 @@ func (c *Cloud) buildSelfAWSInstance() (*awsInstance, error) {
+@@ -2436,7 +2539,7 @@ func (c *Cloud) buildSelfAWSInstance() (*awsInstance, error) {
  	if err != nil {
  		return nil, fmt.Errorf("error finding instance %s: %q", instanceID, err)
  	}
@@ -913,7 +913,7 @@ index 280e3d830a5..242abd45b50 100644
  }
  
  // wrapAttachError wraps the error returned by an AttachVolume request with
-@@ -2466,7 +2569,7 @@ func (c *Cloud) AttachDisk(diskName KubernetesVolumeID, nodeName types.NodeName)
+@@ -2468,7 +2571,7 @@ func (c *Cloud) AttachDisk(diskName KubernetesVolumeID, nodeName types.NodeName)
  		return "", err
  	}
  
@@ -922,7 +922,7 @@ index 280e3d830a5..242abd45b50 100644
  	if err != nil {
  		return "", fmt.Errorf("error finding instance %s: %q", nodeName, err)
  	}
-@@ -2487,7 +2590,7 @@ func (c *Cloud) AttachDisk(diskName KubernetesVolumeID, nodeName types.NodeName)
+@@ -2489,7 +2592,7 @@ func (c *Cloud) AttachDisk(diskName KubernetesVolumeID, nodeName types.NodeName)
  		}
  	}()
  
@@ -931,7 +931,7 @@ index 280e3d830a5..242abd45b50 100644
  	if err != nil {
  		return "", err
  	}
-@@ -2578,9 +2681,12 @@ func (c *Cloud) DetachDisk(diskName KubernetesVolumeID, nodeName types.NodeName)
+@@ -2580,9 +2683,12 @@ func (c *Cloud) DetachDisk(diskName KubernetesVolumeID, nodeName types.NodeName)
  		return "", nil
  	}
  
@@ -946,7 +946,7 @@ index 280e3d830a5..242abd45b50 100644
  	if err != nil {
  		return "", err
  	}
-@@ -2918,7 +3024,7 @@ func (c *Cloud) DisksAreAttached(nodeDisks map[types.NodeName][]KubernetesVolume
+@@ -2920,7 +3026,7 @@ func (c *Cloud) DisksAreAttached(nodeDisks map[types.NodeName][]KubernetesVolume
  		for _, diskName := range diskNames {
  			setNodeDisk(attached, diskName, nodeName, false)
  		}
@@ -955,7 +955,7 @@ index 280e3d830a5..242abd45b50 100644
  	}
  
  	// Note that we get instances regardless of state.
-@@ -5006,12 +5112,6 @@ func (c *Cloud) describeInstances(filters []*ec2.Filter) ([]*ec2.Instance, error
+@@ -5008,12 +5114,6 @@ func (c *Cloud) describeInstances(filters []*ec2.Filter) ([]*ec2.Instance, error
  	return matches, nil
  }
  
@@ -968,7 +968,7 @@ index 280e3d830a5..242abd45b50 100644
  // mapInstanceToNodeName maps a EC2 instance to a k8s NodeName, by extracting the PrivateDNSName
  func mapInstanceToNodeName(i *ec2.Instance) types.NodeName {
  	return types.NodeName(aws.StringValue(i.PrivateDnsName))
-@@ -5025,12 +5125,15 @@ var aliveFilter = []string{
+@@ -5027,12 +5127,15 @@ var aliveFilter = []string{
  	ec2.InstanceStateNameStopped,
  }
  
@@ -988,7 +988,7 @@ index 280e3d830a5..242abd45b50 100644
  		// exclude instances in "terminated" state
  		newEc2Filter("instance-state-name", aliveFilter...),
  	}
-@@ -5046,13 +5149,13 @@ func (c *Cloud) findInstanceByNodeName(nodeName types.NodeName) (*ec2.Instance,
+@@ -5048,13 +5151,13 @@ func (c *Cloud) findInstanceByNodeName(nodeName types.NodeName) (*ec2.Instance,
  	if len(instances) > 1 {
  		return nil, fmt.Errorf("multiple instances found for name: %s", nodeName)
  	}
@@ -1006,7 +1006,7 @@ index 280e3d830a5..242abd45b50 100644
  
  	// we leverage node cache to try to retrieve node's provider id first, as
  	// get instance by provider id is way more efficient than by filters in
-@@ -5060,9 +5163,14 @@ func (c *Cloud) getInstanceByNodeName(nodeName types.NodeName) (*ec2.Instance, e
+@@ -5062,9 +5165,14 @@ func (c *Cloud) getInstanceByNodeName(nodeName types.NodeName) (*ec2.Instance, e
  	awsID, err := c.nodeNameToProviderID(nodeName)
  	if err != nil {
  		klog.V(3).Infof("Unable to convert node name %q to aws instanceID, fall back to findInstanceByNodeName: %v", nodeName, err)
@@ -1023,7 +1023,7 @@ index 280e3d830a5..242abd45b50 100644
  	}
  	if err == nil && instance == nil {
  		return nil, cloudprovider.InstanceNotFound
-@@ -5070,17 +5178,16 @@ func (c *Cloud) getInstanceByNodeName(nodeName types.NodeName) (*ec2.Instance, e
+@@ -5072,17 +5180,16 @@ func (c *Cloud) getInstanceByNodeName(nodeName types.NodeName) (*ec2.Instance, e
  	return instance, err
  }
  
@@ -1048,7 +1048,7 @@ index 280e3d830a5..242abd45b50 100644
  }
  
  func (c *Cloud) nodeNameToProviderID(nodeName types.NodeName) (InstanceID, error) {
-@@ -5149,3 +5256,88 @@ func getInitialAttachDetachDelay(status string) time.Duration {
+@@ -5151,3 +5258,88 @@ func getInitialAttachDetachDelay(status string) time.Duration {
  	}
  	return volumeAttachmentStatusInitialDelay
  }
@@ -1295,7 +1295,7 @@ index c379459b148..13aefcf3dd5 100644
 +	assert.Equal(t, 1, len(awsInstance.addresses))
 +}
 diff --git a/staging/src/k8s.io/legacy-cloud-providers/aws/instances.go b/staging/src/k8s.io/legacy-cloud-providers/aws/instances.go
-index 7768deb3bb2..c0af4bb3f7c 100644
+index c2970382759..37fef2d353a 100644
 --- a/staging/src/k8s.io/legacy-cloud-providers/aws/instances.go
 +++ b/staging/src/k8s.io/legacy-cloud-providers/aws/instances.go
 @@ -74,17 +74,13 @@ func (name KubernetesInstanceID) MapToAWSInstanceID() (InstanceID, error) {

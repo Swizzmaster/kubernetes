@@ -5,13 +5,13 @@ Subject: [PATCH] --EKS-PRIVATE-- Patch kubelet: Keep trying fast status update
  at startup until node is ready #112618
 
 ---
- pkg/kubelet/kubelet.go                  | 125 ++++++++++--------
+ pkg/kubelet/kubelet.go                  |  68 ++++++----
  pkg/kubelet/kubelet_node_status.go      | 169 +++++++++++++++++++-----
  pkg/kubelet/kubelet_node_status_test.go | 153 +++++++++++++++++++++
- 3 files changed, 361 insertions(+), 86 deletions(-)
+ 3 files changed, 331 insertions(+), 59 deletions(-)
 
 diff --git a/pkg/kubelet/kubelet.go b/pkg/kubelet/kubelet.go
-index 778c19e6882..30b3f8fc533 100644
+index 6dc60bfbb3c..30b3f8fc533 100644
 --- a/pkg/kubelet/kubelet.go
 +++ b/pkg/kubelet/kubelet.go
 @@ -27,7 +27,6 @@ import (
@@ -78,90 +78,7 @@ index 778c19e6882..30b3f8fc533 100644
  		// Introduce some small jittering to ensure that over time the requests won't start
  		// accumulating at approximately the same time from the set of nodes due to priority and
  		// fairness effect.
-@@ -1470,29 +1485,32 @@ func (kl *Kubelet) Run(updates <-chan kubetypes.PodUpdate) {
- // Arguments:
- //
- // updateType - whether this is a create (first time) or an update, should
--//   only be used for metrics since this method must be reentrant
-+//
-+//	only be used for metrics since this method must be reentrant
-+//
- // pod - the pod that is being set up
- // mirrorPod - the mirror pod known to the kubelet for this pod, if any
- // podStatus - the most recent pod status observed for this pod which can
--//   be used to determine the set of actions that should be taken during
--//   this loop of syncPod
-+//
-+//	be used to determine the set of actions that should be taken during
-+//	this loop of syncPod
- //
- // The workflow is:
--// * If the pod is being created, record pod worker start latency
--// * Call generateAPIPodStatus to prepare an v1.PodStatus for the pod
--// * If the pod is being seen as running for the first time, record pod
--//   start latency
--// * Update the status of the pod in the status manager
--// * Stop the pod's containers if it should not be running due to soft
--//   admission
--// * Ensure any background tracking for a runnable pod is started
--// * Create a mirror pod if the pod is a static pod, and does not
--//   already have a mirror pod
--// * Create the data directories for the pod if they do not exist
--// * Wait for volumes to attach/mount
--// * Fetch the pull secrets for the pod
--// * Call the container runtime's SyncPod callback
--// * Update the traffic shaping for the pod's ingress and egress limits
-+//   - If the pod is being created, record pod worker start latency
-+//   - Call generateAPIPodStatus to prepare an v1.PodStatus for the pod
-+//   - If the pod is being seen as running for the first time, record pod
-+//     start latency
-+//   - Update the status of the pod in the status manager
-+//   - Stop the pod's containers if it should not be running due to soft
-+//     admission
-+//   - Ensure any background tracking for a runnable pod is started
-+//   - Create a mirror pod if the pod is a static pod, and does not
-+//     already have a mirror pod
-+//   - Create the data directories for the pod if they do not exist
-+//   - Wait for volumes to attach/mount
-+//   - Fetch the pull secrets for the pod
-+//   - Call the container runtime's SyncPod callback
-+//   - Update the traffic shaping for the pod's ingress and egress limits
- //
- // If any step of this workflow errors, the error is returned, and is repeated
- // on the next syncPod call.
-@@ -1886,8 +1904,8 @@ func (kl *Kubelet) syncTerminatedPod(ctx context.Context, pod *v1.Pod, podStatus
- }
- 
- // Get pods which should be resynchronized. Currently, the following pod should be resynchronized:
--//   * pod whose work is ready.
--//   * internal modules that request sync of a pod.
-+//   - pod whose work is ready.
-+//   - internal modules that request sync of a pod.
- func (kl *Kubelet) getPodsToSync() []*v1.Pod {
- 	allPods := kl.podManager.GetPods()
- 	podUIDs := kl.workQueue.GetWork()
-@@ -2052,13 +2070,13 @@ func (kl *Kubelet) syncLoop(updates <-chan kubetypes.PodUpdate, handler SyncHand
- // With that in mind, in truly no particular order, the different channels
- // are handled as follows:
- //
--// * configCh: dispatch the pods for the config change to the appropriate
--//             handler callback for the event type
--// * plegCh: update the runtime cache; sync pod
--// * syncCh: sync all pods waiting for sync
--// * housekeepingCh: trigger cleanup of pods
--// * health manager: sync pods that have failed or in which one or more
--//                     containers have failed health checks
-+//   - configCh: dispatch the pods for the config change to the appropriate
-+//     handler callback for the event type
-+//   - plegCh: update the runtime cache; sync pod
-+//   - syncCh: sync all pods waiting for sync
-+//   - housekeepingCh: trigger cleanup of pods
-+//   - health manager: sync pods that have failed or in which one or more
-+//     containers have failed health checks
- func (kl *Kubelet) syncLoopIteration(configCh <-chan kubetypes.PodUpdate, handler SyncHandler,
- 	syncCh <-chan time.Time, housekeepingCh <-chan time.Time, plegCh <-chan *pleg.PodLifecycleEvent) bool {
- 	select {
-@@ -2347,9 +2365,13 @@ func (kl *Kubelet) updateRuntimeUp() {
+@@ -2350,9 +2365,13 @@ func (kl *Kubelet) updateRuntimeUp() {
  	}
  	// Periodically log the whole runtime status for debugging.
  	klog.V(4).InfoS("Container runtime status", "status", s)
@@ -176,7 +93,7 @@ index 778c19e6882..30b3f8fc533 100644
  		kl.runtimeState.setNetworkState(fmt.Errorf("container runtime network not ready: %v", networkReady))
  	} else {
  		// Set nil if the container runtime network is ready.
-@@ -2359,7 +2381,7 @@ func (kl *Kubelet) updateRuntimeUp() {
+@@ -2362,7 +2381,7 @@ func (kl *Kubelet) updateRuntimeUp() {
  	runtimeReady := s.GetRuntimeCondition(kubecontainer.RuntimeReady)
  	// If RuntimeReady is not set or is false, report an error.
  	if runtimeReady == nil || !runtimeReady.Status {
@@ -185,7 +102,7 @@ index 778c19e6882..30b3f8fc533 100644
  		kl.runtimeState.setRuntimeState(fmt.Errorf("container runtime not ready: %v", runtimeReady))
  		return
  	}
-@@ -2414,30 +2436,25 @@ func (kl *Kubelet) cleanUpContainersInPod(podID types.UID, exitedContainerID str
+@@ -2417,30 +2436,25 @@ func (kl *Kubelet) cleanUpContainersInPod(podID types.UID, exitedContainerID str
  	}
  }
  
@@ -445,10 +362,10 @@ index aabb75bcd2e..767806183e9 100644
  
  // recordNodeStatusEvent records an event of the given type with the given
 diff --git a/pkg/kubelet/kubelet_node_status_test.go b/pkg/kubelet/kubelet_node_status_test.go
-index 4ca030dabba..24988ec4849 100644
+index 68c59443980..e537d9aa065 100644
 --- a/pkg/kubelet/kubelet_node_status_test.go
 +++ b/pkg/kubelet/kubelet_node_status_test.go
-@@ -1121,6 +1121,159 @@ func TestUpdateNodeStatusAndVolumesInUseWithNodeLease(t *testing.T) {
+@@ -1120,6 +1120,159 @@ func TestUpdateNodeStatusAndVolumesInUseWithNodeLease(t *testing.T) {
  	}
  }
  
