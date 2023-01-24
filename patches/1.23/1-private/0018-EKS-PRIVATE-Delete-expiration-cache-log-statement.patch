@@ -8,7 +8,7 @@ Subject: [PATCH] --EKS-PRIVATE-- Delete expiration cache log statement
  1 file changed, 1 insertion(+), 2 deletions(-)
 
 diff --git a/staging/src/k8s.io/client-go/tools/cache/expiration_cache.go b/staging/src/k8s.io/client-go/tools/cache/expiration_cache.go
-index 7abdae73742..6502472e438 100644
+index 3f272b80b14..52a44b0e428 100644
 --- a/staging/src/k8s.io/client-go/tools/cache/expiration_cache.go
 +++ b/staging/src/k8s.io/client-go/tools/cache/expiration_cache.go
 @@ -20,8 +20,8 @@ import (
@@ -21,7 +21,7 @@ index 7abdae73742..6502472e438 100644
  )
  
  // ExpirationCache implements the store interface
-@@ -99,7 +99,6 @@ func (c *ExpirationCache) getOrExpire(key string) (interface{}, bool) {
+@@ -100,7 +100,6 @@ func (c *ExpirationCache) getOrExpire(key string) (interface{}, bool) {
  		return nil, false
  	}
  	if c.expirationPolicy.IsExpired(timestampedItem) {
