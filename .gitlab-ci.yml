@@ -91,7 +91,7 @@ workflow:
     - *script_apply_patches
     - ./hack/install_unit_test_dependencies.sh ./kubernetes/
     - export PATH=/usr/local/go/bin:$PATH
-    - pushd ./kubernetes/ && make verify WHAT="typecheck" && popd
+    - pushd ./kubernetes/ && hack/verify-typecheck.sh --platform="linux/amd64,linux/arm64" && popd
   rules:
     - if: $CI_PIPELINE_SOURCE != "schedule"
       changes:
