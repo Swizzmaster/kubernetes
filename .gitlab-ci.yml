@@ -73,6 +73,30 @@ workflow:
       changes:
         - patches/$MINOR_VERSION/**/*
 
+.test_verify:
+  tags:
+    - arch:amd64
+    - size:large
+  image: ubuntu:latest
+  before_script:
+    - apt-get update && apt-get install git -q -y
+    - *script_git_config
+  variables:
+    # GitLab CI uses the Kubernetes executor which sets these, but they
+    # interfere with tests like TestKubeConfigFile
+    KUBERNETES_SERVICE_HOST: ""
+    KUBERNETES_SERVICE_PORT: ""
+  stage: test
+  script:
+    - *script_apply_patches
+    - ./hack/install_unit_test_dependencies.sh ./kubernetes/
+    - export PATH=/usr/local/go/bin:$PATH
+    - pushd ./kubernetes/ && make verify WHAT="typecheck" && popd
+  rules:
+    - if: $CI_PIPELINE_SOURCE != "schedule"
+      changes:
+        - patches/$MINOR_VERSION/**/*
+
 .kubernetes_versions: &kubernetes_matrix
   parallel:
     matrix:
@@ -81,6 +105,11 @@ workflow:
 build_update_patches_base_version:
   extends:
   - .build_update_patches_base_version
+  <<: *kubernetes_matrix
+
+test_verify:
+  extends:
+    - .test_verify
   <<: *kubernetes_matrix
 
 test_unit:
