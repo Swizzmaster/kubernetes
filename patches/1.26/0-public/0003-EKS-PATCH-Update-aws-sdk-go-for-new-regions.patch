@@ -1,8 +1,9 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Ernest Wong <ernwong@amazon.com>
 Date: Mon, 12 Dec 2022 06:15:33 +0000
-Subject: [PATCH] --EKS-PATCH-- Update aws-sdk-go from v1.44.116 to v1.44.145
+Subject: [PATCH] --EKS-PATCH-- Update aws-sdk-go for new regions
 
+Updated to v1.44.145
 ---
  go.mod                                        |    2 +-
  go.sum                                        |   13 +-

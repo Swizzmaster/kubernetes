@@ -3,14 +3,19 @@ From: Igor Velichkovich <igorveli@amazon.com>
 Date: Wed, 21 Dec 2022 20:12:26 -0600
 Subject: [PATCH] --EKS-PATCH-- admission webhook exclusion from file
 
+Workaround for Kubernetes issue:
+https://github.com/kubernetes/kubernetes/issues/92157
+
+This change allows for the bypassing of admission controller webhook
+for certain resources.
 ---
- .../generic/exclusionrules/exclusion.go       | 129 ++++++
+ .../generic/exclusionrules/exclusion.go       | 128 ++++++
  .../generic/exclusionrules/exclusion_test.go  | 425 ++++++++++++++++++
  .../webhook/generic/exclusionrules/matcher.go |  81 ++++
  .../generic/exclusionrules/matcher_test.go    | 333 ++++++++++++++
  .../plugin/webhook/generic/webhook.go         |   5 +
  .../webhook_exclusion_rules_test.go           | 231 ++++++++++
- 6 files changed, 1204 insertions(+)
+ 6 files changed, 1203 insertions(+)
  create mode 100644 staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/generic/exclusionrules/exclusion.go
  create mode 100644 staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/generic/exclusionrules/exclusion_test.go
  create mode 100644 staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/generic/exclusionrules/matcher.go
@@ -22,7 +27,7 @@ new file mode 100644
 index 00000000000..ea1cc6f98d5
 --- /dev/null
 +++ b/staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/generic/exclusionrules/exclusion.go
-@@ -0,0 +1,129 @@
+@@ -0,0 +1,128 @@
 +package exclusionrules
 +
 +import (
@@ -33,8 +38,7 @@ index 00000000000..ea1cc6f98d5
 +	"os"
 +)
 +
-+// This is an internal eks patch that enables you to pass a config file to kube-api-server
-+// which defines resources to exempt from admission webhooks: https://quip-amazon.com/by8tAcsLcdve/Bad-Webhooks-2
++// Enables you to pass a config file to kube-api-server
 +const ADMISSION_WEBHOOK_EXCLUSION_ENV_VAR = "EKS_PATCH_EXCLUSION_RULES_FILE"
 +
 +func init() {
