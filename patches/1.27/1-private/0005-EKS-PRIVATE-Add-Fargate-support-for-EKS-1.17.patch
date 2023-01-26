@@ -1,0 +1,2084 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Rasita Pai <prasita@amazon.com>
+Date: Wed, 13 Oct 2021 12:52:13 -0700
+Subject: [PATCH] --EKS-PRIVATE-- Add Fargate support for EKS 1.17
+
+// owner: @saranbalaji90
+// alpha: TBD
+//
+// Enables kubelet to validate and restrict pods based on security contexts.
+PodSecurityValidator featuregate.Feature = "PodSecurityValidator"
+ref. https://code.amazon.com/packages/EKSDataPlaneKubernetes/logs/heads/release-1.16.8-eks
+
+Sri Saran Balaji Vellore Rajakumar
+Adding fargate support to aws cloud provider https://code.amazon.com/packages/EKSDataPlaneKubernetes/commits/cceb46f3b6a2228fabd0e3ca79bdc3b5caf43f76#
+
+Sri Saran Balaji Vellore Rajakumar
+Adding PodCPULimit check for fargate pods
+https://code.amazon.com/packages/EKSDataPlaneKubernetes/commits/cb1e0f769e04b6d5ec389ff0bf92bdded5360cdb#
+
+Sri Saran Balaji Vellore Rajakumar
+Removing fargate node prefix from NodeName before invoking DescribeENI
+https://code.amazon.com/packages/EKSDataPlaneKubernetes/commits/074acc3b1e409983f035abf024b3c876f5a567df#
+
+Sri Saran Balaji Vellore Rajakumar
+Support PrivateIP address in node name
+https://code.amazon.com/packages/EKSDataPlaneKubernetes/commits/b0e0580a0225c5afa4a36ebec4e1ff8b631a09c7#
+
+efs volume validation in Kubelet - cr https://code.amazon.com/reviews/CR-30564575
+
+Signed-off-by: Jyoti Mahapatra<jyotima@amazon.com>
+---
+ pkg/features/kube_features.go                 |   8 +
+ pkg/kubelet/apis/config/fuzzer/fuzzer.go      |   1 +
+ pkg/kubelet/cm/helpers_linux.go               |  10 +-
+ pkg/kubelet/kubelet.go                        |   3 +
+ .../kuberuntime_container_linux.go            |   3 +
+ .../lifecycle/fargate_pod_admit_handler.go    |  46 +++
+ .../lifecycle/fargate_pod_validator.go        | 348 ++++++++++++++++++
+ .../lifecycle/fargate_pod_validator_test.go   | 154 ++++++++
+ .../invalid-daemon-sets.yaml                  |  31 ++
+ .../invalid-default-scheduler.yaml            |  24 ++
+ .../invalid-host-network.yaml                 |  25 ++
+ .../invalid-pod-securitycontext.yaml          |  27 ++
+ .../invalid-ports.yaml                        |  19 +
+ .../invalid-security-context.yaml             |  27 ++
+ .../invalid-spec-fields.yaml                  |  24 ++
+ .../invalid-volume-non-efspv.yaml             |  30 ++
+ .../invalid-volume-unboundpvc.yaml            |  23 ++
+ .../invalid-volumemount.yaml                  |  24 ++
+ .../valid-fargate-scheduler.yaml              |  69 ++++
+ .../valid-security-context.yaml               |  32 ++
+ .../valid-volumes.yaml                        |  74 ++++
+ pkg/kubelet/server/server.go                  |   3 +-
+ pkg/kubelet/util/util.go                      |  20 +-
+ .../k8s.io/legacy-cloud-providers/aws/aws.go  | 318 ++++++++++++----
+ .../legacy-cloud-providers/aws/aws_fakes.go   |  29 ++
+ .../legacy-cloud-providers/aws/aws_routes.go  |   6 +-
+ .../legacy-cloud-providers/aws/aws_test.go    |  62 +++-
+ .../legacy-cloud-providers/aws/instances.go   |  14 +-
+ 28 files changed, 1368 insertions(+), 86 deletions(-)
+ create mode 100644 pkg/kubelet/lifecycle/fargate_pod_admit_handler.go
+ create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator.go
+ create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator_test.go
+ create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-daemon-sets.yaml
+ create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-default-scheduler.yaml
+ create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-host-network.yaml
+ create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-pod-securitycontext.yaml
+ create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-ports.yaml
+ create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-security-context.yaml
+ create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-spec-fields.yaml
+ create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-volume-non-efspv.yaml
+ create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-volume-unboundpvc.yaml
+ create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-volumemount.yaml
+ create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator_testdata/valid-fargate-scheduler.yaml
+ create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator_testdata/valid-security-context.yaml
+ create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator_testdata/valid-volumes.yaml
+
+diff --git a/pkg/features/kube_features.go b/pkg/features/kube_features.go
+index 5fdb981ea74..d855920429b 100644
+--- a/pkg/features/kube_features.go
++++ b/pkg/features/kube_features.go
+@@ -635,6 +635,12 @@ const (
+ 	// Enables the PodSecurity admission plugin
+ 	PodSecurity featuregate.Feature = "PodSecurity"
+ 
++	// owner: @saranbalaji90
++	// alpha: TBD
++	//
++	// Enables kubelet to validate and restrict pods based on security contexts.
++	PodSecurityValidator featuregate.Feature = "PodSecurityValidator"
++
+ 	// owner: @ehashman
+ 	// alpha: v1.21
+ 	// beta: v1.22
+@@ -1010,6 +1016,8 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
+ 
+ 	PodSecurity: {Default: true, PreRelease: featuregate.GA, LockToDefault: true},
+ 
++	PodSecurityValidator: {Default: false, PreRelease: featuregate.Alpha},
++
+ 	ProbeTerminationGracePeriod: {Default: true, PreRelease: featuregate.Beta}, // Default to true in beta 1.25
+ 
+ 	ProcMountType: {Default: false, PreRelease: featuregate.Alpha},
+diff --git a/pkg/kubelet/apis/config/fuzzer/fuzzer.go b/pkg/kubelet/apis/config/fuzzer/fuzzer.go
+index b00dd10bcb8..496af9e4ec9 100644
+--- a/pkg/kubelet/apis/config/fuzzer/fuzzer.go
++++ b/pkg/kubelet/apis/config/fuzzer/fuzzer.go
+@@ -112,6 +112,7 @@ func Funcs(codecs runtimeserializer.CodecFactory) []interface{} {
+ 			if obj.Logging.Format == "" {
+ 				obj.Logging.Format = "text"
+ 			}
++			obj.EnableProfilingHandler = true
+ 			obj.EnableSystemLogHandler = true
+ 			obj.MemoryThrottlingFactor = utilpointer.Float64Ptr(rand.Float64())
+ 			obj.LocalStorageCapacityIsolation = true
+diff --git a/pkg/kubelet/cm/helpers_linux.go b/pkg/kubelet/cm/helpers_linux.go
+index 8cf15d1f1f1..0dc02b0c287 100644
+--- a/pkg/kubelet/cm/helpers_linux.go
++++ b/pkg/kubelet/cm/helpers_linux.go
+@@ -32,7 +32,8 @@ import (
+ 	v1helper "k8s.io/kubernetes/pkg/apis/core/v1/helper"
+ 	v1qos "k8s.io/kubernetes/pkg/apis/core/v1/helper/qos"
+ 	kubefeatures "k8s.io/kubernetes/pkg/features"
+-	"k8s.io/kubernetes/pkg/kubelet/cm/util"
++	cmutil "k8s.io/kubernetes/pkg/kubelet/cm/util"
++	util "k8s.io/kubernetes/pkg/kubelet/util"
+ )
+ 
+ const (
+@@ -137,6 +138,7 @@ func ResourceConfigForPod(pod *v1.Pod, enforceCPULimits bool, cpuPeriod uint64,
+ 	// convert to CFS values
+ 	cpuShares := MilliCPUToShares(cpuRequests)
+ 	cpuQuota := MilliCPUToQuota(cpuLimits, int64(cpuPeriod))
++	cpuQuota = util.GetPodMaxCpuQuota(cpuQuota)
+ 
+ 	// track if limits were applied for each resource.
+ 	memoryLimitsDeclared := true
+@@ -260,10 +262,10 @@ func getCgroupSubsystemsV2() (*CgroupSubsystems, error) {
+ 	mounts := []libcontainercgroups.Mount{}
+ 	mountPoints := make(map[string]string, len(controllers))
+ 	for _, controller := range controllers {
+-		mountPoints[controller] = util.CgroupRoot
++		mountPoints[controller] = cmutil.CgroupRoot
+ 		m := libcontainercgroups.Mount{
+-			Mountpoint: util.CgroupRoot,
+-			Root:       util.CgroupRoot,
++			Mountpoint: cmutil.CgroupRoot,
++			Root:       cmutil.CgroupRoot,
+ 			Subsystems: []string{controller},
+ 		}
+ 		mounts = append(mounts, m)
+diff --git a/pkg/kubelet/kubelet.go b/pkg/kubelet/kubelet.go
+index d8eda75da1d..0a64e8741ef 100644
+--- a/pkg/kubelet/kubelet.go
++++ b/pkg/kubelet/kubelet.go
+@@ -867,6 +867,9 @@ func NewMainKubelet(kubeCfg *kubeletconfiginternal.KubeletConfiguration,
+ 		klet.appArmorValidator = apparmor.NewValidator()
+ 		klet.softAdmitHandlers.AddPodAdmitHandler(lifecycle.NewAppArmorAdmitHandler(klet.appArmorValidator))
+ 	}
++	if utilfeature.DefaultFeatureGate.Enabled(features.PodSecurityValidator) {
++		klet.admitHandlers.AddPodAdmitHandler(lifecycle.NewFargatePodAdmitHandler(klet.kubeClient))
++	}
+ 
+ 	leaseDuration := time.Duration(kubeCfg.NodeLeaseDurationSeconds) * time.Second
+ 	renewInterval := time.Duration(float64(leaseDuration) * nodeLeaseRenewIntervalFraction)
+diff --git a/pkg/kubelet/kuberuntime/kuberuntime_container_linux.go b/pkg/kubelet/kuberuntime/kuberuntime_container_linux.go
+index 7bcc139e7e8..5a5304ebb87 100644
+--- a/pkg/kubelet/kuberuntime/kuberuntime_container_linux.go
++++ b/pkg/kubelet/kuberuntime/kuberuntime_container_linux.go
+@@ -35,6 +35,7 @@ import (
+ 	kubecontainer "k8s.io/kubernetes/pkg/kubelet/container"
+ 	"k8s.io/kubernetes/pkg/kubelet/qos"
+ 	kubelettypes "k8s.io/kubernetes/pkg/kubelet/types"
++	"k8s.io/kubernetes/pkg/kubelet/util"
+ )
+ 
+ // applyPlatformSpecificContainerConfig applies platform specific configurations to runtimeapi.ContainerConfig.
+@@ -171,6 +172,8 @@ func (m *kubeGenericRuntimeManager) calculateLinuxResources(cpuRequest, cpuLimit
+ 			cpuPeriod = int64(m.cpuCFSQuotaPeriod.Duration / time.Microsecond)
+ 		}
+ 		cpuQuota := milliCPUToQuota(cpuLimit.MilliValue(), cpuPeriod)
++		cpuQuota = util.GetPodMaxCpuQuota(cpuQuota)
++
+ 		resources.CpuQuota = cpuQuota
+ 		resources.CpuPeriod = cpuPeriod
+ 	}
+diff --git a/pkg/kubelet/lifecycle/fargate_pod_admit_handler.go b/pkg/kubelet/lifecycle/fargate_pod_admit_handler.go
+new file mode 100644
+index 00000000000..dda6d97448d
+--- /dev/null
++++ b/pkg/kubelet/lifecycle/fargate_pod_admit_handler.go
+@@ -0,0 +1,46 @@
++package lifecycle
++
++import (
++	corev1 "k8s.io/api/core/v1"
++	clientset "k8s.io/client-go/kubernetes"
++)
++
++var (
++	// unsupportedPodSpec is set on reason field for pods which cannot execute on this kubelet node
++	unsupportedPodSpecMessage = "UnsupportedPodSpec"
++)
++
++func NewFargatePodAdmitHandler(client clientset.Interface) *fargatePodAdmitHandler {
++	return &fargatePodAdmitHandler{
++		podValidator: NewPodSpecValidator(client),
++	}
++}
++
++// fargatePodAdmitHandler verifies security aspects of pod spec before admitting the pod.
++type fargatePodAdmitHandler struct {
++	podValidator PodValidator
++}
++
++// Admit checks security aspects of pod spec and decides whether pod spec is safe to run on this kubelet.
++// Currently fargatePodAdmitHandler runs fixed set of validation to verify if pod can run on fargate kubelet.
++func (f *fargatePodAdmitHandler) Admit(attrs *PodAdmitAttributes) PodAdmitResult {
++
++	admit, message := f.validate(attrs.Pod)
++
++	response := PodAdmitResult{
++		Admit: admit,
++	}
++	if !admit {
++		response.Message = message
++		response.Reason = unsupportedPodSpecMessage
++	}
++	return response
++}
++
++func (f *fargatePodAdmitHandler) validate(pod *corev1.Pod) (bool, string) {
++	err := f.podValidator.Validate(pod)
++	if err != nil {
++		return false, err.Error()
++	}
++	return true, ""
++}
+diff --git a/pkg/kubelet/lifecycle/fargate_pod_validator.go b/pkg/kubelet/lifecycle/fargate_pod_validator.go
+new file mode 100644
+index 00000000000..84549771078
+--- /dev/null
++++ b/pkg/kubelet/lifecycle/fargate_pod_validator.go
+@@ -0,0 +1,348 @@
++package lifecycle
++
++import (
++	"context"
++	"fmt"
++	"strings"
++	"time"
++
++	corev1 "k8s.io/api/core/v1"
++	"k8s.io/apimachinery/pkg/api/errors"
++	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
++	"k8s.io/apimachinery/pkg/util/wait"
++	clientset "k8s.io/client-go/kubernetes"
++	"k8s.io/client-go/util/retry"
++)
++
++const (
++	fargateSchedulerName = "fargate-scheduler"
++)
++
++// Linux capabilities permitted in container security contexts.
++// Copied from https://github.com/containerd/containerd/blob/257a7498d00827fbca08078f664cc6b4be27d7aa/oci/spec.go#L93
++var permittedCaps = map[string]bool{
++	"AUDIT_WRITE":      true,
++	"CHOWN":            true,
++	"DAC_OVERRIDE":     true,
++	"FOWNER":           true,
++	"FSETID":           true,
++	"KILL":             true,
++	"MKNOD":            true,
++	"NET_BIND_SERVICE": true,
++	"NET_RAW":          true,
++	"SETFCAP":          true,
++	"SETGID":           true,
++	"SETPCAP":          true,
++	"SETUID":           true,
++	"SYS_CHROOT":       true,
++}
++
++// Err towards more retries here since the node_authorizer/kubelet race causes a terminal failure starting the Fargate pod
++var kubeApiGetRetries = wait.Backoff{
++	Steps:    20,
++	Duration: 10 * time.Millisecond,
++	Factor:   5.0,
++	Jitter:   0.1,
++	Cap:      2 * time.Minute,
++}
++
++type validationFuncs func(*corev1.Pod) (bool, string)
++
++// PodValidator validates pods to be launched on Fargate.
++type PodValidator interface {
++	Validate(*corev1.Pod) error
++}
++
++type podSpecValidator struct {
++	clientset.Interface
++}
++
++// NewPodSpecValidator returns a PodValidator.
++func NewPodSpecValidator(client clientset.Interface) PodValidator {
++	return &podSpecValidator{client}
++}
++
++// Validate checks if the pod is eligible to run on Fargate.
++func (v *podSpecValidator) Validate(pod *corev1.Pod) error {
++	var messages []string
++
++	// Run through all validators to communicate all violations.
++	validators := []validationFuncs{
++		validateSchedulerName,
++		validateOwnerReferences,
++		validateTopLevelFields,
++		v.validateVolumes,
++		validateSecurityContexts,
++		validateVolumeDevices,
++		validatePorts,
++	}
++
++	for _, fn := range validators {
++		admit, message := fn(pod)
++		if !admit {
++			messages = append(messages, message)
++		}
++	}
++
++	// All validators must pass for the pod to be admitted.
++	var err error
++	if len(messages) != 0 {
++		err = fmt.Errorf("Pod not supported: %s", strings.Join(messages, ", "))
++	}
++
++	return err
++}
++
++func validateSchedulerName(pod *corev1.Pod) (bool, string) {
++	// Scheduler name must be Fargate.
++	if pod.Spec.SchedulerName != fargateSchedulerName {
++		return false, fmt.Sprintf("SchedulerName is not %s", fargateSchedulerName)
++	}
++	return true, ""
++}
++
++func validateOwnerReferences(pod *corev1.Pod) (bool, string) {
++	ownerReferences := pod.ObjectMeta.OwnerReferences
++	if len(ownerReferences) > 0 {
++		for _, reference := range ownerReferences {
++			if reference.Kind == "DaemonSet" {
++				return false, "DaemonSet not supported"
++			}
++		}
++	}
++	return true, ""
++}
++
++func validateSecurityContexts(pod *corev1.Pod) (bool, string) {
++	var invalidFields []string
++
++	for _, container := range pod.Spec.InitContainers {
++		admitted, message := validateContainerSecurityContext(container.SecurityContext)
++		if !admitted {
++			invalidFields = append(invalidFields, message)
++		}
++	}
++	for _, container := range pod.Spec.Containers {
++		admitted, message := validateContainerSecurityContext(container.SecurityContext)
++		if !admitted {
++			invalidFields = append(invalidFields, message)
++		}
++	}
++
++	admitted, message := validatePodSecurityContext(pod.Spec.SecurityContext)
++	if !admitted {
++		invalidFields = append(invalidFields, message)
++	}
++
++	if len(invalidFields) != 0 {
++		message := fmt.Sprintf("invalid SecurityContext fields: %s", strings.Join(invalidFields, ","))
++		return false, message
++	}
++	return true, ""
++}
++
++// placeholder method. All PodSecurityContext fields are safe for warmpool fargate
++// at launch, but we may need to add restrictions based on what is added here later
++func validatePodSecurityContext(sc *corev1.PodSecurityContext) (bool, string) {
++	return true, ""
++}
++
++// Allow ambient capabilities to be added. This is useful if only one or more are desired
++// while the rest are dropped. Ex:
++//
++//   securityContext:
++//     allowPrivilegeEscalation: false
++//     capabilities:
++//       add:
++//       - NET_BIND_SERVICE
++//       drop:
++//       - all
++func validateAddedCapabilities(requested []corev1.Capability) (permitted bool, rejectedCaps []string) {
++	for _, req := range requested {
++		if _, ok := permittedCaps[string(req)]; !ok {
++			rejectedCaps = append(rejectedCaps, string(req))
++		}
++	}
++	if len(rejectedCaps) != 0 {
++		return false, rejectedCaps
++	}
++	return true, nil
++}
++
++func validateContainerSecurityContext(sc *corev1.SecurityContext) (bool, string) {
++	var invalidFields []string
++
++	if sc == nil {
++		return true, ""
++	}
++
++	if sc.Capabilities != nil && len(sc.Capabilities.Add) != 0 {
++		admit, rejectedCaps := validateAddedCapabilities(sc.Capabilities.Add)
++		if !admit {
++			invalidFields = append(invalidFields, fmt.Sprintf("Capabilities added: %s", strings.Join(rejectedCaps, ", ")))
++		}
++	}
++
++	if sc.AllowPrivilegeEscalation != nil && *sc.AllowPrivilegeEscalation == true {
++		invalidFields = append(invalidFields, "AllowPrivilegeEscalation")
++	}
++
++	if sc.Privileged != nil && *sc.Privileged == true {
++		invalidFields = append(invalidFields, "Privileged")
++	}
++
++	if len(invalidFields) != 0 {
++		return false, strings.Join(invalidFields, ", ")
++	}
++	return true, ""
++}
++
++func validateTopLevelFields(pod *corev1.Pod) (bool, string) {
++	var invalidFields []string
++
++	if pod.Spec.HostNetwork == true {
++		invalidFields = append(invalidFields, "HostNetwork")
++	}
++	if pod.Spec.HostPID == true {
++		invalidFields = append(invalidFields, "HostPID")
++	}
++	if pod.Spec.HostIPC == true {
++		invalidFields = append(invalidFields, "HostIPC")
++	}
++
++	if len(invalidFields) != 0 {
++		message := fmt.Sprintf("fields not supported: %s", strings.Join(invalidFields, ", "))
++		return false, message
++	}
++	return true, ""
++}
++
++func (v *podSpecValidator) validateVolumes(pod *corev1.Pod) (bool, string) {
++	var invalidVolumes []string
++	namespace := pod.Namespace
++
++	for _, volume := range pod.Spec.Volumes {
++		if volume.EmptyDir == nil &&
++			volume.Secret == nil &&
++			volume.ConfigMap == nil &&
++			volume.Projected == nil &&
++			volume.DownwardAPI == nil &&
++			volume.NFS == nil &&
++			volume.PersistentVolumeClaim == nil {
++			message := fmt.Sprintf("%v is of an unsupported volume Type", volume.Name)
++			invalidVolumes = append(invalidVolumes, message)
++			continue
++		}
++		if volume.PersistentVolumeClaim != nil {
++			validpvc, err := v.validatePersistentVolumeClaim(volume.PersistentVolumeClaim, namespace)
++			if err != nil || !validpvc {
++				invalidVolumes = append(invalidVolumes, fmt.Sprintf("%v not supported because: %v", volume.Name, err))
++			}
++		}
++	}
++
++	if len(invalidVolumes) != 0 {
++		message := fmt.Sprintf("%s", strings.Join(invalidVolumes, ", "))
++		return false, message
++	}
++	return true, ""
++}
++
++func (v *podSpecValidator) validatePersistentVolumeClaim(claim *corev1.PersistentVolumeClaimVolumeSource, namespace string) (bool, error) {
++	shouldRetryKubeApiGet := func(err error) bool {
++		if errors.IsInvalid(err) ||
++			errors.IsGone(err) ||
++			errors.IsNotAcceptable(err) ||
++			errors.IsNotFound(err) ||
++			errors.IsBadRequest(err) {
++			return false
++		}
++		// attempt retries on other errors, especially Unauthorized/Forbidden errors due to node_authorizer/Kubelet race
++		// https://github.com/kubernetes/kubernetes/pull/87696
++		return true
++	}
++	var pvc *corev1.PersistentVolumeClaim
++	var pv *corev1.PersistentVolume
++	err := retry.OnError(kubeApiGetRetries, shouldRetryKubeApiGet, func() (err error) {
++		name := claim.ClaimName
++		ctx := context.TODO()
++		pvc, err = v.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, name, metav1.GetOptions{})
++		if err != nil {
++			return err
++		}
++
++		pv, err = v.CoreV1().PersistentVolumes().Get(ctx, pvc.Spec.VolumeName, metav1.GetOptions{})
++		if err != nil {
++			return err
++		}
++		return nil
++	})
++	if err != nil {
++		return false, err
++	}
++	return isValidPVC(pvc, pv)
++}
++
++func isValidPVC(pvc *corev1.PersistentVolumeClaim, pv *corev1.PersistentVolume) (bool, error) {
++	// only PVCs that are bound to an EFS CSI Driver PV are allowed as of now
++	if pvc.Status.Phase != corev1.ClaimBound {
++		return false, fmt.Errorf("PVC %v not bound", pvc.Name)
++	}
++	if pv.Spec.CSI == nil {
++		return false, fmt.Errorf("PVC %v bound to invalid PV %v with nil CSI spec", pvc.Name, pv.Name)
++	}
++	if pv.Spec.CSI.Driver != "efs.csi.aws.com" {
++		return false, fmt.Errorf("PVC %v bound to invalid PV %v with CSI Driver: %v", pvc.Name, pv.Name, pv.Spec.CSI.Driver)
++	}
++	return true, nil
++}
++
++func validateVolumeDevices(pod *corev1.Pod) (bool, string) {
++	var invalidContainers []string
++
++	for _, container := range pod.Spec.InitContainers {
++		if len(container.VolumeDevices) > 0 {
++			invalidContainers = append(invalidContainers, container.Name)
++		}
++	}
++	for _, container := range pod.Spec.Containers {
++		if len(container.VolumeDevices) > 0 {
++			invalidContainers = append(invalidContainers, container.Name)
++		}
++	}
++	if len(invalidContainers) > 0 {
++		return false, "volumeDevices not supported"
++	}
++	return true, ""
++}
++
++func validatePort(port corev1.ContainerPort) bool {
++	if port.HostPort > 0 {
++		return false
++	}
++	if port.HostIP != "" {
++		return false
++	}
++	return true
++}
++
++// TODO: return more specific port violation messages later.
++func validatePorts(pod *corev1.Pod) (bool, string) {
++	message := "port contains HostIP or HostPort"
++
++	for _, container := range pod.Spec.InitContainers {
++		for _, port := range container.Ports {
++			if !validatePort(port) {
++				return false, message
++			}
++		}
++	}
++	for _, container := range pod.Spec.Containers {
++		for _, port := range container.Ports {
++			if !validatePort(port) {
++				return false, message
++			}
++		}
++	}
++	return true, ""
++}
+diff --git a/pkg/kubelet/lifecycle/fargate_pod_validator_test.go b/pkg/kubelet/lifecycle/fargate_pod_validator_test.go
+new file mode 100644
+index 00000000000..fecac736051
+--- /dev/null
++++ b/pkg/kubelet/lifecycle/fargate_pod_validator_test.go
+@@ -0,0 +1,154 @@
++package lifecycle
++
++import (
++	"fmt"
++	"io/ioutil"
++	"os"
++	"path/filepath"
++	"testing"
++
++	corev1 "k8s.io/api/core/v1"
++	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
++	clientset "k8s.io/client-go/kubernetes"
++	"k8s.io/client-go/kubernetes/fake"
++	"sigs.k8s.io/yaml"
++)
++
++var fixtureDir = "./fargate_pod_validator_testdata"
++
++const (
++	admitPodAnnotation   = "fargate.eks.amazonaws.com/admit"
++	messagePodAnnotation = "fargate.eks.amazonaws.com/admitMessage"
++)
++
++// TestPodValidation tests the podSpecValidator.
++func TestPodValidation(t *testing.T) {
++	err := filepath.Walk(fixtureDir, func(path string, info os.FileInfo, err error) error {
++		if err != nil {
++			t.Errorf("Error while walking test fixtures: %v", err)
++			return err
++		}
++		if info.IsDir() {
++			return nil
++		}
++
++		if filepath.Ext(info.Name()) != ".yaml" {
++			return nil
++		}
++		pod, err := parseFile(path)
++		if err != nil {
++			t.Errorf("Error while parsing file %s: %v", info.Name(), err)
++			return err
++		}
++		// instantiating test client here to make sure namespace matches the pod spec in the testdata .yaml
++		stopCh := make(chan struct{})
++		defer close(stopCh)
++		client := getFakeKubeClientForVolumeTests(pod.Namespace)
++		validator := NewPodSpecValidator(client)
++		t.Run(fmt.Sprintf("Pod %s in file %s", pod.Name, path), func(t *testing.T) {
++			expectedAdmitValue, ok := pod.Annotations[admitPodAnnotation]
++			if !ok {
++				t.Errorf("Pod %s in file %s is missing annotation %s", pod.Name, path, admitPodAnnotation)
++			}
++			expectedAdmitMessage, _ := pod.Annotations[messagePodAnnotation]
++			err = validator.Validate(pod)
++			admit := (err == nil)
++			var message string
++			if err != nil {
++				message = err.Error()
++			}
++			if expectedAdmitValue != fmt.Sprintf("%t", admit) {
++				t.Errorf("Pod %s in file %s expected admit %s, got %t",
++					pod.Name, path, expectedAdmitValue, admit)
++			}
++			if !admit {
++				if expectedAdmitMessage != message {
++					t.Errorf("Pod %s in file %s expected message '%s', got '%s'",
++						pod.Name, path, expectedAdmitMessage, message)
++				}
++			}
++		})
++		return nil
++	})
++	if err != nil {
++		t.Errorf("Error while walking test fixtures: %v", err)
++	}
++}
++
++func parseFile(filename string) (*corev1.Pod, error) {
++	data, err := ioutil.ReadFile(filename)
++	if err != nil {
++		return nil, err
++	}
++	pod := &corev1.Pod{}
++	err = yaml.Unmarshal(data, pod)
++	return pod, err
++}
++
++func getFakeKubeClientForVolumeTests(namespace string) clientset.Interface {
++	efsPvName := "efs-pv"
++	nonEfsPvName := "not-an-efs-pv"
++	noCSIPVName := "no-csi-pv"
++	validPVC := &corev1.PersistentVolumeClaim{
++		ObjectMeta: metav1.ObjectMeta{Name: "efs-pvc", Namespace: namespace},
++		Spec: corev1.PersistentVolumeClaimSpec{
++			VolumeName: efsPvName,
++		},
++		Status: corev1.PersistentVolumeClaimStatus{
++			Phase: corev1.ClaimBound,
++		},
++	}
++	validPV := &corev1.PersistentVolume{
++		ObjectMeta: metav1.ObjectMeta{Name: efsPvName},
++		Spec: corev1.PersistentVolumeSpec{
++			PersistentVolumeSource: corev1.PersistentVolumeSource{CSI: &corev1.CSIPersistentVolumeSource{
++				Driver: "efs.csi.aws.com",
++			}},
++		},
++	}
++	invalidPVC := &corev1.PersistentVolumeClaim{
++		ObjectMeta: metav1.ObjectMeta{Name: "invalid-pvc", Namespace: namespace},
++		Status: corev1.PersistentVolumeClaimStatus{
++			Phase: corev1.ClaimPending,
++		},
++		Spec: corev1.PersistentVolumeClaimSpec{
++			VolumeName: nonEfsPvName,
++		},
++	}
++
++	nonEFSPVC := &corev1.PersistentVolumeClaim{
++		ObjectMeta: metav1.ObjectMeta{Name: "pvc-with-nonefs-pv", Namespace: namespace},
++		Status: corev1.PersistentVolumeClaimStatus{
++			Phase: corev1.ClaimBound,
++		},
++		Spec: corev1.PersistentVolumeClaimSpec{
++			VolumeName: nonEfsPvName,
++		},
++	}
++
++	nonEFSPV := &corev1.PersistentVolume{
++		ObjectMeta: metav1.ObjectMeta{Name: nonEfsPvName},
++		Spec: corev1.PersistentVolumeSpec{
++			PersistentVolumeSource: corev1.PersistentVolumeSource{CSI: &corev1.CSIPersistentVolumeSource{
++				Driver: "ebs.csi.aws.com",
++			}},
++		},
++	}
++
++	noCSIPVC := &corev1.PersistentVolumeClaim{
++		ObjectMeta: metav1.ObjectMeta{Name: "pvc-with-nocsi-pv", Namespace: namespace},
++		Status: corev1.PersistentVolumeClaimStatus{
++			Phase: corev1.ClaimBound,
++		},
++		Spec: corev1.PersistentVolumeClaimSpec{
++			VolumeName: noCSIPVName,
++		},
++	}
++
++	noCSIPV := &corev1.PersistentVolume{
++		ObjectMeta: metav1.ObjectMeta{Name: noCSIPVName},
++		Spec:       corev1.PersistentVolumeSpec{},
++	}
++
++	return fake.NewSimpleClientset(validPVC, validPV, invalidPVC, nonEFSPVC, nonEFSPV, noCSIPVC, noCSIPV)
++}
+diff --git a/pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-daemon-sets.yaml b/pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-daemon-sets.yaml
+new file mode 100644
+index 00000000000..fde948e6d1b
+--- /dev/null
++++ b/pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-daemon-sets.yaml
+@@ -0,0 +1,31 @@
++apiVersion: v1
++kind: Pod
++metadata:
++  annotations:
++    "fargate.eks.amazonaws.com/admit": "false"
++    "fargate.eks.amazonaws.com/admitMessage": "Pod not supported: DaemonSet not supported"
++  name: init-security-context
++  namespace: eks-fargate-namespace
++  labels:
++    "eks.amazonaws.com/fargate-profile": "my-profile"
++  ownerReferences:
++    - apiVersion: apps/v1
++      blockOwnerDeletion: true
++      controller: true
++      kind: DaemonSet
++      name: aws-node
++      uid: efc50262-f057-11e9-8dda-0a7cbbe5199a
++spec:
++  schedulerName: fargate-scheduler
++  initContainers:
++    - image: nginx:alpine
++      name: nginx
++  containers:
++    - image: nginx:alpine
++      name: nginx
++      volumeMounts:
++        - mountPath: /mnt/scratch
++          name: scratch
++  volumes:
++    - name: scratch
++      emptyDir: {}
+diff --git a/pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-default-scheduler.yaml b/pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-default-scheduler.yaml
+new file mode 100644
+index 00000000000..022af6cd7c1
+--- /dev/null
++++ b/pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-default-scheduler.yaml
+@@ -0,0 +1,24 @@
++apiVersion: v1
++kind: Pod
++metadata:
++  annotations:
++    "fargate.eks.amazonaws.com/admit": "false"
++    "fargate.eks.amazonaws.com/admitMessage": "Pod not supported: SchedulerName is not fargate-scheduler"
++  name: init-security-context
++  namespace: eks-fargate-namespace
++  labels:
++    "eks.amazonaws.com/fargate-profile": "my-profile"
++spec:
++  schedulerName: default-scheduler
++  initContainers:
++    - image: nginx:alpine
++      name: nginx
++  containers:
++    - image: nginx:alpine
++      name: nginx
++      volumeMounts:
++        - mountPath: /mnt/scratch
++          name: scratch
++  volumes:
++    - name: scratch
++      emptyDir: {}
+diff --git a/pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-host-network.yaml b/pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-host-network.yaml
+new file mode 100644
+index 00000000000..3bfca78d79f
+--- /dev/null
++++ b/pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-host-network.yaml
+@@ -0,0 +1,25 @@
++apiVersion: v1
++kind: Pod
++metadata:
++  annotations:
++    "fargate.eks.amazonaws.com/admit": "false"
++    "fargate.eks.amazonaws.com/admitMessage": "Pod not supported: fields not supported: HostNetwork"
++  name: init-security-context
++  namespace: eks-fargate-namespace
++  labels:
++    "eks.amazonaws.com/fargate-profile": "my-profile"
++spec:
++  schedulerName: fargate-scheduler
++  hostNetwork: true
++  initContainers:
++    - image: nginx:alpine
++      name: nginx
++  containers:
++    - image: nginx:alpine
++      name: nginx
++      volumeMounts:
++        - mountPath: /mnt/scratch
++          name: scratch
++  volumes:
++    - name: scratch
++      emptyDir: {}
+diff --git a/pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-pod-securitycontext.yaml b/pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-pod-securitycontext.yaml
+new file mode 100644
+index 00000000000..c48f8d9319c
+--- /dev/null
++++ b/pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-pod-securitycontext.yaml
+@@ -0,0 +1,27 @@
++apiVersion: v1
++kind: Pod
++metadata:
++  annotations:
++    "fargate.eks.amazonaws.com/admit": "false"
++    "fargate.eks.amazonaws.com/admitMessage": "Pod not supported: invalid SecurityContext fields: AllowPrivilegeEscalation, Privileged"
++  name: init-security-context
++  namespace: eks-fargate-namespace
++  labels:
++    "eks.amazonaws.com/fargate-profile": "my-profile"
++spec:
++  schedulerName: fargate-scheduler
++  initContainers:
++    - image: nginx:alpine
++      name: nginx
++      securityContext:
++        allowPrivilegeEscalation: true
++        privileged: true
++  containers:
++    - image: nginx:alpine
++      name: nginx
++      volumeMounts:
++        - mountPath: /mnt/scratch
++          name: scratch
++  volumes:
++    - name: scratch
++      emptyDir: {}
+diff --git a/pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-ports.yaml b/pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-ports.yaml
+new file mode 100644
+index 00000000000..c58a453d799
+--- /dev/null
++++ b/pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-ports.yaml
+@@ -0,0 +1,19 @@
++apiVersion: v1
++kind: Pod
++metadata:
++  annotations:
++    "fargate.eks.amazonaws.com/admit": "false"
++    "fargate.eks.amazonaws.com/admitMessage": "Pod not supported: port contains HostIP or HostPort"
++  name: hostport-pod
++  namespace: eks-fargate-namespace
++  labels:
++    "eks.amazonaws.com/fargate-profile": "my-profile"
++spec:
++  schedulerName: fargate-scheduler
++  containers:
++  - image: nginx:alpine
++    name: nginx
++    ports:
++    - name: http
++      port: 80
++      hostPort: 8000
+diff --git a/pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-security-context.yaml b/pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-security-context.yaml
+new file mode 100644
+index 00000000000..dab0bc6f0c9
+--- /dev/null
++++ b/pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-security-context.yaml
+@@ -0,0 +1,27 @@
++apiVersion: v1
++kind: Pod
++metadata:
++  annotations:
++    "fargate.eks.amazonaws.com/admit": "false"
++    "fargate.eks.amazonaws.com/admitMessage": "Pod not supported: invalid SecurityContext fields: Capabilities added: NET_ADMIN"
++  name: init-security-context
++  namespace: eks-fargate-namespace
++  labels:
++    "eks.amazonaws.com/fargate-profile": "my-profile"
++spec:
++  schedulerName: fargate-scheduler
++  initContainers:
++    - image: nginx:alpine
++      name: nginx
++      securityContext:
++        capabilities:
++          add: ['NET_ADMIN']
++  containers:
++    - image: nginx:alpine
++      name: nginx
++      volumeMounts:
++        - mountPath: /mnt/scratch
++          name: scratch
++  volumes:
++    - name: scratch
++      emptyDir: {}
+diff --git a/pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-spec-fields.yaml b/pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-spec-fields.yaml
+new file mode 100644
+index 00000000000..6abd9923313
+--- /dev/null
++++ b/pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-spec-fields.yaml
+@@ -0,0 +1,24 @@
++apiVersion: v1
++kind: Pod
++metadata:
++  annotations:
++    "fargate.eks.amazonaws.com/admit": "false"
++    "fargate.eks.amazonaws.com/admitMessage": "Pod not supported: fields not supported: HostNetwork, HostPID, HostIPC"
++  name: init-security-context
++  namespace: eks-fargate-namespace
++  labels:
++    "eks.amazonaws.com/fargate-profile": "my-profile"
++spec:
++  schedulerName: fargate-scheduler
++  hostNetwork: true
++  hostPID: true
++  hostIPC: true
++  containers:
++  - image: nginx:alpine
++    name: nginx
++    volumeMounts:
++    - mountPath: /mnt/scratch
++      name: scratch
++  volumes:
++  - name: scratch
++    emptyDir: {}
+diff --git a/pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-volume-non-efspv.yaml b/pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-volume-non-efspv.yaml
+new file mode 100644
+index 00000000000..faf784f0df2
+--- /dev/null
++++ b/pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-volume-non-efspv.yaml
+@@ -0,0 +1,30 @@
++apiVersion: v1
++kind: Pod
++metadata:
++  annotations:
++    "fargate.eks.amazonaws.com/admit": "false"
++    "fargate.eks.amazonaws.com/admitMessage": "Pod not supported: ebs-vol is of an unsupported volume Type, invalid-vol not supported because: PVC pvc-with-nonefs-pv bound to invalid PV not-an-efs-pv with CSI Driver: ebs.csi.aws.com, invalid-vol2 not supported because: PVC pvc-with-nocsi-pv bound to invalid PV no-csi-pv with nil CSI spec"
++  name: ebs-volume-pod
++  namespace: eks-fargate-namespace
++  labels:
++    "eks.amazonaws.com/fargate-profile": "my-profile"
++spec:
++  schedulerName: fargate-scheduler
++  containers:
++    - image: nginx:alpine
++      name: nginx
++      volumeMounts:
++        - mountPath: /mnt/ebs
++          name: ebs-vol
++          readOnly: false
++  volumes:
++    - name: ebs-vol
++      awsElasticBlockStore:
++        volumeID: vol-abc123
++        fsType: ext4
++    - name: invalid-vol
++      persistentVolumeClaim:
++        claimName: pvc-with-nonefs-pv
++    - name: invalid-vol2
++      persistentVolumeClaim:
++        claimName: pvc-with-nocsi-pv
+\ No newline at end of file
+diff --git a/pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-volume-unboundpvc.yaml b/pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-volume-unboundpvc.yaml
+new file mode 100644
+index 00000000000..b13ce34f714
+--- /dev/null
++++ b/pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-volume-unboundpvc.yaml
+@@ -0,0 +1,23 @@
++apiVersion: v1
++kind: Pod
++metadata:
++  annotations:
++    "fargate.eks.amazonaws.com/admit": "false"
++    "fargate.eks.amazonaws.com/admitMessage": "Pod not supported: invalid-vol not supported because: PVC invalid-pvc not bound"
++  name: ebs-volume-pod
++  namespace: eks-fargate-namespace
++  labels:
++    "eks.amazonaws.com/fargate-profile": "my-profile"
++spec:
++  schedulerName: fargate-scheduler
++  containers:
++    - image: nginx:alpine
++      name: nginx
++      volumeMounts:
++        - mountPath: /mnt/ebs
++          name: ebs-vol
++          readOnly: false
++  volumes:
++    - name: invalid-vol
++      persistentVolumeClaim:
++        claimName: invalid-pvc
+diff --git a/pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-volumemount.yaml b/pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-volumemount.yaml
+new file mode 100644
+index 00000000000..01ec12f3b62
+--- /dev/null
++++ b/pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-volumemount.yaml
+@@ -0,0 +1,24 @@
++apiVersion: v1
++kind: Pod
++metadata:
++  annotations:
++    "fargate.eks.amazonaws.com/admit": "false"
++    "fargate.eks.amazonaws.com/admitMessage": "Pod not supported: data is of an unsupported volume Type, volumeDevices not supported"
++  name: volumedevice-pod
++  namespace: eks-fargate-namespace
++  labels:
++    "eks.amazonaws.com/fargate-profile": "my-profile"
++spec:
++  schedulerName: fargate-scheduler
++  containers:
++  - image: alpine
++    name: alpine
++    volumeDevices:
++    - name: data
++      devicePath: /dev/xvda
++  volumes:
++    - name: data
++      awsElasticBlockStore:
++        volumeID: vol-abc123
++        fsType: ext4
++
+diff --git a/pkg/kubelet/lifecycle/fargate_pod_validator_testdata/valid-fargate-scheduler.yaml b/pkg/kubelet/lifecycle/fargate_pod_validator_testdata/valid-fargate-scheduler.yaml
+new file mode 100644
+index 00000000000..a60bf0e9219
+--- /dev/null
++++ b/pkg/kubelet/lifecycle/fargate_pod_validator_testdata/valid-fargate-scheduler.yaml
+@@ -0,0 +1,69 @@
++apiVersion: v1
++kind: Pod
++metadata:
++  annotations:
++    kubernetes.io/psp: eks.privileged
++    "fargate.eks.amazonaws.com/admit": "true"
++  name: nginx-7cdd86688c-hpjs7
++  namespace: eks-fargate-namespace
++  labels:
++    "eks.amazonaws.com/fargate-profile": "my-profile"
++  ownerReferences:
++    - apiVersion: apps/v1
++      blockOwnerDeletion: true
++      controller: true
++      kind: ReplicaSet
++      name: nginx-7cdd86688c
++      uid: 3b6db7e0-f4f7-11e9-94f0-06226711ecc6
++spec:
++  affinity:
++    nodeAffinity:
++      requiredDuringSchedulingIgnoredDuringExecution:
++        nodeSelectorTerms:
++          - matchExpressions:
++              - key: eks.amazonaws.com/compute-type
++                operator: In
++                values:
++                  - fargate
++  containers:
++    - image: nginx:alpine
++      imagePullPolicy: IfNotPresent
++      name: nginx
++      ports:
++        - containerPort: 80
++          protocol: TCP
++      resources: {}
++      terminationMessagePath: /dev/termination-log
++      terminationMessagePolicy: File
++      volumeMounts:
++        - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
++          name: default-token-dn9pj
++          readOnly: true
++  dnsPolicy: ClusterFirst
++  enableServiceLinks: true
++  nodeName: 28be3035-c95f-4a4e-8919-a920ade935f9
++  priority: 0
++  restartPolicy: Always
++  schedulerName: fargate-scheduler
++  securityContext: {}
++  serviceAccount: default
++  serviceAccountName: default
++  terminationGracePeriodSeconds: 30
++  tolerations:
++    - effect: NoSchedule
++      key: eks.amazonaws.com/compute-type
++      operator: Equal
++      value: fargate
++    - effect: NoExecute
++      key: node.kubernetes.io/not-ready
++      operator: Exists
++      tolerationSeconds: 300
++    - effect: NoExecute
++      key: node.kubernetes.io/unreachable
++      operator: Exists
++      tolerationSeconds: 300
++  volumes:
++    - name: default-token-dn9pj
++      secret:
++        defaultMode: 420
++        secretName: default-token-dn9pj
+diff --git a/pkg/kubelet/lifecycle/fargate_pod_validator_testdata/valid-security-context.yaml b/pkg/kubelet/lifecycle/fargate_pod_validator_testdata/valid-security-context.yaml
+new file mode 100644
+index 00000000000..7f966bdffc4
+--- /dev/null
++++ b/pkg/kubelet/lifecycle/fargate_pod_validator_testdata/valid-security-context.yaml
+@@ -0,0 +1,32 @@
++apiVersion: v1
++kind: Pod
++metadata:
++  annotations:
++    "fargate.eks.amazonaws.com/admit": "true"
++  name: valid-security-context
++  namespace: eks-fargate-namespace
++  labels:
++    "eks.amazonaws.com/fargate-profile": "my-profile"
++spec:
++  schedulerName: fargate-scheduler
++  containers:
++    - image: nginx:alpine
++      name: nginx
++      securityContext:
++        capabilities:
++          # All ambient capabilities
++          add:
++          - "AUDIT_WRITE"
++          - "CHOWN"
++          - "DAC_OVERRIDE"
++          - "FOWNER"
++          - "FSETID"
++          - "KILL"
++          - "MKNOD"
++          - "NET_BIND_SERVICE"
++          - "NET_RAW"
++          - "SETFCAP"
++          - "SETGID"
++          - "SETPCAP"
++          - "SETUID"
++          - "SYS_CHROOT"
+diff --git a/pkg/kubelet/lifecycle/fargate_pod_validator_testdata/valid-volumes.yaml b/pkg/kubelet/lifecycle/fargate_pod_validator_testdata/valid-volumes.yaml
+new file mode 100644
+index 00000000000..335e08b08bb
+--- /dev/null
++++ b/pkg/kubelet/lifecycle/fargate_pod_validator_testdata/valid-volumes.yaml
+@@ -0,0 +1,74 @@
++apiVersion: v1
++kind: Pod
++metadata:
++  annotations:
++    "fargate.eks.amazonaws.com/admit": "true"
++  name: valid-volumes
++  namespace: eks-fargate-namespace
++  labels:
++    "eks.amazonaws.com/fargate-profile": "my-profile"
++spec:
++  schedulerName: fargate-scheduler
++  containers:
++  - image: nginx:alpine
++    name: nginx
++    volumeMounts:
++    - mountPath: /mnt/scratch
++      name: scratch-vol
++    - mountPath: /mnt/secret
++      name: secret-vol
++    - mountPath: /mnt/config
++      name: config-vol
++    - mountPath: /mnt/projected
++      name: projected-vol
++    - mountPath: /mnt/downward
++      name: downward-vol
++    - mountPath: /mnt/nfs
++      name: nfs-vol
++  volumes:
++  - name: scratch-vol
++    emptyDir: {}
++  - name: secret-vol
++    secret:
++      secretName: my-secret
++  - name: config-vol
++    configMap:
++      name: my-config-map
++  - name: projected-vol
++    projected:
++      sources:
++      - secret:
++          name: my-secret
++          items:
++            - key: username
++              path: my-group/my-username
++      - downwardAPI:
++          items:
++            - path: "labels"
++              fieldRef:
++                fieldPath: metadata.labels
++            - path: "cpu_limit"
++              resourceFieldRef:
++                containerName: container-test
++                resource: limits.cpu
++      - configMap:
++          name: myconfigmap
++          items:
++            - key: config
++              path: my-group/my-config
++  - name: downward-vol
++    downwardAPI:
++      items:
++        - path: "labels"
++          fieldRef:
++            fieldPath: metadata.labels
++        - path: "annotations"
++          fieldRef:
++            fieldPath: metadata.annotations
++  - name: nfs-vol
++    nfs:
++      server: "fs-12345678.efs.us-west-2.amazonaws.com"
++      path: "/"
++  - name: efs-vol
++    persistentVolumeClaim:
++      claimName: efs-pvc
+diff --git a/pkg/kubelet/server/server.go b/pkg/kubelet/server/server.go
+index c57b8c3f7be..77c8f980a44 100644
+--- a/pkg/kubelet/server/server.go
++++ b/pkg/kubelet/server/server.go
+@@ -518,8 +518,7 @@ func (s *Server) InstallDebuggingHandlers() {
+ 
+ 	s.addMetricsBucketMatcher("containerLogs")
+ 	ws = new(restful.WebService)
+-	ws.
+-		Path("/containerLogs")
++	ws.Path("/containerLogs")
+ 	ws.Route(ws.GET("/{podNamespace}/{podID}/{containerName}").
+ 		To(s.getContainerLogs).
+ 		Operation("getContainerLogs"))
+diff --git a/pkg/kubelet/util/util.go b/pkg/kubelet/util/util.go
+index c2969a51126..1f5edaee902 100644
+--- a/pkg/kubelet/util/util.go
++++ b/pkg/kubelet/util/util.go
+@@ -18,8 +18,10 @@ package util
+ 
+ import (
+ 	"fmt"
+-
++	"k8s.io/apimachinery/pkg/api/resource"
+ 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
++	"k8s.io/klog/v2"
++	"os"
+ )
+ 
+ // FromApiserverCache modifies <opts> so that the GET request will
+@@ -43,3 +45,19 @@ func GetNodenameForKernel(hostname string, hostDomainName string, setHostnameAsF
+ 	}
+ 	return kernelHostname, nil
+ }
++
++// GetPodMaxCpuQuota, returns the max CPU quota that can be allocated to pod.
++func GetPodMaxCpuQuota(currentCpuQuota int64) int64 {
++	fargatePodCPULimit := os.Getenv("FARGATE_POD_CPU_LIMIT")
++
++	if fargatePodCPULimit != "" {
++		fargatePodCPUResource := resource.MustParse(fargatePodCPULimit)
++		fargatePodCPUQuota := fargatePodCPUResource.MilliValue() * 100
++
++		if currentCpuQuota > fargatePodCPUQuota {
++			klog.Infof("updating cpuQuota for pod from %v to %v", currentCpuQuota, fargatePodCPUQuota)
++			return fargatePodCPUQuota
++		}
++	}
++	return currentCpuQuota
++}
+diff --git a/staging/src/k8s.io/legacy-cloud-providers/aws/aws.go b/staging/src/k8s.io/legacy-cloud-providers/aws/aws.go
+index d902a87abb5..9e10aaef7ce 100644
+--- a/staging/src/k8s.io/legacy-cloud-providers/aws/aws.go
++++ b/staging/src/k8s.io/legacy-cloud-providers/aws/aws.go
+@@ -252,6 +252,9 @@ const volumeAttachmentStuck = "VolumeAttachmentStuck"
+ // Indicates that a node has volumes stuck in attaching state and hence it is not fit for scheduling more pods
+ const nodeWithImpairedVolumes = "NodeWithImpairedVolumes"
+ 
++// privateDNSNamePrefix is the prefix added to ENI Private DNS Name.
++const privateDNSNamePrefix = "ip-"
++
+ const (
+ 	// volumeAttachmentConsecutiveErrorLimit is the number of consecutive errors we will ignore when waiting for a volume to attach/detach
+ 	volumeAttachmentStatusConsecutiveErrorLimit = 10
+@@ -284,6 +287,20 @@ const (
+ 	// Number of node names that can be added to a filter. The AWS limit is 200
+ 	// but we are using a lower limit on purpose
+ 	filterNodeLimit = 150
++
++	// fargateNodeNamePrefix string is added to awsInstance nodeName and providerID of Fargate nodes.
++	fargateNodeNamePrefix = "fargate-"
++)
++
++// computeType defines different compute types.
++type computeType string
++
++const (
++	// computeTypeFargate indicates its a Fargate node.
++	computeTypeFargate computeType = "FARGATE"
++
++	// computeTypeEC2 identifies its a EC2 node.
++	computeTypeEC2 computeType = "EC2"
+ )
+ 
+ const (
+@@ -368,6 +385,8 @@ type EC2 interface {
+ 	ModifyInstanceAttribute(request *ec2.ModifyInstanceAttributeInput) (*ec2.ModifyInstanceAttributeOutput, error)
+ 
+ 	DescribeVpcs(input *ec2.DescribeVpcsInput) (*ec2.DescribeVpcsOutput, error)
++
++	DescribeNetworkInterfaces(input *ec2.DescribeNetworkInterfacesInput) (*ec2.DescribeNetworkInterfacesOutput, error)
+ }
+ 
+ // ELB is a simple pass-through of AWS' ELB client interface, which allows for testing
+@@ -635,6 +654,18 @@ type CloudConfig struct {
+ 		//yourself in an non-AWS cloud and open an issue, please indicate that in the
+ 		//issue body.
+ 		DisableStrictZoneCheck bool
++
++		// Type of aws worker node. Indicates whether its FargateCompute/EC2/Other. Default is EC2
++		ComputeType computeType
++
++		// Private DNS name to be associated with Fargate node.
++		PrivateDNSName string
++
++		// IP Address to be associated with Fargate node.
++		IPAddress string
++
++		// Provider ID prefix to be used for Fargate node.
++		ProviderIDPrefix string
+ 	}
+ 	// [ServiceOverride "1"]
+ 	//  Service = s3
+@@ -1179,6 +1210,15 @@ func (s *awsSdkEC2) DescribeVpcs(request *ec2.DescribeVpcsInput) (*ec2.DescribeV
+ 	return s.ec2.DescribeVpcs(request)
+ }
+ 
++// DescribeNetworkInterfaces describes network interface provided in the input.
++func (s *awsSdkEC2) DescribeNetworkInterfaces(input *ec2.DescribeNetworkInterfacesInput) (*ec2.DescribeNetworkInterfacesOutput, error) {
++	requestTime := time.Now()
++	resp, err := s.ec2.DescribeNetworkInterfaces(input)
++	timeTaken := time.Since(requestTime).Seconds()
++	recordAWSMetric("describe_network_interfaces", timeTaken, err)
++	return resp, err
++}
++
+ func init() {
+ 	registerMetrics()
+ 	cloudprovider.RegisterCloudProvider(ProviderName, func(config io.Reader) (cloudprovider.Interface, error) {
+@@ -1231,9 +1271,11 @@ func getRegionFromMetadata(cfg *CloudConfig) (string, error) {
+ 		return "", fmt.Errorf("error creating AWS metadata client: %q", err)
+ 	}
+ 
+-	err = updateConfigZone(cfg, metadata)
+-	if err != nil {
+-		return "", fmt.Errorf("unable to determine AWS zone from cloud provider config or EC2 instance metadata: %v", err)
++	if cfg.Global.ComputeType != computeTypeFargate {
++		err = updateConfigZone(cfg, metadata)
++		if err != nil {
++			return "", fmt.Errorf("unable to determine AWS zone from cloud provider config or EC2 instance metadata: %v", err)
++		}
+ 	}
+ 
+ 	zone := cfg.Global.Zone
+@@ -1314,9 +1356,11 @@ func newAWSCloud(cfg CloudConfig, awsServices Services) (*Cloud, error) {
+ 		return nil, fmt.Errorf("error creating AWS metadata client: %q", err)
+ 	}
+ 
+-	err = updateConfigZone(&cfg, metadata)
+-	if err != nil {
+-		return nil, fmt.Errorf("unable to determine AWS zone from cloud provider config or EC2 instance metadata: %v", err)
++	if cfg.Global.ComputeType != computeTypeFargate {
++		err = updateConfigZone(&cfg, metadata)
++		if err != nil {
++			return nil, fmt.Errorf("unable to determine AWS zone from cloud provider config or EC2 instance metadata: %v", err)
++		}
+ 	}
+ 
+ 	zone := cfg.Global.Zone
+@@ -1400,8 +1444,8 @@ func newAWSCloud(cfg CloudConfig, awsServices Services) (*Cloud, error) {
+ 		if err := awsCloud.tagging.init(cfg.Global.KubernetesClusterTag, cfg.Global.KubernetesClusterID); err != nil {
+ 			return nil, err
+ 		}
+-	} else {
+-		// TODO: Clean up double-API query
++	} else if cfg.Global.ComputeType != computeTypeFargate {
++		// TODO: Clean up double-API query and Update tags for Fargate node.
+ 		info, err := awsCloud.selfAWSInstance.describeInstance()
+ 		if err != nil {
+ 			return nil, err
+@@ -1509,11 +1553,24 @@ func isAWSNotFound(err error) bool {
+ 	return false
+ }
+ 
++// getNodeAddressesForFargateNode generates list of Node addresses for Fargate node.
++func getNodeAddressesForFargateNode(privateDNSName, privateIP string) []v1.NodeAddress {
++	addresses := []v1.NodeAddress{}
++	addresses = append(addresses, v1.NodeAddress{Type: v1.NodeInternalIP, Address: privateIP})
++	if privateDNSName != "" {
++		addresses = append(addresses, v1.NodeAddress{Type: v1.NodeInternalDNS, Address: privateDNSName})
++	}
++	return addresses
++}
++
+ // NodeAddresses is an implementation of Instances.NodeAddresses.
+ func (c *Cloud) NodeAddresses(ctx context.Context, name types.NodeName) ([]v1.NodeAddress, error) {
+ 	if c.selfAWSInstance.nodeName == name || len(name) == 0 {
+-		addresses := []v1.NodeAddress{}
++		if isFargateNode(string(name)) {
++			return getNodeAddressesForFargateNode(c.cfg.Global.PrivateDNSName, c.cfg.Global.IPAddress), nil
++		}
+ 
++		addresses := []v1.NodeAddress{}
+ 		macs, err := c.metadata.GetMetadata("network/interfaces/macs/")
+ 		if err != nil {
+ 			return nil, fmt.Errorf("error querying AWS metadata for %q: %q", "network/interfaces/macs", err)
+@@ -1618,11 +1675,11 @@ func (c *Cloud) NodeAddresses(ctx context.Context, name types.NodeName) ([]v1.No
+ 		return addresses, nil
+ 	}
+ 
+-	instance, err := c.getInstanceByNodeName(name)
++	instance, err := c.getAwsInstanceByNodeName(name)
+ 	if err != nil {
+-		return nil, fmt.Errorf("getInstanceByNodeName failed for %q with %q", name, err)
++		return nil, fmt.Errorf("getAwsInstanceByNodeName failed for %q with %q", name, err)
+ 	}
+-	return extractNodeAddresses(instance)
++	return instance.addresses, err
+ }
+ 
+ // parseMetadataLocalHostname parses the output of "local-hostname" metadata.
+@@ -1725,6 +1782,14 @@ func (c *Cloud) NodeAddressesByProviderID(ctx context.Context, providerID string
+ 		return nil, err
+ 	}
+ 
++	if isFargateNode(string(instanceID)) {
++		eni, err := c.describeNetworkInterfaces(string(instanceID))
++		if eni == nil || err != nil {
++			return nil, err
++		}
++		return getNodeAddressesForFargateNode(aws.StringValue(eni.PrivateDnsName), aws.StringValue(eni.PrivateIpAddress)), nil
++	}
++
+ 	instance, err := describeInstance(c.ec2, instanceID)
+ 	if err != nil {
+ 		return nil, err
+@@ -1741,6 +1806,11 @@ func (c *Cloud) InstanceExistsByProviderID(ctx context.Context, providerID strin
+ 		return false, err
+ 	}
+ 
++	if isFargateNode(string(instanceID)) {
++		eni, err := c.describeNetworkInterfaces(string(instanceID))
++		return eni != nil, err
++	}
++
+ 	request := &ec2.DescribeInstancesInput{
+ 		InstanceIds: []*string{instanceID.awsString()},
+ 	}
+@@ -1776,6 +1846,11 @@ func (c *Cloud) InstanceShutdownByProviderID(ctx context.Context, providerID str
+ 		return false, err
+ 	}
+ 
++	if isFargateNode(string(instanceID)) {
++		eni, err := c.describeNetworkInterfaces(string(instanceID))
++		return eni != nil, err
++	}
++
+ 	request := &ec2.DescribeInstancesInput{
+ 		InstanceIds: []*string{instanceID.awsString()},
+ 	}
+@@ -1812,15 +1887,15 @@ func (c *Cloud) InstanceID(ctx context.Context, nodeName types.NodeName) (string
+ 	if c.selfAWSInstance.nodeName == nodeName {
+ 		return "/" + c.selfAWSInstance.availabilityZone + "/" + c.selfAWSInstance.awsID, nil
+ 	}
+-	inst, err := c.getInstanceByNodeName(nodeName)
++	inst, err := c.getAwsInstanceByNodeName(nodeName)
+ 	if err != nil {
+ 		if err == cloudprovider.InstanceNotFound {
+ 			// The Instances interface requires that we return InstanceNotFound (without wrapping)
+ 			return "", err
+ 		}
+-		return "", fmt.Errorf("getInstanceByNodeName failed for %q with %q", nodeName, err)
++		return "", fmt.Errorf("getAWSInstanceByNodeName failed for %q with %q", nodeName, err)
+ 	}
+-	return "/" + aws.StringValue(inst.Placement.AvailabilityZone) + "/" + aws.StringValue(inst.InstanceId), nil
++	return "/" + inst.availabilityZone + "/" + inst.awsID, nil
+ }
+ 
+ // InstanceTypeByProviderID returns the cloudprovider instance type of the node with the specified unique providerID
+@@ -1832,6 +1907,10 @@ func (c *Cloud) InstanceTypeByProviderID(ctx context.Context, providerID string)
+ 		return "", err
+ 	}
+ 
++	if isFargateNode(string(instanceID)) {
++		return "", fmt.Errorf("instance type is not supported for Fargate")
++	}
++
+ 	instance, err := describeInstance(c.ec2, instanceID)
+ 	if err != nil {
+ 		return "", err
+@@ -1845,11 +1924,11 @@ func (c *Cloud) InstanceType(ctx context.Context, nodeName types.NodeName) (stri
+ 	if c.selfAWSInstance.nodeName == nodeName {
+ 		return c.selfAWSInstance.instanceType, nil
+ 	}
+-	inst, err := c.getInstanceByNodeName(nodeName)
++	inst, err := c.getAwsInstanceByNodeName(nodeName)
+ 	if err != nil {
+-		return "", fmt.Errorf("getInstanceByNodeName failed for %q with %q", nodeName, err)
++		return "", fmt.Errorf("getAwsInstanceByNodeName failed for %q with %q", nodeName, err)
+ 	}
+-	return aws.StringValue(inst.InstanceType), nil
++	return inst.instanceType, nil
+ }
+ 
+ // GetCandidateZonesForDynamicVolume retrieves  a list of all the zones in which nodes are running
+@@ -1936,6 +2015,14 @@ func (c *Cloud) GetZoneByProviderID(ctx context.Context, providerID string) (clo
+ 	if err != nil {
+ 		return cloudprovider.Zone{}, err
+ 	}
++
++	if isFargateNode(string(instanceID)) {
++		return cloudprovider.Zone{
++			FailureDomain: c.cfg.Global.Zone,
++			Region:        c.region,
++		}, nil
++	}
++
+ 	instance, err := c.getInstanceByID(string(instanceID))
+ 	if err != nil {
+ 		return cloudprovider.Zone{}, err
+@@ -1953,12 +2040,12 @@ func (c *Cloud) GetZoneByProviderID(ctx context.Context, providerID string) (clo
+ // This is particularly useful in external cloud providers where the kubelet
+ // does not initialize node data.
+ func (c *Cloud) GetZoneByNodeName(ctx context.Context, nodeName types.NodeName) (cloudprovider.Zone, error) {
+-	instance, err := c.getInstanceByNodeName(nodeName)
++	instance, err := c.getAwsInstanceByNodeName(nodeName)
+ 	if err != nil {
+ 		return cloudprovider.Zone{}, err
+ 	}
+ 	zone := cloudprovider.Zone{
+-		FailureDomain: *(instance.Placement.AvailabilityZone),
++		FailureDomain: instance.availabilityZone,
+ 		Region:        c.region,
+ 	}
+ 
+@@ -2004,25 +2091,37 @@ type awsInstance struct {
+ 
+ 	// instance type
+ 	instanceType string
++
++	// IP addresses associated with the node.
++	addresses []v1.NodeAddress
++
++	// BlockDeviceMapping for the node.
++	blockDeviceMappings []*ec2.InstanceBlockDeviceMapping
+ }
+ 
+-// newAWSInstance creates a new awsInstance object
+-func newAWSInstance(ec2Service EC2, instance *ec2.Instance) *awsInstance {
++// buildAWSInstanceFromEC2 creates a new awsInstance object from EC2 instance.
++func buildAWSInstanceFromEC2(ec2Service EC2, instance *ec2.Instance) (*awsInstance, error) {
+ 	az := ""
+ 	if instance.Placement != nil {
+ 		az = aws.StringValue(instance.Placement.AvailabilityZone)
+ 	}
++	nodeAddresses, err := extractNodeAddresses(instance)
++	if err != nil {
++		return nil, err
++	}
+ 	self := &awsInstance{
+-		ec2:              ec2Service,
+-		awsID:            aws.StringValue(instance.InstanceId),
+-		nodeName:         mapInstanceToNodeName(instance),
+-		availabilityZone: az,
+-		instanceType:     aws.StringValue(instance.InstanceType),
+-		vpcID:            aws.StringValue(instance.VpcId),
+-		subnetID:         aws.StringValue(instance.SubnetId),
++		ec2:                 ec2Service,
++		awsID:               aws.StringValue(instance.InstanceId),
++		nodeName:            mapInstanceToNodeName(instance),
++		availabilityZone:    az,
++		instanceType:        aws.StringValue(instance.InstanceType),
++		vpcID:               aws.StringValue(instance.VpcId),
++		subnetID:            aws.StringValue(instance.SubnetId),
++		addresses:           nodeAddresses,
++		blockDeviceMappings: instance.BlockDeviceMappings,
+ 	}
+ 
+-	return self
++	return self, nil
+ }
+ 
+ // Gets the full information about this instance from the EC2 API
+@@ -2035,13 +2134,12 @@ func (i *awsInstance) describeInstance() (*ec2.Instance, error) {
+ // Otherwise the mountDevice is assigned by finding the first available mountDevice, and it is returned with alreadyAttached=false.
+ func (c *Cloud) getMountDevice(
+ 	i *awsInstance,
+-	info *ec2.Instance,
+ 	volumeID EBSVolumeID,
+ 	assign bool) (assigned mountDevice, alreadyAttached bool, err error) {
+ 
+ 	deviceMappings := map[mountDevice]EBSVolumeID{}
+ 	volumeStatus := map[EBSVolumeID]string{} // for better logging of volume status
+-	for _, blockDevice := range info.BlockDeviceMappings {
++	for _, blockDevice := range i.blockDeviceMappings {
+ 		name := aws.StringValue(blockDevice.DeviceName)
+ 		name = strings.TrimPrefix(name, "/dev/sd")
+ 		name = strings.TrimPrefix(name, "/dev/xvd")
+@@ -2412,12 +2510,17 @@ func (d *awsDisk) deleteVolume() (bool, error) {
+ 	return true, nil
+ }
+ 
+-// Builds the awsInstance for the EC2 instance on which we are running.
++// Builds the awsInstance for the aws compute on which we are running.
+ // This is called when the AWSCloud is initialized, and should not be called otherwise (because the awsInstance for the local instance is a singleton with drive mapping state)
+ func (c *Cloud) buildSelfAWSInstance() (*awsInstance, error) {
+ 	if c.selfAWSInstance != nil {
+ 		panic("do not call buildSelfAWSInstance directly")
+ 	}
++
++	if c.cfg.Global.ComputeType == computeTypeFargate {
++		return c.buildAWSInstanceForFargate()
++	}
++
+ 	instanceID, err := c.metadata.GetMetadata("instance-id")
+ 	if err != nil {
+ 		return nil, fmt.Errorf("error fetching instance-id from ec2 metadata service: %q", err)
+@@ -2435,7 +2538,7 @@ func (c *Cloud) buildSelfAWSInstance() (*awsInstance, error) {
+ 	if err != nil {
+ 		return nil, fmt.Errorf("error finding instance %s: %q", instanceID, err)
+ 	}
+-	return newAWSInstance(c.ec2, instance), nil
++	return buildAWSInstanceFromEC2(c.ec2, instance)
+ }
+ 
+ // wrapAttachError wraps the error returned by an AttachVolume request with
+@@ -2467,7 +2570,7 @@ func (c *Cloud) AttachDisk(diskName KubernetesVolumeID, nodeName types.NodeName)
+ 		return "", err
+ 	}
+ 
+-	awsInstance, info, err := c.getFullInstance(nodeName)
++	awsInstance, err := c.getFullInstance(nodeName)
+ 	if err != nil {
+ 		return "", fmt.Errorf("error finding instance %s: %q", nodeName, err)
+ 	}
+@@ -2488,7 +2591,7 @@ func (c *Cloud) AttachDisk(diskName KubernetesVolumeID, nodeName types.NodeName)
+ 		}
+ 	}()
+ 
+-	mountDevice, alreadyAttached, err = c.getMountDevice(awsInstance, info, disk.awsID, true)
++	mountDevice, alreadyAttached, err = c.getMountDevice(awsInstance, disk.awsID, true)
+ 	if err != nil {
+ 		return "", err
+ 	}
+@@ -2579,9 +2682,12 @@ func (c *Cloud) DetachDisk(diskName KubernetesVolumeID, nodeName types.NodeName)
+ 		return "", nil
+ 	}
+ 
+-	awsInstance := newAWSInstance(c.ec2, diskInfo.ec2Instance)
++	awsInstance, err := buildAWSInstanceFromEC2(c.ec2, diskInfo.ec2Instance)
++	if err != nil {
++		return "", err
++	}
+ 
+-	mountDevice, alreadyAttached, err := c.getMountDevice(awsInstance, diskInfo.ec2Instance, diskInfo.disk.awsID, false)
++	mountDevice, alreadyAttached, err := c.getMountDevice(awsInstance, diskInfo.disk.awsID, false)
+ 	if err != nil {
+ 		return "", err
+ 	}
+@@ -2919,7 +3025,7 @@ func (c *Cloud) DisksAreAttached(nodeDisks map[types.NodeName][]KubernetesVolume
+ 		for _, diskName := range diskNames {
+ 			setNodeDisk(attached, diskName, nodeName, false)
+ 		}
+-		nodeNames = append(nodeNames, mapNodeNameToPrivateDNSName(nodeName))
++		nodeNames = append(nodeNames, string(nodeName))
+ 	}
+ 
+ 	// Note that we get instances regardless of state.
+@@ -5007,12 +5113,6 @@ func (c *Cloud) describeInstances(filters []*ec2.Filter) ([]*ec2.Instance, error
+ 	return matches, nil
+ }
+ 
+-// mapNodeNameToPrivateDNSName maps a k8s NodeName to an AWS Instance PrivateDNSName
+-// This is a simple string cast
+-func mapNodeNameToPrivateDNSName(nodeName types.NodeName) string {
+-	return string(nodeName)
+-}
+-
+ // mapInstanceToNodeName maps a EC2 instance to a k8s NodeName, by extracting the PrivateDNSName
+ func mapInstanceToNodeName(i *ec2.Instance) types.NodeName {
+ 	return types.NodeName(aws.StringValue(i.PrivateDnsName))
+@@ -5026,12 +5126,15 @@ var aliveFilter = []string{
+ 	ec2.InstanceStateNameStopped,
+ }
+ 
+-// Returns the instance with the specified node name
++// Returns the aws instance with the specified node name
+ // Returns nil if it does not exist
+-func (c *Cloud) findInstanceByNodeName(nodeName types.NodeName) (*ec2.Instance, error) {
+-	privateDNSName := mapNodeNameToPrivateDNSName(nodeName)
++func (c *Cloud) findAwsInstanceByNodeName(nodeName types.NodeName) (*awsInstance, error) {
++	nn := string(nodeName)
++	if isFargateNode(nn) {
++		return c.buildAWSInstanceForFargateNode(nn)
++	}
+ 	filters := []*ec2.Filter{
+-		newEc2Filter("private-dns-name", privateDNSName),
++		newEc2Filter("private-dns-name", nn),
+ 		// exclude instances in "terminated" state
+ 		newEc2Filter("instance-state-name", aliveFilter...),
+ 	}
+@@ -5047,13 +5150,13 @@ func (c *Cloud) findInstanceByNodeName(nodeName types.NodeName) (*ec2.Instance,
+ 	if len(instances) > 1 {
+ 		return nil, fmt.Errorf("multiple instances found for name: %s", nodeName)
+ 	}
+-	return instances[0], nil
++	return buildAWSInstanceFromEC2(c.ec2, instances[0])
+ }
+ 
+ // Returns the instance with the specified node name
+-// Like findInstanceByNodeName, but returns error if node not found
+-func (c *Cloud) getInstanceByNodeName(nodeName types.NodeName) (*ec2.Instance, error) {
+-	var instance *ec2.Instance
++// Like findAwsInstanceByNodeName, but returns error if node not found
++func (c *Cloud) getAwsInstanceByNodeName(nodeName types.NodeName) (*awsInstance, error) {
++	var instance *awsInstance
+ 
+ 	// we leverage node cache to try to retrieve node's provider id first, as
+ 	// get instance by provider id is way more efficient than by filters in
+@@ -5061,9 +5164,14 @@ func (c *Cloud) getInstanceByNodeName(nodeName types.NodeName) (*ec2.Instance, e
+ 	awsID, err := c.nodeNameToProviderID(nodeName)
+ 	if err != nil {
+ 		klog.V(3).Infof("Unable to convert node name %q to aws instanceID, fall back to findInstanceByNodeName: %v", nodeName, err)
+-		instance, err = c.findInstanceByNodeName(nodeName)
++		instance, err = c.findAwsInstanceByNodeName(nodeName)
+ 	} else {
+-		instance, err = c.getInstanceByID(string(awsID))
++		var ec2Instance *ec2.Instance
++		ec2Instance, err = c.getInstanceByID(string(awsID))
++		if err != nil {
++			return nil, err
++		}
++		instance, err = buildAWSInstanceFromEC2(c.ec2, ec2Instance)
+ 	}
+ 	if err == nil && instance == nil {
+ 		return nil, cloudprovider.InstanceNotFound
+@@ -5071,17 +5179,16 @@ func (c *Cloud) getInstanceByNodeName(nodeName types.NodeName) (*ec2.Instance, e
+ 	return instance, err
+ }
+ 
+-func (c *Cloud) getFullInstance(nodeName types.NodeName) (*awsInstance, *ec2.Instance, error) {
++func (c *Cloud) getFullInstance(nodeName types.NodeName) (*awsInstance, error) {
+ 	if nodeName == "" {
+ 		instance, err := c.getInstanceByID(c.selfAWSInstance.awsID)
+-		return c.selfAWSInstance, instance, err
+-	}
+-	instance, err := c.getInstanceByNodeName(nodeName)
+-	if err != nil {
+-		return nil, nil, err
++		if err != nil {
++			return nil, err
++		}
++		return buildAWSInstanceFromEC2(c.ec2, instance)
+ 	}
+-	awsInstance := newAWSInstance(c.ec2, instance)
+-	return awsInstance, instance, err
++	instance, err := c.getAwsInstanceByNodeName(nodeName)
++	return instance, err
+ }
+ 
+ func (c *Cloud) nodeNameToProviderID(nodeName types.NodeName) (InstanceID, error) {
+@@ -5150,3 +5257,88 @@ func getInitialAttachDetachDelay(status string) time.Duration {
+ 	}
+ 	return volumeAttachmentStatusInitialDelay
+ }
++
++// isFargateNode returns true if given node runs on Fargate compute
++func isFargateNode(nodeName string) bool {
++	return strings.HasPrefix(nodeName, fargateNodeNamePrefix)
++}
++
++// buildAWSInstanceForFargate builds AWSInstance object from config file.
++// ProviderID will be <ProviderIDPrefix>/NodeName
++// NodeName will be fargate-PrivateDNSName
++func (c *Cloud) buildAWSInstanceForFargate() (*awsInstance, error) {
++	nodeName := buildNodeNameForFargate(c.cfg.Global.PrivateDNSName, c.cfg.Global.IPAddress)
++	return &awsInstance{
++		ec2:              c.ec2,
++		awsID:            buildProviderIDForFargateNode(c.cfg.Global.ProviderIDPrefix, nodeName),
++		nodeName:         types.NodeName(nodeName),
++		availabilityZone: c.cfg.Global.Zone,
++		vpcID:            c.cfg.Global.VPC,
++		subnetID:         c.cfg.Global.SubnetID,
++		addresses:        getNodeAddressesForFargateNode(c.cfg.Global.PrivateDNSName, c.cfg.Global.IPAddress),
++	}, nil
++}
++
++// buildNodeNameForFargate builds node name for Fargate.
++func buildNodeNameForFargate(privateDNSName, privateIP string) string {
++	if privateDNSName != "" {
++		return fmt.Sprintf("%s%s", fargateNodeNamePrefix, privateDNSName)
++	}
++	return fmt.Sprintf("%s%s", fargateNodeNamePrefix, privateIP)
++}
++
++// buildProviderIDForFargateNode builds providerID for Fargate.
++func buildProviderIDForFargateNode(providerIDPrefix, nodeName string) string {
++	return fmt.Sprintf("%s/%s", providerIDPrefix, nodeName)
++}
++
++// buildAWSInstanceForFargateNode builds awsInstance by describing network interface
++func (c *Cloud) buildAWSInstanceForFargateNode(nodeName string) (*awsInstance, error) {
++	networkInterface, err := c.describeNetworkInterfaces(nodeName)
++	if networkInterface == nil || err != nil {
++		return nil, err
++	}
++
++	return &awsInstance{
++		ec2:              c.ec2,
++		awsID:            buildProviderIDForFargateNode(c.cfg.Global.ProviderIDPrefix, nodeName),
++		nodeName:         types.NodeName(nodeName),
++		availabilityZone: aws.StringValue(networkInterface.AvailabilityZone),
++		vpcID:            aws.StringValue(networkInterface.VpcId),
++		subnetID:         aws.StringValue(networkInterface.SubnetId),
++		addresses:        getNodeAddressesForFargateNode(aws.StringValue(networkInterface.PrivateDnsName), aws.StringValue(networkInterface.PrivateIpAddress)),
++	}, nil
++}
++
++// describeNetworkInterfaces returns network interface information for the given DNS name.
++func (c *Cloud) describeNetworkInterfaces(nodeName string) (*ec2.NetworkInterface, error) {
++	eniIpOrDns := strings.TrimPrefix(nodeName, fargateNodeNamePrefix)
++
++	filters := []*ec2.Filter{
++		newEc2Filter("attachment.status", "attached"),
++		newEc2Filter("vpc-id", c.vpcID),
++	}
++
++	if strings.HasPrefix(eniIpOrDns, privateDNSNamePrefix) {
++		filters = append(filters, newEc2Filter("private-dns-name", eniIpOrDns))
++	} else {
++		filters = append(filters, newEc2Filter("private-ip-address", eniIpOrDns))
++	}
++
++	request := &ec2.DescribeNetworkInterfacesInput{
++		Filters: filters,
++	}
++
++	eni, err := c.ec2.DescribeNetworkInterfaces(request)
++	if err != nil {
++		return nil, err
++	}
++	if len(eni.NetworkInterfaces) == 0 {
++		return nil, nil
++	}
++	if len(eni.NetworkInterfaces) != 1 {
++		// This should not be possible - ids should be unique
++		return nil, fmt.Errorf("multiple interfaces found with same id %q", eni.NetworkInterfaces)
++	}
++	return eni.NetworkInterfaces[0], nil
++}
+diff --git a/staging/src/k8s.io/legacy-cloud-providers/aws/aws_fakes.go b/staging/src/k8s.io/legacy-cloud-providers/aws/aws_fakes.go
+index de39d4eb63b..0e7828ed09d 100644
+--- a/staging/src/k8s.io/legacy-cloud-providers/aws/aws_fakes.go
++++ b/staging/src/k8s.io/legacy-cloud-providers/aws/aws_fakes.go
+@@ -313,6 +313,35 @@ func (ec2i *FakeEC2Impl) DescribeVpcs(request *ec2.DescribeVpcsInput) (*ec2.Desc
+ 	return &ec2.DescribeVpcsOutput{Vpcs: []*ec2.Vpc{{CidrBlock: aws.String("172.20.0.0/16")}}}, nil
+ }
+ 
++// DescribeNetworkInterfaces returns list of ENIs for testing
++func (ec2i *FakeEC2Impl) DescribeNetworkInterfaces(input *ec2.DescribeNetworkInterfacesInput) (*ec2.DescribeNetworkInterfacesOutput, error) {
++	for _, filter := range input.Filters {
++		if *filter.Name == "private-dns-name" {
++			if strings.HasPrefix(*filter.Values[0], fargateNodeNamePrefix) {
++				panic("Invalid privateDNSName specified for DescribeNetworkInterface call")
++			}
++		}
++	}
++	networkInterface := []*ec2.NetworkInterface{
++		{
++			PrivateIpAddress: aws.String("1.2.3.4"),
++			AvailabilityZone: aws.String("us-west-2b"),
++			VpcId:            aws.String("vpc-123456"),
++			SubnetId:         aws.String("subnet-123456"),
++		},
++	}
++	for _, filter := range input.Filters {
++		// if filter contains privateDnsName then add privateDNSName to output
++		if *filter.Name == "private-dns-name" {
++			networkInterface[0].PrivateDnsName = aws.String("ip-1-2-3-4.compute.amazon.com")
++		}
++	}
++
++	return &ec2.DescribeNetworkInterfacesOutput{
++		NetworkInterfaces: networkInterface,
++	}, nil
++}
++
+ // FakeMetadata is a fake EC2 metadata service client used for testing
+ type FakeMetadata struct {
+ 	aws *FakeAWSServices
+diff --git a/staging/src/k8s.io/legacy-cloud-providers/aws/aws_routes.go b/staging/src/k8s.io/legacy-cloud-providers/aws/aws_routes.go
+index 6aed26db31c..c9a52ba4588 100644
+--- a/staging/src/k8s.io/legacy-cloud-providers/aws/aws_routes.go
++++ b/staging/src/k8s.io/legacy-cloud-providers/aws/aws_routes.go
+@@ -144,14 +144,14 @@ func (c *Cloud) configureInstanceSourceDestCheck(instanceID string, sourceDestCh
+ // CreateRoute implements Routes.CreateRoute
+ // Create the described route
+ func (c *Cloud) CreateRoute(ctx context.Context, clusterName string, nameHint string, route *cloudprovider.Route) error {
+-	instance, err := c.getInstanceByNodeName(route.TargetNode)
++	instance, err := c.getAwsInstanceByNodeName(route.TargetNode)
+ 	if err != nil {
+ 		return err
+ 	}
+ 
+ 	// In addition to configuring the route itself, we also need to configure the instance to accept that traffic
+ 	// On AWS, this requires turning source-dest checks off
+-	err = c.configureInstanceSourceDestCheck(aws.StringValue(instance.InstanceId), false)
++	err = c.configureInstanceSourceDestCheck(instance.awsID, false)
+ 	if err != nil {
+ 		return err
+ 	}
+@@ -190,7 +190,7 @@ func (c *Cloud) CreateRoute(ctx context.Context, clusterName string, nameHint st
+ 	request := &ec2.CreateRouteInput{}
+ 	// TODO: use ClientToken for idempotency?
+ 	request.DestinationCidrBlock = aws.String(route.DestinationCIDR)
+-	request.InstanceId = instance.InstanceId
++	request.InstanceId = aws.String(instance.awsID)
+ 	request.RouteTableId = table.RouteTableId
+ 
+ 	_, err = c.ec2.CreateRoute(request)
+diff --git a/staging/src/k8s.io/legacy-cloud-providers/aws/aws_test.go b/staging/src/k8s.io/legacy-cloud-providers/aws/aws_test.go
+index f0c1dfedbbd..15e778562a8 100644
+--- a/staging/src/k8s.io/legacy-cloud-providers/aws/aws_test.go
++++ b/staging/src/k8s.io/legacy-cloud-providers/aws/aws_test.go
+@@ -1529,20 +1529,20 @@ func TestFindInstanceByNodeNameExcludesTerminatedInstances(t *testing.T) {
+ 			return
+ 		}
+ 
+-		resultInstance, err := c.findInstanceByNodeName(nodeName)
++		resultInstance, err := c.findAwsInstanceByNodeName(nodeName)
+ 
+ 		if awsState.expected {
+ 			if err != nil || resultInstance == nil {
+ 				t.Errorf("Expected to find instance %v", *testInstance.InstanceId)
+ 				return
+ 			}
+-			if *resultInstance.InstanceId != *testInstance.InstanceId {
+-				t.Errorf("Wrong instance returned by findInstanceByNodeName() expected: %v, actual: %v", *testInstance.InstanceId, *resultInstance.InstanceId)
++			if resultInstance.awsID != *testInstance.InstanceId {
++				t.Errorf("Wrong instance returned by findInstanceByNodeName() expected: %v, actual: %v", *testInstance.InstanceId, resultInstance.awsID)
+ 				return
+ 			}
+ 		} else {
+ 			if err == nil && resultInstance != nil {
+-				t.Errorf("Did not expect to find instance %v", *resultInstance.InstanceId)
++				t.Errorf("Did not expect to find instance %v", resultInstance.awsID)
+ 				return
+ 			}
+ 		}
+@@ -3588,3 +3588,57 @@ func Test_parseStringSliceAnnotation(t *testing.T) {
+ 		})
+ 	}
+ }
++
++func TestNodeAddressesForFargate(t *testing.T) {
++	awsServices := newMockedFakeAWSServices(TestClusterID)
++	c, _ := newAWSCloud(CloudConfig{}, awsServices)
++	c.cfg.Global.IPAddress = "1.2.3.4"
++	c.cfg.Global.PrivateDNSName = "ip-1-2-3-4.compute.amazon.com"
++
++	nodeAddresses, _ := c.NodeAddresses(context.TODO(), "fargate-ip-1-2-3-4.compute.amazon.com")
++	verifyNodeAddressesForFargate(t, nodeAddresses)
++}
++
++func TestBuildFargateTaskFromDescribeNetworkInterfaces(t *testing.T) {
++	awsServices := newMockedFakeAWSServices(TestClusterID)
++	c, _ := newAWSCloud(CloudConfig{}, awsServices)
++	c.cfg.Global.ProviderIDPrefix = "fargateTest"
++
++	awsInstance, _ := c.buildAWSInstanceForFargateNode("fargate-ip-1-2-3-4.compute.amazon.com")
++	assert.Equal(t, "vpc-123456", awsInstance.vpcID)
++	assert.Equal(t, "subnet-123456", awsInstance.subnetID)
++	assert.Equal(t, "1.2.3.4", awsInstance.addresses[0].Address)
++	assert.Equal(t, "us-west-2b", awsInstance.availabilityZone)
++	assert.Equal(t, "fargateTest/fargate-ip-1-2-3-4.compute.amazon.com", awsInstance.awsID)
++}
++
++func TestNodeAddressesByProviderIDForFargate(t *testing.T) {
++	awsServices := newMockedFakeAWSServices(TestClusterID)
++	c, _ := newAWSCloud(CloudConfig{}, awsServices)
++	c.cfg.Global.IPAddress = "1.2.3.4"
++	c.cfg.Global.PrivateDNSName = "ip-1-2-3-4.compute.amazon.com"
++
++	nodeAddresses, _ := c.NodeAddressesByProviderID(context.TODO(), "fargateTest/fargate-ip-1-2-3-4.compute.amazon.com")
++	verifyNodeAddressesForFargate(t, nodeAddresses)
++}
++
++func verifyNodeAddressesForFargate(t *testing.T, nodeAddresses []v1.NodeAddress) {
++	assert.Equal(t, 2, len(nodeAddresses))
++	assert.Equal(t, "1.2.3.4", nodeAddresses[0].Address)
++	assert.Equal(t, v1.NodeInternalIP, nodeAddresses[0].Type)
++	assert.Equal(t, "ip-1-2-3-4.compute.amazon.com", nodeAddresses[1].Address)
++	assert.Equal(t, v1.NodeInternalDNS, nodeAddresses[1].Type)
++}
++
++func TestBuildFargateTaskUsingPrivateIpFromDescribeNetworkInterfaces(t *testing.T) {
++	awsServices := newMockedFakeAWSServices(TestClusterID)
++	c, _ := newAWSCloud(CloudConfig{}, awsServices)
++	c.cfg.Global.ProviderIDPrefix = "fargateTest"
++	nodeName := "fargate-1.2.3.4"
++
++	awsInstance, _ := c.buildAWSInstanceForFargateNode(nodeName)
++	assert.Equal(t, "1.2.3.4", awsInstance.addresses[0].Address)
++	assert.Equal(t, string(awsInstance.nodeName), nodeName)
++	assert.Equal(t, "fargateTest/fargate-1.2.3.4", awsInstance.awsID)
++	assert.Equal(t, 1, len(awsInstance.addresses))
++}
+diff --git a/staging/src/k8s.io/legacy-cloud-providers/aws/instances.go b/staging/src/k8s.io/legacy-cloud-providers/aws/instances.go
+index c2970382759..37fef2d353a 100644
+--- a/staging/src/k8s.io/legacy-cloud-providers/aws/instances.go
++++ b/staging/src/k8s.io/legacy-cloud-providers/aws/instances.go
+@@ -74,17 +74,13 @@ func (name KubernetesInstanceID) MapToAWSInstanceID() (InstanceID, error) {
+ 
+ 	awsID := ""
+ 	tokens := strings.Split(strings.Trim(url.Path, "/"), "/")
+-	if len(tokens) == 1 {
+-		// instanceId
+-		awsID = tokens[0]
+-	} else if len(tokens) == 2 {
+-		// az/instanceId
+-		awsID = tokens[1]
++	if len(tokens) > 0 {
++		awsID = tokens[len(tokens)-1]
+ 	}
+ 
+-	// We sanity check the resulting volume; the two known formats are
+-	// i-12345678 and i-12345678abcdef01
+-	if awsID == "" || !awsInstanceRegMatch.MatchString(awsID) {
++	// We sanity check the resulting volume; the known formats are
++	// i-12345678, i-12345678abcdef01 and fargate-dnsName
++	if awsID == "" || !(awsInstanceRegMatch.MatchString(awsID) || isFargateNode(awsID)) {
+ 		return "", fmt.Errorf("Invalid format for AWS instance (%s)", name)
+ 	}
+ 

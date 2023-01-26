@@ -1,0 +1,37 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Antonio Ojea <aojea@google.com>
+Date: Thu, 26 Jan 2023 00:02:30 +0000
+Subject: [PATCH] --EKS-PRIVATE-- skip scale test for probes
+
+Change-Id: I215e2cf9211348aadcc0d262da01953d6523794a
+Signed-off-by: Davanum Srinivas <davanum@gmail.com>
+---
+ pkg/kubelet/prober/scale_test.go | 10 ++++++----
+ 1 file changed, 6 insertions(+), 4 deletions(-)
+
+diff --git a/pkg/kubelet/prober/scale_test.go b/pkg/kubelet/prober/scale_test.go
+index 29d55fc9eaf..8b38feb1015 100644
+--- a/pkg/kubelet/prober/scale_test.go
++++ b/pkg/kubelet/prober/scale_test.go
+@@ -60,15 +60,17 @@ import (
+ // Ref: https://github.com/kubernetes/kubernetes/issues/89898#issuecomment-1383207322
+ 
+ func TestTCPPortExhaustion(t *testing.T) {
++	// This test creates a considereable number of connections in a short time
++	// and flakes on constrained environments, thus it is skipped by default.
++	// The test is left for manual verification or experimentation with new
++	// changes on the probes.
++	t.Skip("skipping TCP port exhaustion tests")
++
+ 	const (
+ 		numTestPods   = 1
+ 		numContainers = 600
+ 	)
+ 
+-	if testing.Short() {
+-		t.Skip("skipping TCP port exhaustion in short mode")
+-	}
+-
+ 	tests := []struct {
+ 		name string
+ 		http bool // it can be tcp or http
