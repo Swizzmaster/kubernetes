@@ -1,43 +1,39 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: Brandon Wagner <wagnerbm@amazon.com>
-Date: Wed, 9 Nov 2022 13:30:53 -0800
-Subject: [PATCH] --EKS-PRIVATE-- kubelet: Keep trying fast status update at
- startup until node is ready
+From: Brandon <wagnerbm@amazon.com>
+Date: Wed, 14 Dec 2022 12:39:30 -0600
+Subject: [PATCH] --EKS-PATCH-- Patch kubelet: Keep trying fast status update
+ at startup until node is ready #112618
 
-Merge pull request #112618 from jingyuanliang/fastStatusUpdateOnce
 ---
- pkg/kubelet/kubelet.go                  |  71 ++++++----
+ pkg/kubelet/kubelet.go                  |  68 ++++++----
  pkg/kubelet/kubelet_node_status.go      | 169 +++++++++++++++++++-----
  pkg/kubelet/kubelet_node_status_test.go | 153 +++++++++++++++++++++
- 3 files changed, 334 insertions(+), 59 deletions(-)
+ 3 files changed, 331 insertions(+), 59 deletions(-)
 
 diff --git a/pkg/kubelet/kubelet.go b/pkg/kubelet/kubelet.go
-index 4e3430440d1..417677f3500 100644
+index f7a949e99e9..1855972f853 100644
 --- a/pkg/kubelet/kubelet.go
 +++ b/pkg/kubelet/kubelet.go
-@@ -28,7 +28,6 @@ import (
- 	"path/filepath"
+@@ -27,7 +27,6 @@ import (
+ 	"path"
  	sysruntime "runtime"
  	"sort"
 -	"strings"
  	"sync"
  	"sync/atomic"
  	"time"
-@@ -129,6 +128,13 @@ const (
- 
+@@ -128,6 +127,10 @@ const (
  	// ContainerLogsDir is the location of container logs.
  	ContainerLogsDir = "/var/log/containers"
-+	
+ 
 +	// nodeReadyGracePeriod is the period to allow for before fast status update is
 +	// terminated and container runtime not being ready is logged without verbosity guard.
 +	nodeReadyGracePeriod = 120 * time.Second
 +
-+	// DefaultContainerLogsDir is the location of container logs.
-+	DefaultContainerLogsDir = "/var/log/containers"
- 
  	// MaxContainerBackOff is the max backoff period, exported for the e2e test
  	MaxContainerBackOff = 300 * time.Second
-@@ -1009,6 +1015,12 @@ type Kubelet struct {
+ 
+@@ -996,6 +999,12 @@ type Kubelet struct {
  	// used for generating ContainerStatus.
  	reasonCache *ReasonCache
  
@@ -50,7 +46,7 @@ index 4e3430440d1..417677f3500 100644
  	// nodeStatusUpdateFrequency specifies how often kubelet computes node status. If node lease
  	// feature is not enabled, it is also the frequency that kubelet posts node status to master.
  	// In that case, be cautious when changing the constant, it must work with nodeMonitorGracePeriod
-@@ -1034,15 +1046,15 @@ type Kubelet struct {
+@@ -1021,15 +1030,15 @@ type Kubelet struct {
  	lastContainerStartedTime *timeCache
  
  	// syncNodeStatusMux is a lock on updating the node status, because this path is not thread-safe.
@@ -69,7 +65,7 @@ index 4e3430440d1..417677f3500 100644
  	updateRuntimeMux sync.Mutex
  
  	// nodeLeaseController claims and renews the node lease for this Kubelet
-@@ -1445,6 +1457,12 @@ func (kl *Kubelet) Run(updates <-chan kubetypes.PodUpdate) {
+@@ -1423,6 +1432,12 @@ func (kl *Kubelet) Run(updates <-chan kubetypes.PodUpdate) {
  	go kl.volumeManager.Run(kl.sourcesReady, wait.NeverStop)
  
  	if kl.kubeClient != nil {
@@ -82,7 +78,7 @@ index 4e3430440d1..417677f3500 100644
  		// Introduce some small jittering to ensure that over time the requests won't start
  		// accumulating at approximately the same time from the set of nodes due to priority and
  		// fairness effect.
-@@ -2371,9 +2389,13 @@ func (kl *Kubelet) updateRuntimeUp() {
+@@ -2347,9 +2362,13 @@ func (kl *Kubelet) updateRuntimeUp() {
  	}
  	// Periodically log the whole runtime status for debugging.
  	klog.V(4).InfoS("Container runtime status", "status", s)
@@ -97,7 +93,7 @@ index 4e3430440d1..417677f3500 100644
  		kl.runtimeState.setNetworkState(fmt.Errorf("container runtime network not ready: %v", networkReady))
  	} else {
  		// Set nil if the container runtime network is ready.
-@@ -2383,7 +2405,7 @@ func (kl *Kubelet) updateRuntimeUp() {
+@@ -2359,7 +2378,7 @@ func (kl *Kubelet) updateRuntimeUp() {
  	runtimeReady := s.GetRuntimeCondition(kubecontainer.RuntimeReady)
  	// If RuntimeReady is not set or is false, report an error.
  	if runtimeReady == nil || !runtimeReady.Status {
@@ -106,7 +102,7 @@ index 4e3430440d1..417677f3500 100644
  		kl.runtimeState.setRuntimeState(fmt.Errorf("container runtime not ready: %v", runtimeReady))
  		return
  	}
-@@ -2438,30 +2460,25 @@ func (kl *Kubelet) cleanUpContainersInPod(podID types.UID, exitedContainerID str
+@@ -2414,30 +2433,25 @@ func (kl *Kubelet) cleanUpContainersInPod(podID types.UID, exitedContainerID str
  	}
  }
  
@@ -152,9 +148,9 @@ index 4e3430440d1..417677f3500 100644
 +	}, 100*time.Millisecond, stopCh)
  }
  
- // CheckpointContainer tries to checkpoint a container. The parameters are used to
+ // isSyncPodWorthy filters out events that are not worthy of pod syncing
 diff --git a/pkg/kubelet/kubelet_node_status.go b/pkg/kubelet/kubelet_node_status.go
-index b28e6288b6e..13ad5a312ef 100644
+index aabb75bcd2e..767806183e9 100644
 --- a/pkg/kubelet/kubelet_node_status.go
 +++ b/pkg/kubelet/kubelet_node_status.go
 @@ -429,6 +429,85 @@ func (kl *Kubelet) initialNode(ctx context.Context) (*v1.Node, error) {
@@ -366,10 +362,10 @@ index b28e6288b6e..13ad5a312ef 100644
  
  // recordNodeStatusEvent records an event of the given type with the given
 diff --git a/pkg/kubelet/kubelet_node_status_test.go b/pkg/kubelet/kubelet_node_status_test.go
-index 6dacc2e3d5b..93736fea0e0 100644
+index 68c59443980..e537d9aa065 100644
 --- a/pkg/kubelet/kubelet_node_status_test.go
 +++ b/pkg/kubelet/kubelet_node_status_test.go
-@@ -1127,6 +1127,159 @@ func TestUpdateNodeStatusAndVolumesInUseWithNodeLease(t *testing.T) {
+@@ -1120,6 +1120,159 @@ func TestUpdateNodeStatusAndVolumesInUseWithNodeLease(t *testing.T) {
  	}
  }
  
