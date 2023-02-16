@@ -6,14 +6,14 @@ Subject: [PATCH] --EKS-PRIVATE-- Optional maximum etcd page size on every list
 Signed-off-by: Davanum Srinivas <davanum@gmail.com>
 ---
  .../apiserver/pkg/server/options/etcd.go      |   3 +
- .../pkg/storage/etcd3/metrics/metrics.go      |  15 ++
+ .../pkg/storage/etcd3/metrics/metrics.go      |  17 +++
  .../apiserver/pkg/storage/etcd3/store.go      |  56 +++++--
  .../apiserver/pkg/storage/etcd3/store_test.go |  55 ++++---
  .../pkg/storage/storagebackend/config.go      |   3 +-
  .../storage/storagebackend/factory/etcd3.go   |   3 +-
  .../pkg/storage/testing/store_tests.go        | 144 ++++++++++++++++++
  .../pkg/storage/tests/cacher_test.go          |   4 +-
- 8 files changed, 246 insertions(+), 37 deletions(-)
+ 8 files changed, 248 insertions(+), 37 deletions(-)
 
 diff --git a/staging/src/k8s.io/apiserver/pkg/server/options/etcd.go b/staging/src/k8s.io/apiserver/pkg/server/options/etcd.go
 index d64329cf7ec..36ce44680a1 100644
@@ -30,13 +30,22 @@ index d64329cf7ec..36ce44680a1 100644
  		"The timeout to use when checking etcd readiness")
  
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/metrics/metrics.go b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/metrics/metrics.go
-index 8255822945d..495f761a728 100644
+index a01f50954fe..a01ba77c501 100644
 --- a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/metrics/metrics.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/metrics/metrics.go
-@@ -113,6 +113,15 @@ var (
+@@ -113,6 +113,7 @@ var (
  		},
  		[]string{"resource"},
  	)
++
+ 	decodeErrorCounts = compbasemetrics.NewCounterVec(
+ 		&compbasemetrics.CounterOpts{
+ 			Namespace:      "apiserver",
+@@ -122,6 +123,16 @@ var (
+ 		},
+ 		[]string{"resource"},
+ 	)
++
 +	listStorageLatency = compbasemetrics.NewHistogramVec(
 +		&compbasemetrics.HistogramOpts{
 +			Name:           "apiserver_storage_list_duration_seconds",
@@ -49,15 +58,15 @@ index 8255822945d..495f761a728 100644
  )
  
  var registerMetrics sync.Once
-@@ -130,6 +139,7 @@ func Register() {
- 		legacyregistry.MustRegister(listStorageNumFetched)
+@@ -140,6 +151,7 @@ func Register() {
  		legacyregistry.MustRegister(listStorageNumSelectorEvals)
  		legacyregistry.MustRegister(listStorageNumReturned)
+ 		legacyregistry.MustRegister(decodeErrorCounts)
 +		legacyregistry.MustRegister(listStorageLatency)
  	})
  }
  
-@@ -143,6 +153,11 @@ func RecordEtcdRequestLatency(verb, resource string, startTime time.Time) {
+@@ -153,6 +165,11 @@ func RecordEtcdRequestLatency(verb, resource string, startTime time.Time) {
  	etcdRequestLatency.WithLabelValues(verb, resource).Observe(sinceInSeconds(startTime))
  }
  
@@ -70,7 +79,7 @@ index 8255822945d..495f761a728 100644
  func RecordEtcdBookmark(resource string) {
  	etcdBookmarkCounts.WithLabelValues(resource).Inc()
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go
-index 463a84d7b91..a69f39a68ab 100644
+index 5342be2ae91..ad7f4c90a01 100644
 --- a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go
 @@ -23,6 +23,7 @@ import (
@@ -140,7 +149,7 @@ index 463a84d7b91..a69f39a68ab 100644
  	return result
  }
  
-@@ -605,7 +625,11 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
+@@ -622,7 +642,11 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
  	limit := pred.Limit
  	var paging bool
  	options := make([]clientv3.OpOption, 0, 4)
@@ -153,7 +162,7 @@ index 463a84d7b91..a69f39a68ab 100644
  		paging = true
  		options = append(options, clientv3.WithLimit(limit))
  		limitOption = &options[len(options)-1]
-@@ -646,7 +670,7 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
+@@ -663,7 +687,7 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
  			withRev = continueRV
  			returnedRV = continueRV
  		}
@@ -162,7 +171,7 @@ index 463a84d7b91..a69f39a68ab 100644
  		if fromRV != nil {
  			switch match {
  			case metav1.ResourceVersionMatchNotOlderThan:
-@@ -656,7 +680,7 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
+@@ -673,7 +697,7 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
  				returnedRV = int64(*fromRV)
  				withRev = returnedRV
  			case "": // legacy case
@@ -171,7 +180,7 @@ index 463a84d7b91..a69f39a68ab 100644
  					returnedRV = int64(*fromRV)
  					withRev = returnedRV
  				}
-@@ -696,9 +720,16 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
+@@ -713,9 +737,16 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
  	var getResp *clientv3.GetResponse
  	var numFetched int
  	var numEvald int
@@ -188,7 +197,7 @@ index 463a84d7b91..a69f39a68ab 100644
  		numReturn := v.Len()
  		metrics.RecordStorageListMetrics(s.groupResourceString, numFetched, numEvald, numReturn)
  	}()
-@@ -714,6 +745,7 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
+@@ -731,6 +762,7 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
  			return interpretListError(err, len(pred.Continue) > 0, continueKey, keyPrefix)
  		}
  		numFetched += len(getResp.Kvs)
@@ -196,7 +205,7 @@ index 463a84d7b91..a69f39a68ab 100644
  		if err = s.validateMinimumResourceVersion(resourceVersion, uint64(getResp.Header.Revision)); err != nil {
  			return err
  		}
-@@ -733,7 +765,7 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
+@@ -750,7 +782,7 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
  
  		// take items from the response until the bucket is full, filtering as we go
  		for i, kv := range getResp.Kvs {
@@ -205,7 +214,7 @@ index 463a84d7b91..a69f39a68ab 100644
  				hasMore = true
  				break
  			}
-@@ -763,16 +795,16 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
+@@ -781,16 +813,16 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
  			break
  		}
  		// we're paging but we have filled our bucket

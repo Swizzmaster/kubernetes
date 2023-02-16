@@ -76,10 +76,10 @@ Signed-off-by: Jyoti Mahapatra<jyotima@amazon.com>
  create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator_testdata/valid-volumes.yaml
 
 diff --git a/pkg/features/kube_features.go b/pkg/features/kube_features.go
-index 5fdb981ea74..d855920429b 100644
+index 2e7f5e3c1c2..68bd62c179a 100644
 --- a/pkg/features/kube_features.go
 +++ b/pkg/features/kube_features.go
-@@ -635,6 +635,12 @@ const (
+@@ -629,6 +629,12 @@ const (
  	// Enables the PodSecurity admission plugin
  	PodSecurity featuregate.Feature = "PodSecurity"
  
@@ -92,7 +92,7 @@ index 5fdb981ea74..d855920429b 100644
  	// owner: @ehashman
  	// alpha: v1.21
  	// beta: v1.22
-@@ -1010,6 +1016,8 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
+@@ -1009,6 +1015,8 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
  
  	PodSecurity: {Default: true, PreRelease: featuregate.GA, LockToDefault: true},
  
@@ -150,7 +150,7 @@ index 8cf15d1f1f1..0dc02b0c287 100644
  		}
  		mounts = append(mounts, m)
 diff --git a/pkg/kubelet/kubelet.go b/pkg/kubelet/kubelet.go
-index d8eda75da1d..0a64e8741ef 100644
+index fd1d8a18c82..ae94d114e58 100644
 --- a/pkg/kubelet/kubelet.go
 +++ b/pkg/kubelet/kubelet.go
 @@ -867,6 +867,9 @@ func NewMainKubelet(kubeCfg *kubeletconfiginternal.KubeletConfiguration,
@@ -1259,7 +1259,7 @@ index 00000000000..335e08b08bb
 +    persistentVolumeClaim:
 +      claimName: efs-pvc
 diff --git a/pkg/kubelet/server/server.go b/pkg/kubelet/server/server.go
-index c57b8c3f7be..77c8f980a44 100644
+index e6d647efb3e..c296c13cbe5 100644
 --- a/pkg/kubelet/server/server.go
 +++ b/pkg/kubelet/server/server.go
 @@ -518,8 +518,7 @@ func (s *Server) InstallDebuggingHandlers() {

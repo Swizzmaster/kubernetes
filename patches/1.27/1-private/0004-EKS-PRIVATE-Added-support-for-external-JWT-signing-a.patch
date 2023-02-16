@@ -10,6 +10,8 @@ ref. https://github.com/micahhausler/kubernetes/commit/147f45449d6d750c848751eb7
 possible from 1 issuer to another, so this patch needed to be rebased.
 
 - Check token issuer before calling key-server to avoid pointless calls for aws-iam-authenticator token
+
+Signed-off-by: Davanum Srinivas <davanum@gmail.com>
 ---
  cmd/kube-apiserver/app/options/validation.go  |  32 ++
  cmd/kube-apiserver/app/server.go              |  20 ++
@@ -283,10 +285,10 @@ index 00000000000..8f66dc9b437
 +    exit 1
 +fi
 diff --git a/pkg/features/kube_features.go b/pkg/features/kube_features.go
-index a10ff26f792..5fdb981ea74 100644
+index 13496837f5b..2e7f5e3c1c2 100644
 --- a/pkg/features/kube_features.go
 +++ b/pkg/features/kube_features.go
-@@ -301,6 +301,12 @@ const (
+@@ -293,6 +293,12 @@ const (
  	// SYS_TIME). This should only be enabled if user namespace remapping is enabled in the docker daemon.
  	ExperimentalHostUserNamespaceDefaultingGate featuregate.Feature = "ExperimentalHostUserNamespaceDefaulting"
  
@@ -299,7 +301,7 @@ index a10ff26f792..5fdb981ea74 100644
  	// owner: @yuzhiquan, @bowei, @PxyUp, @SergeyKanzhelev
  	// kep: https://kep.k8s.io/2727
  	// alpha: v1.23
-@@ -912,6 +918,8 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
+@@ -911,6 +917,8 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
  
  	ExperimentalHostUserNamespaceDefaultingGate: {Default: false, PreRelease: featuregate.Beta},
  
@@ -309,10 +311,10 @@ index a10ff26f792..5fdb981ea74 100644
  
  	GracefulNodeShutdown: {Default: true, PreRelease: featuregate.Beta},
 diff --git a/pkg/kubeapiserver/authenticator/config.go b/pkg/kubeapiserver/authenticator/config.go
-index 52715eb3087..cd5a7ada479 100644
+index a08d0ee38ca..32414525d78 100644
 --- a/pkg/kubeapiserver/authenticator/config.go
 +++ b/pkg/kubeapiserver/authenticator/config.go
-@@ -37,6 +37,7 @@ import (
+@@ -38,6 +38,7 @@ import (
  	tokenunion "k8s.io/apiserver/pkg/authentication/token/union"
  	"k8s.io/apiserver/pkg/server/dynamiccertificates"
  	webhookutil "k8s.io/apiserver/pkg/util/webhook"
@@ -320,7 +322,7 @@ index 52715eb3087..cd5a7ada479 100644
  	"k8s.io/apiserver/plugin/pkg/authenticator/token/oidc"
  	"k8s.io/apiserver/plugin/pkg/authenticator/token/webhook"
  	typedv1core "k8s.io/client-go/kubernetes/typed/core/v1"
-@@ -45,6 +46,7 @@ import (
+@@ -46,6 +47,7 @@ import (
  	// Initialize all known client auth plugins.
  	_ "k8s.io/client-go/plugin/pkg/client/auth"
  	"k8s.io/client-go/util/keyutil"
@@ -328,7 +330,7 @@ index 52715eb3087..cd5a7ada479 100644
  	"k8s.io/kubernetes/pkg/serviceaccount"
  )
  
-@@ -66,6 +68,7 @@ type Config struct {
+@@ -67,6 +69,7 @@ type Config struct {
  	ServiceAccountKeyFiles      []string
  	ServiceAccountLookup        bool
  	ServiceAccountIssuers       []string
@@ -336,7 +338,7 @@ index 52715eb3087..cd5a7ada479 100644
  	APIAudiences                authenticator.Audiences
  	WebhookTokenAuthnConfigFile string
  	WebhookTokenAuthnVersion    string
-@@ -135,7 +138,7 @@ func (config Config) New() (authenticator.Request, *spec.SecurityDefinitions, er
+@@ -136,7 +139,7 @@ func (config Config) New() (authenticator.Request, *spec.SecurityDefinitions, er
  		tokenAuthenticators = append(tokenAuthenticators, serviceAccountAuth)
  	}
  	if len(config.ServiceAccountIssuers) > 0 {
@@ -345,7 +347,7 @@ index 52715eb3087..cd5a7ada479 100644
  		if err != nil {
  			return nil, nil, err
  		}
-@@ -288,7 +291,11 @@ func newLegacyServiceAccountAuthenticator(keyfiles []string, lookup bool, apiAud
+@@ -289,7 +292,11 @@ func newLegacyServiceAccountAuthenticator(keyfiles []string, lookup bool, apiAud
  }
  
  // newServiceAccountAuthenticator returns an authenticator.Token or an error
@@ -358,7 +360,7 @@ index 52715eb3087..cd5a7ada479 100644
  	allPublicKeys := []interface{}{}
  	for _, keyfile := range keyfiles {
  		publicKeys, err := keyutil.PublicKeysFromFile(keyfile)
-@@ -297,9 +304,7 @@ func newServiceAccountAuthenticator(issuers []string, keyfiles []string, apiAudi
+@@ -298,9 +305,7 @@ func newServiceAccountAuthenticator(issuers []string, keyfiles []string, apiAudi
  		}
  		allPublicKeys = append(allPublicKeys, publicKeys...)
  	}
@@ -1611,10 +1613,10 @@ index 00000000000..0ec98768eb1
 +	return out, err
 +}
 diff --git a/vendor/modules.txt b/vendor/modules.txt
-index 73bd5b4ccb7..dceac896762 100644
+index a10b3641166..18a5177a281 100644
 --- a/vendor/modules.txt
 +++ b/vendor/modules.txt
-@@ -1253,6 +1253,7 @@ gopkg.in/natefinch/lumberjack.v2
+@@ -1257,6 +1257,7 @@ gopkg.in/natefinch/lumberjack.v2
  ## explicit
  gopkg.in/square/go-jose.v2
  gopkg.in/square/go-jose.v2/cipher
