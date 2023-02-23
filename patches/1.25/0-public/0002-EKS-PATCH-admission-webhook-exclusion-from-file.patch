@@ -10,7 +10,8 @@ Subject: [PATCH] --EKS-PATCH-- admission webhook exclusion from file
  .../generic/exclusionrules/matcher_test.go    | 333 ++++++++++++++
  .../plugin/webhook/generic/webhook.go         |  24 +
  .../webhook_exclusion_rules_test.go           | 281 ++++++++++++
- 6 files changed, 1298 insertions(+)
+ vendor/modules.txt                            |   1 +
+ 7 files changed, 1299 insertions(+)
  create mode 100644 staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/generic/exclusionrules/critical_path_excluder.go
  create mode 100644 staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/generic/exclusionrules/critical_path_excluder_test.go
  create mode 100644 staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/generic/exclusionrules/matcher.go
@@ -1377,3 +1378,15 @@ index 00000000000..3388050d507
 +		},
 +	}
 +}
+diff --git a/vendor/modules.txt b/vendor/modules.txt
+index efba9109a3c..c168f2e55b4 100644
+--- a/vendor/modules.txt
++++ b/vendor/modules.txt
+@@ -1545,6 +1545,7 @@ k8s.io/apiserver/pkg/admission/plugin/webhook/config/apis/webhookadmission/v1
+ k8s.io/apiserver/pkg/admission/plugin/webhook/config/apis/webhookadmission/v1alpha1
+ k8s.io/apiserver/pkg/admission/plugin/webhook/errors
+ k8s.io/apiserver/pkg/admission/plugin/webhook/generic
++k8s.io/apiserver/pkg/admission/plugin/webhook/generic/exclusionrules
+ k8s.io/apiserver/pkg/admission/plugin/webhook/initializer
+ k8s.io/apiserver/pkg/admission/plugin/webhook/mutating
+ k8s.io/apiserver/pkg/admission/plugin/webhook/namespace
