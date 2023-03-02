@@ -35,29 +35,31 @@ Signed-off-by: Jyoti Mahapatra<jyotima@amazon.com>
  pkg/kubelet/kubelet.go                        |   3 +
  .../kuberuntime_container_linux.go            |   3 +
  .../lifecycle/fargate_pod_admit_handler.go    |  46 +++
- .../lifecycle/fargate_pod_validator.go        | 348 ++++++++++++++++++
- .../lifecycle/fargate_pod_validator_test.go   | 154 ++++++++
+ .../lifecycle/fargate_pod_validator.go        | 378 ++++++++++++++++++
+ .../lifecycle/fargate_pod_validator_test.go   | 158 ++++++++
  .../invalid-daemon-sets.yaml                  |  31 ++
  .../invalid-default-scheduler.yaml            |  24 ++
  .../invalid-host-network.yaml                 |  25 ++
  .../invalid-pod-securitycontext.yaml          |  27 ++
  .../invalid-ports.yaml                        |  19 +
- .../invalid-security-context.yaml             |  27 ++
+ ...d-security-context-blocked-linux-caps.yaml |  41 ++
+ .../invalid-security-context.yaml             |  32 ++
  .../invalid-spec-fields.yaml                  |  24 ++
  .../invalid-volume-non-efspv.yaml             |  30 ++
  .../invalid-volume-unboundpvc.yaml            |  23 ++
  .../invalid-volumemount.yaml                  |  24 ++
  .../valid-fargate-scheduler.yaml              |  69 ++++
+ ...-security-context-advanced-linux-caps.yaml |  39 ++
  .../valid-security-context.yaml               |  32 ++
  .../valid-volumes.yaml                        |  74 ++++
  pkg/kubelet/server/server.go                  |   3 +-
  pkg/kubelet/util/util.go                      |  20 +-
- .../k8s.io/legacy-cloud-providers/aws/aws.go  | 318 ++++++++++++----
+ .../k8s.io/legacy-cloud-providers/aws/aws.go  | 318 ++++++++++++---
  .../legacy-cloud-providers/aws/aws_fakes.go   |  29 ++
  .../legacy-cloud-providers/aws/aws_routes.go  |   6 +-
- .../legacy-cloud-providers/aws/aws_test.go    |  62 +++-
+ .../legacy-cloud-providers/aws/aws_test.go    |  62 ++-
  .../legacy-cloud-providers/aws/instances.go   |  14 +-
- 28 files changed, 1368 insertions(+), 86 deletions(-)
+ 30 files changed, 1487 insertions(+), 86 deletions(-)
  create mode 100644 pkg/kubelet/lifecycle/fargate_pod_admit_handler.go
  create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator.go
  create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator_test.go
@@ -66,12 +68,14 @@ Signed-off-by: Jyoti Mahapatra<jyotima@amazon.com>
  create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-host-network.yaml
  create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-pod-securitycontext.yaml
  create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-ports.yaml
+ create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-security-context-blocked-linux-caps.yaml
  create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-security-context.yaml
  create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-spec-fields.yaml
  create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-volume-non-efspv.yaml
  create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-volume-unboundpvc.yaml
  create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-volumemount.yaml
  create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator_testdata/valid-fargate-scheduler.yaml
+ create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator_testdata/valid-security-context-advanced-linux-caps.yaml
  create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator_testdata/valid-security-context.yaml
  create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator_testdata/valid-volumes.yaml
 
@@ -238,10 +242,10 @@ index 00000000000..dda6d97448d
 +}
 diff --git a/pkg/kubelet/lifecycle/fargate_pod_validator.go b/pkg/kubelet/lifecycle/fargate_pod_validator.go
 new file mode 100644
-index 00000000000..84549771078
+index 00000000000..549c139c4bd
 --- /dev/null
 +++ b/pkg/kubelet/lifecycle/fargate_pod_validator.go
-@@ -0,0 +1,348 @@
+@@ -0,0 +1,378 @@
 +package lifecycle
 +
 +import (
@@ -249,6 +253,7 @@ index 00000000000..84549771078
 +	"fmt"
 +	"strings"
 +	"time"
++	"os"
 +
 +	corev1 "k8s.io/api/core/v1"
 +	"k8s.io/apimachinery/pkg/api/errors"
@@ -279,6 +284,13 @@ index 00000000000..84549771078
 +	"SETPCAP":          true,
 +	"SETUID":           true,
 +	"SYS_CHROOT":       true,
++}
++
++var advancedPermittedCaps = map[string]bool{
++	"IPC_LOCK":         true,
++	"LINUX_IMMUTABLE":  true,
++	"SYS_PTRACE":       true,
++	"SYS_RESOURCE":     true,
 +}
 +
 +// Err towards more retries here since the node_authorizer/kubelet race causes a terminal failure starting the Fargate pod
@@ -402,8 +414,11 @@ index 00000000000..84549771078
 +//       drop:
 +//       - all
 +func validateAddedCapabilities(requested []corev1.Capability) (permitted bool, rejectedCaps []string) {
++	currentPermittedCaps := getPermittedCapsWithAdvancedCaps()
++	fmt.Println("Currently permitted linux capabilities:", currentPermittedCaps)
++
 +	for _, req := range requested {
-+		if _, ok := permittedCaps[string(req)]; !ok {
++		if accept, _ := currentPermittedCaps[string(req)]; !accept {
 +			rejectedCaps = append(rejectedCaps, string(req))
 +		}
 +	}
@@ -411,6 +426,25 @@ index 00000000000..84549771078
 +		return false, rejectedCaps
 +	}
 +	return true, nil
++}
++
++func getPermittedCapsWithAdvancedCaps() map[string]bool{
++	allowedCaps := map[string]bool{}
++	for key,value := range permittedCaps {
++		allowedCaps[key] = value
++	}
++	if os.Getenv("ADVANCED_LINUX_CAPS") == "true" {
++		for key,value := range advancedPermittedCaps {
++			allowedCaps[key] = value
++		}
++	}
++	if os.Getenv("BLOCKED_LINUX_CAPS") != "" {
++		blockedCaps := strings.Split(os.Getenv("BLOCKED_LINUX_CAPS"), ",")
++		for _,blockedCap := range blockedCaps {
++			allowedCaps[blockedCap] = false
++		}
++	}
++	return allowedCaps
 +}
 +
 +func validateContainerSecurityContext(sc *corev1.SecurityContext) (bool, string) {
@@ -592,10 +626,10 @@ index 00000000000..84549771078
 +}
 diff --git a/pkg/kubelet/lifecycle/fargate_pod_validator_test.go b/pkg/kubelet/lifecycle/fargate_pod_validator_test.go
 new file mode 100644
-index 00000000000..fecac736051
+index 00000000000..cb936909723
 --- /dev/null
 +++ b/pkg/kubelet/lifecycle/fargate_pod_validator_test.go
-@@ -0,0 +1,154 @@
+@@ -0,0 +1,158 @@
 +package lifecycle
 +
 +import (
@@ -617,6 +651,8 @@ index 00000000000..fecac736051
 +const (
 +	admitPodAnnotation   = "fargate.eks.amazonaws.com/admit"
 +	messagePodAnnotation = "fargate.eks.amazonaws.com/admitMessage"
++	advancedLinuxCapsPodAnnotation = "fargate.eks.amazonaws.com/advancedLinuxCaps"
++	blockedAdvancedLinuxCapsPodAnnotation = "fargate.eks.amazonaws.com/blockedAdvancedLinuxCaps"
 +)
 +
 +// TestPodValidation tests the podSpecValidator.
@@ -648,6 +684,8 @@ index 00000000000..fecac736051
 +			if !ok {
 +				t.Errorf("Pod %s in file %s is missing annotation %s", pod.Name, path, admitPodAnnotation)
 +			}
++			os.Setenv("ADVANCED_LINUX_CAPS", pod.Annotations[advancedLinuxCapsPodAnnotation])
++			os.Setenv("BLOCKED_LINUX_CAPS", pod.Annotations[blockedAdvancedLinuxCapsPodAnnotation])
 +			expectedAdmitMessage, _ := pod.Annotations[messagePodAnnotation]
 +			err = validator.Validate(pod)
 +			admit := (err == nil)
@@ -906,18 +944,65 @@ index 00000000000..c58a453d799
 +    - name: http
 +      port: 80
 +      hostPort: 8000
+diff --git a/pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-security-context-blocked-linux-caps.yaml b/pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-security-context-blocked-linux-caps.yaml
+new file mode 100644
+index 00000000000..bc6281a11ba
+--- /dev/null
++++ b/pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-security-context-blocked-linux-caps.yaml
+@@ -0,0 +1,41 @@
++apiVersion: v1
++kind: Pod
++metadata:
++  annotations:
++    # This pod template is used to test advanced linux caps are allowed when ADVANCED_LINUX_CAPS is enabled
++    "fargate.eks.amazonaws.com/admit": "false"
++    "fargate.eks.amazonaws.com/advancedLinuxCaps": "true"
++    "fargate.eks.amazonaws.com/blockedAdvancedLinuxCaps": "SYS_PTRACE,SYS_RESOURCE"
++    "fargate.eks.amazonaws.com/admitMessage": "Pod not supported: invalid SecurityContext fields: Capabilities added: SYS_PTRACE, SYS_RESOURCE"
++  name: valid-security-context
++  namespace: eks-fargate-namespace
++  labels:
++    "eks.amazonaws.com/fargate-profile": "my-profile"
++spec:
++  schedulerName: fargate-scheduler
++  containers:
++    - image: nginx:alpine
++      name: nginx
++      securityContext:
++        capabilities:
++          add:
++            # All ambient capabilities
++            - "AUDIT_WRITE"
++            - "CHOWN"
++            - "DAC_OVERRIDE"
++            - "FOWNER"
++            - "FSETID"
++            - "KILL"
++            - "MKNOD"
++            - "NET_BIND_SERVICE"
++            - "NET_RAW"
++            - "SETFCAP"
++            - "SETGID"
++            - "SETPCAP"
++            - "SETUID"
++            - "SYS_CHROOT"
++            # Advanced linux capabilities
++            - "IPC_LOCK"
++            - "LINUX_IMMUTABLE"
++            - "SYS_PTRACE"
++            - "SYS_RESOURCE"
 diff --git a/pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-security-context.yaml b/pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-security-context.yaml
 new file mode 100644
-index 00000000000..dab0bc6f0c9
+index 00000000000..33f32e491c6
 --- /dev/null
 +++ b/pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-security-context.yaml
-@@ -0,0 +1,27 @@
+@@ -0,0 +1,32 @@
 +apiVersion: v1
 +kind: Pod
 +metadata:
 +  annotations:
 +    "fargate.eks.amazonaws.com/admit": "false"
-+    "fargate.eks.amazonaws.com/admitMessage": "Pod not supported: invalid SecurityContext fields: Capabilities added: NET_ADMIN"
++    "fargate.eks.amazonaws.com/admitMessage": "Pod not supported: invalid SecurityContext fields: Capabilities added: NET_ADMIN, IPC_LOCK, LINUX_IMMUTABLE, SYS_PTRACE, SYS_RESOURCE"
 +  name: init-security-context
 +  namespace: eks-fargate-namespace
 +  labels:
@@ -929,7 +1014,12 @@ index 00000000000..dab0bc6f0c9
 +      name: nginx
 +      securityContext:
 +        capabilities:
-+          add: ['NET_ADMIN']
++          add:
++            - "NET_ADMIN"
++            - "IPC_LOCK"
++            - "LINUX_IMMUTABLE"
++            - "SYS_PTRACE"
++            - "SYS_RESOURCE"
 +  containers:
 +    - image: nginx:alpine
 +      name: nginx
@@ -1140,6 +1230,51 @@ index 00000000000..a60bf0e9219
 +      secret:
 +        defaultMode: 420
 +        secretName: default-token-dn9pj
+diff --git a/pkg/kubelet/lifecycle/fargate_pod_validator_testdata/valid-security-context-advanced-linux-caps.yaml b/pkg/kubelet/lifecycle/fargate_pod_validator_testdata/valid-security-context-advanced-linux-caps.yaml
+new file mode 100644
+index 00000000000..d6ad3ce2f78
+--- /dev/null
++++ b/pkg/kubelet/lifecycle/fargate_pod_validator_testdata/valid-security-context-advanced-linux-caps.yaml
+@@ -0,0 +1,39 @@
++apiVersion: v1
++kind: Pod
++metadata:
++  annotations:
++    # This pod template is used to test advanced linux caps are allowed when ADVANCED_LINUX_CAPS is enabled
++    "fargate.eks.amazonaws.com/admit": "true"
++    "fargate.eks.amazonaws.com/advancedLinuxCaps": "true"
++  name: valid-security-context
++  namespace: eks-fargate-namespace
++  labels:
++    "eks.amazonaws.com/fargate-profile": "my-profile"
++spec:
++  schedulerName: fargate-scheduler
++  containers:
++    - image: nginx:alpine
++      name: nginx
++      securityContext:
++        capabilities:
++          add:
++            # All ambient capabilities
++            - "AUDIT_WRITE"
++            - "CHOWN"
++            - "DAC_OVERRIDE"
++            - "FOWNER"
++            - "FSETID"
++            - "KILL"
++            - "MKNOD"
++            - "NET_BIND_SERVICE"
++            - "NET_RAW"
++            - "SETFCAP"
++            - "SETGID"
++            - "SETPCAP"
++            - "SETUID"
++            - "SYS_CHROOT"
++            # Advanced linux capabilities
++            - "IPC_LOCK"
++            - "LINUX_IMMUTABLE"
++            - "SYS_PTRACE"
++            - "SYS_RESOURCE"
 diff --git a/pkg/kubelet/lifecycle/fargate_pod_validator_testdata/valid-security-context.yaml b/pkg/kubelet/lifecycle/fargate_pod_validator_testdata/valid-security-context.yaml
 new file mode 100644
 index 00000000000..7f966bdffc4
