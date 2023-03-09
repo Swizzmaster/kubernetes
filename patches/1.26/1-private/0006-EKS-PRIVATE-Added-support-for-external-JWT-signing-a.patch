@@ -10,6 +10,8 @@ ref. https://github.com/micahhausler/kubernetes/commit/147f45449d6d750c848751eb7
 possible from 1 issuer to another, so this patch needed to be rebased.
 
 - Check token issuer before calling key-server to avoid pointless calls for aws-iam-authenticator token
+
+Signed-off-by: Davanum Srinivas <davanum@gmail.com>
 ---
  cmd/kube-apiserver/app/options/validation.go  |  32 ++
  cmd/kube-apiserver/app/server.go              |  20 ++
@@ -1595,7 +1597,7 @@ index 00000000000..0ec98768eb1
 +	return out, err
 +}
 diff --git a/vendor/modules.txt b/vendor/modules.txt
-index f9b588c5845..92715d133cc 100644
+index 1bdb7d0050b..151037253d2 100644
 --- a/vendor/modules.txt
 +++ b/vendor/modules.txt
 @@ -1245,6 +1245,7 @@ gopkg.in/natefinch/lumberjack.v2
