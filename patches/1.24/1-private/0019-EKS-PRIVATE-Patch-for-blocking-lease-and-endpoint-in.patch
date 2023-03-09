@@ -5,6 +5,7 @@ Subject: [PATCH] --EKS-PRIVATE-- Patch for blocking lease and endpoint in
  impacted zone during zonal outage
 
 ref: https://quip-amazon.com/0k7FAEo7j60v/Stop-software-operations-in-the-impacted-AZ
+Signed-off-by: Davanum Srinivas <davanum@gmail.com>
 ---
  .../coordination/validation/validation.go     |  57 ++
  .../validation/validation_test.go             | 191 ++++++

@@ -3,6 +3,7 @@ From: Ernest Wong <ernwong@amazon.com>
 Date: Wed, 23 Nov 2022 20:00:37 +0000
 Subject: [PATCH] --EKS-PRIVATE-- Optional maximum etcd page size on every list
 
+Signed-off-by: Davanum Srinivas <davanum@gmail.com>
 ---
  .../apiserver/pkg/server/options/etcd.go      |   3 +
  .../pkg/storage/etcd3/metrics/metrics.go      |  15 ++

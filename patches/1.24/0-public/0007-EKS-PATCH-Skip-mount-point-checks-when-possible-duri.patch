@@ -10,6 +10,8 @@ merged into upstream Kubernetes and Kubernetes currently
 intends to include it in the 1.25 release. This patch may change in
 future EKS-D releases as to stay aligned with any relevant modification
 to the upstream.
+
+Signed-off-by: Davanum Srinivas <davanum@gmail.com>
 ---
  .../src/k8s.io/mount-utils/fake_mounter.go    | 14 +++-
  staging/src/k8s.io/mount-utils/mount.go       |  4 ++

@@ -8,6 +8,8 @@ ref. https://github.com/micahhausler/kubernetes/commit/147f45449d6d750c848751eb7
 
 1.22: Support for multiple issuers was added, so that migration is
 possible from 1 issuer to another, so this patch needed to be rebased.
+
+Signed-off-by: Davanum Srinivas <davanum@gmail.com>
 ---
  cmd/kube-apiserver/app/options/validation.go  |  26 ++
  cmd/kube-apiserver/app/server.go              |  20 ++
@@ -1524,7 +1526,7 @@ index 00000000000..0ec98768eb1
 +	return out, err
 +}
 diff --git a/vendor/modules.txt b/vendor/modules.txt
-index 41665d97ab9..c9a643b0d31 100644
+index 44556070ea7..4490ef725cb 100644
 --- a/vendor/modules.txt
 +++ b/vendor/modules.txt
 @@ -1350,6 +1350,7 @@ gopkg.in/natefinch/lumberjack.v2

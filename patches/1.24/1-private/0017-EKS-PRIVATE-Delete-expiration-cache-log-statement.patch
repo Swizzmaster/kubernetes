@@ -3,6 +3,7 @@ From: Nick Turner <nic@amazon.com>
 Date: Mon, 14 Mar 2022 14:06:47 -0700
 Subject: [PATCH] --EKS-PRIVATE-- Delete expiration cache log statement
 
+Signed-off-by: Davanum Srinivas <davanum@gmail.com>
 ---
  staging/src/k8s.io/client-go/tools/cache/expiration_cache.go | 3 +--
  1 file changed, 1 insertion(+), 2 deletions(-)

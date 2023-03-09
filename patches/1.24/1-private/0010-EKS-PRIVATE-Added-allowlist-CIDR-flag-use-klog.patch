@@ -111,7 +111,7 @@ index 00000000000..d10ec4ebdda
 +	ProxyCIDRAllowlist kubeoptions.IPNetSlice = kubeoptions.DefaultProxyCIDRAllowlist
 +)
 diff --git a/cmd/kube-apiserver/app/options/options.go b/cmd/kube-apiserver/app/options/options.go
-index 794d0d9f982..d23e131c9c2 100644
+index 62a717e4af8..d716220cdc2 100644
 --- a/cmd/kube-apiserver/app/options/options.go
 +++ b/cmd/kube-apiserver/app/options/options.go
 @@ -61,6 +61,7 @@ type ServerRunOptions struct {
@@ -145,7 +145,7 @@ index 794d0d9f982..d23e131c9c2 100644
  		"A port range to reserve for services with NodePort visibility. "+
  		"Example: '30000-32767'. Inclusive at both ends of the range.")
 diff --git a/cmd/kube-apiserver/app/options/options_test.go b/cmd/kube-apiserver/app/options/options_test.go
-index 90e1f045e7b..b18644dd7c6 100644
+index cd19d5a1fe4..881876f7fc8 100644
 --- a/cmd/kube-apiserver/app/options/options_test.go
 +++ b/cmd/kube-apiserver/app/options/options_test.go
 @@ -113,6 +113,7 @@ func TestAddFlags(t *testing.T) {

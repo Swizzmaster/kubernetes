@@ -3,6 +3,7 @@ From: Igor Velichkovich <igorveli@amazon.com>
 Date: Wed, 21 Dec 2022 20:12:26 -0600
 Subject: [PATCH] --EKS-PATCH-- admission webhook exclusion from file
 
+Signed-off-by: Davanum Srinivas <davanum@gmail.com>
 ---
  .../exclusionrules/critical_path_excluder.go  | 152 +++++++
  .../critical_path_excluder_test.go            | 427 ++++++++++++++++++
@@ -1379,7 +1380,7 @@ index 00000000000..3388050d507
 +	}
 +}
 diff --git a/vendor/modules.txt b/vendor/modules.txt
-index 2062578bd38..44f4a2c9586 100644
+index 070b842316d..0307dcc05cf 100644
 --- a/vendor/modules.txt
 +++ b/vendor/modules.txt
 @@ -1554,6 +1554,7 @@ k8s.io/apiserver/pkg/admission/plugin/webhook/config/apis/webhookadmission/v1
