@@ -198,7 +198,7 @@ index a2e587e3847..c27d6259811 100644
  	errs = append(errs, validateServiceNodePort(s)...)
  	errs = append(errs, validateAPIPriorityAndFairness(s)...)
 diff --git a/cmd/kube-apiserver/app/server.go b/cmd/kube-apiserver/app/server.go
-index 29b7eb50da6..e6f059c1336 100644
+index cf11ef4f3ac..b5679810c43 100644
 --- a/cmd/kube-apiserver/app/server.go
 +++ b/cmd/kube-apiserver/app/server.go
 @@ -240,7 +240,10 @@ func CreateKubeAPIServerConfig(s completedServerRunOptions) (
@@ -364,7 +364,7 @@ index 7f172208bcd..367eb6fb981 100644
  const DefaultEtcdPathPrefix = "/registry"
 +var DefaultProxyCIDRAllowlist IPNetSlice = NewIPNetSlice()
 diff --git a/pkg/registry/core/node/strategy.go b/pkg/registry/core/node/strategy.go
-index 562c6e2db3f..6775e215997 100644
+index b2492d74281..88a59f5a863 100644
 --- a/pkg/registry/core/node/strategy.go
 +++ b/pkg/registry/core/node/strategy.go
 @@ -34,6 +34,7 @@ import (
@@ -375,7 +375,7 @@ index 562c6e2db3f..6775e215997 100644
  	"k8s.io/kubernetes/pkg/api/legacyscheme"
  	api "k8s.io/kubernetes/pkg/apis/core"
  	"k8s.io/kubernetes/pkg/apis/core/validation"
-@@ -251,6 +252,22 @@ func ResourceLocation(getter ResourceGetter, connection client.ConnectionInfoGet
+@@ -245,6 +246,22 @@ func ResourceLocation(getter ResourceGetter, connection client.ConnectionInfoGet
  		return nil, nil, errors.NewBadRequest(err.Error())
  	}
  

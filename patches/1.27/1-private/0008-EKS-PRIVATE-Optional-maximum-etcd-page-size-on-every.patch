@@ -6,6 +6,7 @@ Subject: [PATCH] --EKS-PRIVATE-- Optional maximum etcd page size on every list
 Signed-off-by: Davanum Srinivas <davanum@gmail.com>
 ---
  .../apiserver/pkg/server/options/etcd.go      |   3 +
+ .../storage/cacher/cacher_whitebox_test.go    |   3 +-
  .../pkg/storage/etcd3/metrics/metrics.go      |  17 +++
  .../apiserver/pkg/storage/etcd3/store.go      |  56 +++++--
  .../apiserver/pkg/storage/etcd3/store_test.go |  55 ++++---
@@ -13,7 +14,7 @@ Signed-off-by: Davanum Srinivas <davanum@gmail.com>
  .../storage/storagebackend/factory/etcd3.go   |   3 +-
  .../pkg/storage/testing/store_tests.go        | 144 ++++++++++++++++++
  .../pkg/storage/tests/cacher_test.go          |   4 +-
- 8 files changed, 248 insertions(+), 37 deletions(-)
+ 9 files changed, 250 insertions(+), 38 deletions(-)
 
 diff --git a/staging/src/k8s.io/apiserver/pkg/server/options/etcd.go b/staging/src/k8s.io/apiserver/pkg/server/options/etcd.go
 index d64329cf7ec..36ce44680a1 100644
@@ -29,11 +30,25 @@ index d64329cf7ec..36ce44680a1 100644
  	fs.DurationVar(&s.StorageConfig.ReadycheckTimeout, "etcd-readycheck-timeout", s.StorageConfig.ReadycheckTimeout,
  		"The timeout to use when checking etcd readiness")
  
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher_whitebox_test.go b/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher_whitebox_test.go
+index cc6177b06be..c20c3d93f77 100644
+--- a/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher_whitebox_test.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher_whitebox_test.go
+@@ -1626,7 +1626,8 @@ func TestGetCurrentResourceVersionFromStorage(t *testing.T) {
+ 	// test data
+ 	newEtcdTestStorage := func(t *testing.T, prefix string) (*etcd3testing.EtcdTestServer, storage.Interface) {
+ 		server, _ := etcd3testing.NewUnsecuredEtcd3TestClientServer(t)
+-		storage := etcd3.New(server.V3Client, apitesting.TestCodec(codecs, example.SchemeGroupVersion), func() runtime.Object { return &example.Pod{} }, prefix, schema.GroupResource{Resource: "pods"}, identity.NewEncryptCheckTransformer(), true, etcd3.NewDefaultLeaseManagerConfig())
++		pagingConfig := etcd3.PagingConfig{PagingEnabled: true, MaximumPageSize: 500} // defaultListEtcdMaxLimit = 500
++		storage := etcd3.New(server.V3Client, apitesting.TestCodec(codecs, example.SchemeGroupVersion), func() runtime.Object { return &example.Pod{} }, prefix, schema.GroupResource{Resource: "pods"}, identity.NewEncryptCheckTransformer(), pagingConfig, etcd3.NewDefaultLeaseManagerConfig())
+ 		return server, storage
+ 	}
+ 	server, etcdStorage := newEtcdTestStorage(t, "")
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/metrics/metrics.go b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/metrics/metrics.go
-index a01f50954fe..a01ba77c501 100644
+index 6f155c0adb2..d88dd0fc2f7 100644
 --- a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/metrics/metrics.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/metrics/metrics.go
-@@ -113,6 +113,7 @@ var (
+@@ -122,6 +122,7 @@ var (
  		},
  		[]string{"resource"},
  	)
@@ -41,7 +56,7 @@ index a01f50954fe..a01ba77c501 100644
  	decodeErrorCounts = compbasemetrics.NewCounterVec(
  		&compbasemetrics.CounterOpts{
  			Namespace:      "apiserver",
-@@ -122,6 +123,16 @@ var (
+@@ -131,6 +132,16 @@ var (
  		},
  		[]string{"resource"},
  	)
@@ -58,7 +73,7 @@ index a01f50954fe..a01ba77c501 100644
  )
  
  var registerMetrics sync.Once
-@@ -140,6 +151,7 @@ func Register() {
+@@ -149,6 +160,7 @@ func Register() {
  		legacyregistry.MustRegister(listStorageNumSelectorEvals)
  		legacyregistry.MustRegister(listStorageNumReturned)
  		legacyregistry.MustRegister(decodeErrorCounts)
@@ -66,8 +81,8 @@ index a01f50954fe..a01ba77c501 100644
  	})
  }
  
-@@ -153,6 +165,11 @@ func RecordEtcdRequestLatency(verb, resource string, startTime time.Time) {
- 	etcdRequestLatency.WithLabelValues(verb, resource).Observe(sinceInSeconds(startTime))
+@@ -167,6 +179,11 @@ func RecordEtcdEvent(resource string) {
+ 	etcdEventsReceivedCounts.WithLabelValues(resource).Inc()
  }
  
 +// RecordListStorageLatency sets the "apiserver_storage_list_duration_seconds" metrics.
@@ -79,7 +94,7 @@ index a01f50954fe..a01ba77c501 100644
  func RecordEtcdBookmark(resource string) {
  	etcdBookmarkCounts.WithLabelValues(resource).Inc()
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go
-index 5342be2ae91..ad7f4c90a01 100644
+index 2fc237de331..97fcb832dfe 100644
 --- a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go
 @@ -23,6 +23,7 @@ import (
@@ -90,7 +105,7 @@ index 5342be2ae91..ad7f4c90a01 100644
  	"strings"
  	"time"
  
-@@ -81,9 +82,24 @@ type store struct {
+@@ -82,9 +83,24 @@ type store struct {
  	groupResourceString string
  	watcher             *watcher
  	pagingEnabled       bool
@@ -115,7 +130,7 @@ index 5342be2ae91..ad7f4c90a01 100644
  type objState struct {
  	obj   runtime.Object
  	meta  *storage.ResponseMeta
-@@ -93,11 +109,11 @@ type objState struct {
+@@ -94,11 +110,11 @@ type objState struct {
  }
  
  // New returns an etcd3 implementation of storage.Interface.
@@ -130,7 +145,7 @@ index 5342be2ae91..ad7f4c90a01 100644
  	versioner := storage.APIObjectVersioner{}
  	// for compatibility with etcd2 impl.
  	// no-op for default prefix of '/registry'.
-@@ -112,13 +128,17 @@ func newStore(c *clientv3.Client, codec runtime.Codec, newFunc func() runtime.Ob
+@@ -113,13 +129,17 @@ func newStore(c *clientv3.Client, codec runtime.Codec, newFunc func() runtime.Ob
  		codec:               codec,
  		versioner:           versioner,
  		transformer:         transformer,
@@ -149,7 +164,7 @@ index 5342be2ae91..ad7f4c90a01 100644
  	return result
  }
  
-@@ -622,7 +642,11 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
+@@ -623,7 +643,11 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
  	limit := pred.Limit
  	var paging bool
  	options := make([]clientv3.OpOption, 0, 4)
@@ -162,7 +177,7 @@ index 5342be2ae91..ad7f4c90a01 100644
  		paging = true
  		options = append(options, clientv3.WithLimit(limit))
  		limitOption = &options[len(options)-1]
-@@ -663,7 +687,7 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
+@@ -664,7 +688,7 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
  			withRev = continueRV
  			returnedRV = continueRV
  		}
@@ -171,7 +186,7 @@ index 5342be2ae91..ad7f4c90a01 100644
  		if fromRV != nil {
  			switch match {
  			case metav1.ResourceVersionMatchNotOlderThan:
-@@ -673,7 +697,7 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
+@@ -674,7 +698,7 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
  				returnedRV = int64(*fromRV)
  				withRev = returnedRV
  			case "": // legacy case
@@ -180,7 +195,7 @@ index 5342be2ae91..ad7f4c90a01 100644
  					returnedRV = int64(*fromRV)
  					withRev = returnedRV
  				}
-@@ -713,9 +737,16 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
+@@ -714,9 +738,16 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
  	var getResp *clientv3.GetResponse
  	var numFetched int
  	var numEvald int
@@ -197,7 +212,7 @@ index 5342be2ae91..ad7f4c90a01 100644
  		numReturn := v.Len()
  		metrics.RecordStorageListMetrics(s.groupResourceString, numFetched, numEvald, numReturn)
  	}()
-@@ -731,6 +762,7 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
+@@ -732,6 +763,7 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
  			return interpretListError(err, len(pred.Continue) > 0, continueKey, keyPrefix)
  		}
  		numFetched += len(getResp.Kvs)
@@ -205,7 +220,7 @@ index 5342be2ae91..ad7f4c90a01 100644
  		if err = s.validateMinimumResourceVersion(resourceVersion, uint64(getResp.Header.Revision)); err != nil {
  			return err
  		}
-@@ -750,7 +782,7 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
+@@ -751,7 +783,7 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
  
  		// take items from the response until the bucket is full, filtering as we go
  		for i, kv := range getResp.Kvs {
@@ -214,7 +229,7 @@ index 5342be2ae91..ad7f4c90a01 100644
  				hasMore = true
  				break
  			}
-@@ -781,16 +813,16 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
+@@ -782,16 +814,16 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
  			break
  		}
  		// we're paging but we have filled our bucket
@@ -372,7 +387,7 @@ index 97d73556d8a..b952e45c04a 100644
  
  // startDBSizeMonitorPerEndpoint starts a loop to monitor etcd database size and update the
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/testing/store_tests.go b/staging/src/k8s.io/apiserver/pkg/storage/testing/store_tests.go
-index 75d17ecacea..c5b9e6779b3 100644
+index acaed2963a0..8ade8eb2503 100644
 --- a/staging/src/k8s.io/apiserver/pkg/storage/testing/store_tests.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/testing/store_tests.go
 @@ -46,6 +46,150 @@ import (
@@ -527,10 +542,10 @@ index 75d17ecacea..c5b9e6779b3 100644
  	out := &example.Pod{}
  	obj := &example.Pod{ObjectMeta: metav1.ObjectMeta{Name: "foo", Namespace: "test-ns", SelfLink: "testlink"}}
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/tests/cacher_test.go b/staging/src/k8s.io/apiserver/pkg/storage/tests/cacher_test.go
-index b731d2c5326..9b14737d2c6 100644
+index d4c0a716efb..d93ec04805c 100644
 --- a/staging/src/k8s.io/apiserver/pkg/storage/tests/cacher_test.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/tests/cacher_test.go
-@@ -63,6 +63,7 @@ var (
+@@ -61,6 +61,7 @@ var (
  const (
  	// watchCacheDefaultCapacity syncs watch cache defaultLowerBoundCapacity.
  	watchCacheDefaultCapacity = 100
@@ -538,7 +553,7 @@ index b731d2c5326..9b14737d2c6 100644
  )
  
  func init() {
-@@ -107,7 +108,8 @@ func newPodList() runtime.Object { return &example.PodList{} }
+@@ -105,7 +106,8 @@ func newPodList() runtime.Object { return &example.PodList{} }
  
  func newEtcdTestStorage(t *testing.T, prefix string) (*etcd3testing.EtcdTestServer, storage.Interface) {
  	server, _ := etcd3testing.NewUnsecuredEtcd3TestClientServer(t)

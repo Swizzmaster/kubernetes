@@ -8,6 +8,8 @@ https://github.com/kubernetes/kubernetes/issues/92157
 
 This change allows for the bypassing of admission controller webhook
 for certain resources.
+
+Signed-off-by: Davanum Srinivas <davanum@gmail.com>
 ---
  .../exclusionrules/critical_path_excluder.go  | 130 ++++++
  .../critical_path_excluder_test.go            | 427 ++++++++++++++++++
@@ -1362,10 +1364,10 @@ index 00000000000..3388050d507
 +	}
 +}
 diff --git a/vendor/modules.txt b/vendor/modules.txt
-index 6bbbc153200..a10b3641166 100644
+index 31691aeed3e..b33d24d5938 100644
 --- a/vendor/modules.txt
 +++ b/vendor/modules.txt
-@@ -1468,6 +1468,7 @@ k8s.io/apiserver/pkg/admission/plugin/webhook/config/apis/webhookadmission/v1
+@@ -1466,6 +1466,7 @@ k8s.io/apiserver/pkg/admission/plugin/webhook/config/apis/webhookadmission/v1
  k8s.io/apiserver/pkg/admission/plugin/webhook/config/apis/webhookadmission/v1alpha1
  k8s.io/apiserver/pkg/admission/plugin/webhook/errors
  k8s.io/apiserver/pkg/admission/plugin/webhook/generic
