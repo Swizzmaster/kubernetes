@@ -9,6 +9,7 @@ change auto-sync interval by setting flag --etcd-auto-sync-interval
 in pod kube-apiserver.
 
 cr: https://code.amazon.com/reviews/CR-51146892
+Signed-off-by: Davanum Srinivas <davanum@gmail.com>
 ---
  staging/src/k8s.io/apiserver/pkg/server/options/etcd.go        | 3 +++
  .../src/k8s.io/apiserver/pkg/storage/storagebackend/config.go  | 3 ++-
