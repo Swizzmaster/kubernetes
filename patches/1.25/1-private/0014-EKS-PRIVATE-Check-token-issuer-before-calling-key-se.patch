@@ -4,6 +4,7 @@ Date: Tue, 15 Feb 2022 11:21:27 -0800
 Subject: [PATCH] --EKS-PRIVATE-- Check token issuer before calling key-server
  to avoid pointless calls for aws-iam-authenticator token
 
+Signed-off-by: Davanum Srinivas <davanum@gmail.com>
 ---
  pkg/serviceaccount/jwt_external.go      | 38 ++++++++++++
  pkg/serviceaccount/jwt_external_test.go |  4 +-
