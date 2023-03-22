@@ -222,7 +222,7 @@ function prepare_patches_private {
   local RANGE_START=$(cat "$PARENT_PATCHES_DIR"/GIT_TAG)
   local NUM_PUBLIC=$(num_public $KUBERNETES_DIR $RANGE_START HEAD)
   local NUM_PRIVATE=$(num_private $KUBERNETES_DIR $RANGE_START HEAD)
-  local START_NUM="$(($NUM_PUBLIC + 1))"
+  local START_NUM="1000"
   local RANGE_START=HEAD~"$NUM_PRIVATE"
   local RANGE_END=HEAD
 
