@@ -3,6 +3,11 @@ From: Prithvi Ramesh <pritrame@amazon.com>
 Date: Sun, 26 Jul 2020 22:25:54 -0700
 Subject: [PATCH] --EKS-PRIVATE-- efs volume validation in Kubelet
 
+Why is patch private and not public/upstreamed?:
+
+If there are plans up upstream, provide relevant links:
+
+Description of changes, customer issues, internal docs, etc.:
 cr https://code.amazon.com/reviews/CR-30564575
 ---
  pkg/kubelet/kubelet.go                        |   2 +-

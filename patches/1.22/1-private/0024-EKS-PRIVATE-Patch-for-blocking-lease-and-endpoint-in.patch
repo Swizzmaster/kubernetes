@@ -4,6 +4,11 @@ Date: Tue, 11 Oct 2022 19:09:04 -0700
 Subject: [PATCH] --EKS-PRIVATE-- Patch for blocking lease and endpoint in
  impacted zone during zonal outage
 
+Why is patch private and not public/upstreamed?:
+
+If there are plans up upstream, provide relevant links:
+
+Description of changes, customer issues, internal docs, etc.:
 ref: https://quip-amazon.com/0k7FAEo7j60v/Stop-software-operations-in-the-impacted-AZ
 ---
  .../coordination/validation/validation.go     |  57 ++

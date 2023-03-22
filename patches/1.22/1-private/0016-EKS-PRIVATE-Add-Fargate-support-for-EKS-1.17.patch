@@ -3,6 +3,11 @@ From: Rasita Pai <prasita@amazon.com>
 Date: Wed, 13 Oct 2021 12:52:13 -0700
 Subject: [PATCH] --EKS-PRIVATE-- Add Fargate support for EKS 1.17
 
+Why is patch private and not public/upstreamed?:
+
+If there are plans up upstream, provide relevant links:
+
+Description of changes, customer issues, internal docs, etc.:
 // owner: @saranbalaji90
 // alpha: TBD
 //

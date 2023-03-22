@@ -4,6 +4,11 @@ Date: Thu, 17 Jan 2019 15:41:00 -0800
 Subject: [PATCH] --EKS-PRIVATE-- Added support for external JWT signing and
  verifying
 
+Why is patch private and not public/upstreamed?:
+
+If there are plans up upstream, provide relevant links:
+
+Description of changes, customer issues, internal docs, etc.:
 ref. https://github.com/micahhausler/kubernetes/commit/147f45449d6d750c848751eb7d17aba4a9b571be
 
 1.22: Support for multiple issuers was added, so that migration is

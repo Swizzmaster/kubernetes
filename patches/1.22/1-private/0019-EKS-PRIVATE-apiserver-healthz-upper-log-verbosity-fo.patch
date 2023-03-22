@@ -4,6 +4,13 @@ Date: Tue, 28 Sep 2021 19:38:47 +0000
 Subject: [PATCH] --EKS-PRIVATE-- apiserver/healthz: upper log verbosity for
  "kms-provider-0"
 
+Why is patch private and not public/upstreamed?:
+This change is specific to EKS in how it sets up encyption and healthchecks. It assumes a separate alarm for encryption provider has been set up. If this has not been, some logging messages will be missed. See https://amzn-aws.slack.com/archives/G01GRM9ERNE/p1644532883027249
+
+If there are plans up upstream, provide relevant links:
+
+Description of changes, customer issues, internal docs, etc.:
+
 To silence
 
     cannot exclude some health checks, no health checks are installed

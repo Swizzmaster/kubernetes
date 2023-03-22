@@ -4,6 +4,11 @@ Date: Wed, 11 May 2022 20:21:52 +0000
 Subject: [PATCH] --EKS-PRIVATE-- Optional maximum etcd page size on every list
  requests
 
+Why is patch private and not public/upstreamed?:
+
+If there are plans up upstream, provide relevant links:
+
+Description of changes, customer issues, internal docs, etc.:
 ---
  .../apiserver/pkg/server/options/etcd.go      |   3 +
  .../pkg/storage/etcd3/metrics/metrics.go      |  15 +

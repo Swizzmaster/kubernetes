@@ -4,6 +4,11 @@ Date: Wed, 7 Apr 2021 17:50:46 -0700
 Subject: [PATCH] --EKS-PRIVATE-- Exposed etcd client auto-sync as
  kube-apiserver option
 
+Why is patch private and not public/upstreamed?:
+
+If there are plans up upstream, provide relevant links:
+
+Description of changes, customer issues, internal docs, etc.:
 Expose auto-sync option so that people can enable/disable auto-sync and
 change auto-sync interval by setting flag --etcd-auto-sync-interval
 in pod kube-apiserver.

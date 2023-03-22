@@ -4,6 +4,11 @@ Date: Wed, 8 Jun 2022 22:18:43 +0000
 Subject: [PATCH] --EKS-PRIVATE-- Add patch that limits http2 canonicalized
  headers cache size
 
+Why is patch private and not public/upstreamed?:
+
+If there are plans up upstream, provide relevant links:
+
+Description of changes, customer issues, internal docs, etc.:
 Related: https://code.amazon.com/packages/GoLang/commits/2930a16312c510134f182242be721679e3f083a1#
 ---
  vendor/golang.org/x/net/http2/server.go | 3 ++-
