@@ -165,10 +165,10 @@ index 7ac44afb1db..cebcc0897fa 100644
  			AdvertiseAddress:            netutils.ParseIPSloppy("192.168.10.10"),
  			CorsAllowedOriginList:       []string{"10.10.10.100", "10.10.10.200"},
 diff --git a/cmd/kube-apiserver/app/options/validation.go b/cmd/kube-apiserver/app/options/validation.go
-index a2e587e3847..c27d6259811 100644
+index b766befa8ea..43d710fba96 100644
 --- a/cmd/kube-apiserver/app/options/validation.go
 +++ b/cmd/kube-apiserver/app/options/validation.go
-@@ -30,6 +30,18 @@ import (
+@@ -31,6 +31,18 @@ import (
  	netutils "k8s.io/utils/net"
  )
  
@@ -187,7 +187,7 @@ index a2e587e3847..c27d6259811 100644
  // TODO: Longer term we should read this from some config store, rather than a flag.
  // validateClusterIPFlags is expected to be called after Complete()
  func validateClusterIPFlags(options *ServerRunOptions) []error {
-@@ -149,6 +161,9 @@ func (s *ServerRunOptions) Validate() []error {
+@@ -153,6 +165,9 @@ func (s *ServerRunOptions) Validate() []error {
  		errs = append(errs, fmt.Errorf("--apiserver-count should be a positive number, but value '%d' provided", s.MasterCount))
  	}
  	errs = append(errs, s.Etcd.Validate()...)
@@ -198,10 +198,10 @@ index a2e587e3847..c27d6259811 100644
  	errs = append(errs, validateServiceNodePort(s)...)
  	errs = append(errs, validateAPIPriorityAndFairness(s)...)
 diff --git a/cmd/kube-apiserver/app/server.go b/cmd/kube-apiserver/app/server.go
-index cf11ef4f3ac..b5679810c43 100644
+index a410b61ede8..3787e197f58 100644
 --- a/cmd/kube-apiserver/app/server.go
 +++ b/cmd/kube-apiserver/app/server.go
-@@ -240,7 +240,10 @@ func CreateKubeAPIServerConfig(s completedServerRunOptions) (
+@@ -242,7 +242,10 @@ func CreateKubeAPIServerConfig(s completedServerRunOptions) (
  	[]admission.PluginInitializer,
  	error,
  ) {

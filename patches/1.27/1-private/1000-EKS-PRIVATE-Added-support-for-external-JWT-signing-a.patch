@@ -13,7 +13,7 @@ possible from 1 issuer to another, so this patch needed to be rebased.
 
 Signed-off-by: Davanum Srinivas <davanum@gmail.com>
 ---
- cmd/kube-apiserver/app/options/validation.go  |  32 ++
+ cmd/kube-apiserver/app/options/validation.go  |  30 ++
  cmd/kube-apiserver/app/server.go              |  20 ++
  ...ate-generated-externalsigner-dockerized.sh |  63 ++++
  hack/update-generated-externalsigner.sh       |  29 ++
@@ -30,7 +30,7 @@ Signed-off-by: Davanum Srinivas <davanum@gmail.com>
  staging/src/k8s.io/client-go/util/cert/pem.go |   7 +-
  .../go-jose.v2/cryptosigner/cryptosigner.go   | 138 ++++++++
  vendor/modules.txt                            |   1 +
- 17 files changed, 1230 insertions(+), 72 deletions(-)
+ 17 files changed, 1228 insertions(+), 72 deletions(-)
  create mode 100755 hack/update-generated-externalsigner-dockerized.sh
  create mode 100755 hack/update-generated-externalsigner.sh
  create mode 100755 hack/verify-generated-externalsigner.sh
@@ -41,19 +41,10 @@ Signed-off-by: Davanum Srinivas <davanum@gmail.com>
  create mode 100644 vendor/gopkg.in/square/go-jose.v2/cryptosigner/cryptosigner.go
 
 diff --git a/cmd/kube-apiserver/app/options/validation.go b/cmd/kube-apiserver/app/options/validation.go
-index c27d6259811..4779686d7a4 100644
+index 43d710fba96..218faf51402 100644
 --- a/cmd/kube-apiserver/app/options/validation.go
 +++ b/cmd/kube-apiserver/app/options/validation.go
-@@ -22,6 +22,8 @@ import (
- 	"net"
- 	"strings"
- 
-+	"k8s.io/kubernetes/pkg/features"
-+
- 	apiextensionsapiserver "k8s.io/apiextensions-apiserver/pkg/apiserver"
- 	genericfeatures "k8s.io/apiserver/pkg/features"
- 	utilfeature "k8s.io/apiserver/pkg/util/feature"
-@@ -154,6 +156,35 @@ func validateAPIPriorityAndFairness(options *ServerRunOptions) []error {
+@@ -158,6 +158,35 @@ func validateAPIPriorityAndFairness(options *ServerRunOptions) []error {
  	return nil
  }
  
@@ -89,7 +80,7 @@ index c27d6259811..4779686d7a4 100644
  // Validate checks ServerRunOptions and return a slice of found errs.
  func (s *ServerRunOptions) Validate() []error {
  	var errs []error
-@@ -175,6 +206,7 @@ func (s *ServerRunOptions) Validate() []error {
+@@ -179,6 +208,7 @@ func (s *ServerRunOptions) Validate() []error {
  	errs = append(errs, s.APIEnablement.Validate(legacyscheme.Scheme, apiextensionsapiserver.Scheme, aggregatorscheme.Scheme)...)
  	errs = append(errs, validateTokenRequest(s)...)
  	errs = append(errs, s.Metrics.Validate()...)
@@ -98,10 +89,10 @@ index c27d6259811..4779686d7a4 100644
  	return errs
  }
 diff --git a/cmd/kube-apiserver/app/server.go b/cmd/kube-apiserver/app/server.go
-index b5679810c43..bbc2ee492ab 100644
+index 3787e197f58..edf83344305 100644
 --- a/cmd/kube-apiserver/app/server.go
 +++ b/cmd/kube-apiserver/app/server.go
-@@ -595,7 +595,27 @@ func Complete(s *options.ServerRunOptions) (completedServerRunOptions, error) {
+@@ -598,7 +598,27 @@ func Complete(s *options.ServerRunOptions) (completedServerRunOptions, error) {
  		if err != nil {
  			return options, fmt.Errorf("failed to build token generator: %v", err)
  		}
@@ -285,10 +276,10 @@ index 00000000000..8f66dc9b437
 +    exit 1
 +fi
 diff --git a/pkg/features/kube_features.go b/pkg/features/kube_features.go
-index efc73fe71c4..11d022e6b40 100644
+index dae17977504..aad691850a3 100644
 --- a/pkg/features/kube_features.go
 +++ b/pkg/features/kube_features.go
-@@ -294,6 +294,12 @@ const (
+@@ -300,6 +300,12 @@ const (
  	// SYS_TIME). This should only be enabled if user namespace remapping is enabled in the docker daemon.
  	ExperimentalHostUserNamespaceDefaultingGate featuregate.Feature = "ExperimentalHostUserNamespaceDefaulting"
  
@@ -301,13 +292,13 @@ index efc73fe71c4..11d022e6b40 100644
  	// owner: @yuzhiquan, @bowei, @PxyUp, @SergeyKanzhelev
  	// kep: https://kep.k8s.io/2727
  	// alpha: v1.23
-@@ -934,6 +940,8 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
+@@ -1000,6 +1006,8 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
  
  	ExperimentalHostUserNamespaceDefaultingGate: {Default: false, PreRelease: featuregate.Beta},
  
 +	ExternalKeyService: {Default: false, PreRelease: featuregate.Alpha},
 +
- 	GRPCContainerProbe: {Default: true, PreRelease: featuregate.Beta},
+ 	GRPCContainerProbe: {Default: true, PreRelease: featuregate.GA, LockToDefault: true}, //remove in 1.29
  
  	GracefulNodeShutdown: {Default: true, PreRelease: featuregate.Beta},
 diff --git a/pkg/kubeapiserver/authenticator/config.go b/pkg/kubeapiserver/authenticator/config.go
@@ -1613,10 +1604,10 @@ index 00000000000..0ec98768eb1
 +	return out, err
 +}
 diff --git a/vendor/modules.txt b/vendor/modules.txt
-index b33d24d5938..b3ac1385df8 100644
+index 72ff405fc8c..6910b7a9892 100644
 --- a/vendor/modules.txt
 +++ b/vendor/modules.txt
-@@ -1254,6 +1254,7 @@ gopkg.in/natefinch/lumberjack.v2
+@@ -1199,6 +1199,7 @@ gopkg.in/natefinch/lumberjack.v2
  ## explicit
  gopkg.in/square/go-jose.v2
  gopkg.in/square/go-jose.v2/cipher
