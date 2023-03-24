@@ -363,7 +363,7 @@ index a08d0ee38ca..32414525d78 100644
  
  func newWebhookTokenAuthenticator(config Config) (authenticator.Token, error) {
 diff --git a/pkg/kubeapiserver/options/authentication.go b/pkg/kubeapiserver/options/authentication.go
-index cb5b586ce5e..42493b5bf09 100644
+index bcb1898d210..e5eab26be43 100644
 --- a/pkg/kubeapiserver/options/authentication.go
 +++ b/pkg/kubeapiserver/options/authentication.go
 @@ -89,6 +89,7 @@ type ServiceAccountAuthenticationOptions struct {
@@ -374,7 +374,7 @@ index cb5b586ce5e..42493b5bf09 100644
  	ExtendExpiration bool
  }
  
-@@ -340,6 +341,9 @@ func (o *BuiltInAuthenticationOptions) AddFlags(fs *pflag.FlagSet) {
+@@ -344,6 +345,9 @@ func (o *BuiltInAuthenticationOptions) AddFlags(fs *pflag.FlagSet) {
  			"and key set are served to relying parties from a URL other than the "+
  			"API server's external (as auto-detected or overridden with external-hostname). ")
  
@@ -384,7 +384,7 @@ index cb5b586ce5e..42493b5bf09 100644
  		fs.DurationVar(&o.ServiceAccounts.MaxExpiration, "service-account-max-token-expiration", o.ServiceAccounts.MaxExpiration, ""+
  			"The maximum validity duration of a token created by the service account token issuer. If an otherwise valid "+
  			"TokenRequest with a validity duration larger than this value is requested, a token will be issued with a validity duration of this value.")
-@@ -421,6 +425,7 @@ func (o *BuiltInAuthenticationOptions) ToAuthenticationConfig() (kubeauthenticat
+@@ -425,6 +429,7 @@ func (o *BuiltInAuthenticationOptions) ToAuthenticationConfig() (kubeauthenticat
  		ret.ServiceAccountKeyFiles = o.ServiceAccounts.KeyFiles
  		ret.ServiceAccountIssuers = o.ServiceAccounts.Issuers
  		ret.ServiceAccountLookup = o.ServiceAccounts.Lookup

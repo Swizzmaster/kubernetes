@@ -149,7 +149,7 @@ index 18b0df17bfc..cb81154d46e 100644
  		}
  		mounts = append(mounts, m)
 diff --git a/pkg/kubelet/kubelet.go b/pkg/kubelet/kubelet.go
-index c2505db4cdb..931de9742bf 100644
+index 3afbd6b21e4..38ff12880bb 100644
 --- a/pkg/kubelet/kubelet.go
 +++ b/pkg/kubelet/kubelet.go
 @@ -878,6 +878,9 @@ func NewMainKubelet(kubeCfg *kubeletconfiginternal.KubeletConfiguration,
