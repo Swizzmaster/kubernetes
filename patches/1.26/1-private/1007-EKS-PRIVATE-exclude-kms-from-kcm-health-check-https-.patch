@@ -1,0 +1,40 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jyoti Mahapatra <jyotima@amazon.com>
+Date: Fri, 24 Mar 2023 19:52:44 -0700
+Subject: [PATCH] --EKS-PRIVATE-- exclude kms from kcm health check
+ https://quip-amazon.com/cHWQApm5NLQ7/Fix-the-noise-in-KCM-dashboard
+ https://github.com/kubernetes/kubernetes/issues/108014 The goal of this
+ commit is to reduce the noise in Controller unhealthy dashboards due to
+ broken clusters
+
+Testing:
+- Create cluster with KMS enabled.
+- Verify KCM healthy `curl -k https://127.0.0.1:10257/healthz`
+- Disable KMS key.
+- Restart APIServer to invalidate the DEK cache. Verify APIServer reports KMS unhealthiness. `kubectl get --raw /healthz`
+- Restart KCM.
+- Verify KCM healthy `curl -k https://127.0.0.1:10257/healthz`
+- All controllers in KCM still work. Starting 1.21, all controllers have  moved to use BoundServiceAccountTokens. Secrets are no longer used for controller authentication. GarbageCollector Controller needs all discovery objects to be synced to create the object graph. Discovery Client fails because secret informer cache fails. Other controllers are able to be synchronized.
+- Enable KMS key.
+- Verify KCM healthy `curl -k https://127.0.0.1:10257/healthz`
+- APIServer secret cache fills up. Secret informer cache in KCM resyncs. Errors in KCM logs relatd to GarbageCollector Controller disapper.
+- Deployments/Pods and other controllers that don't require secrets still work.
+
+KCM stays healthy throughout the testing process.
+---
+ staging/src/k8s.io/controller-manager/app/helper.go | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/staging/src/k8s.io/controller-manager/app/helper.go b/staging/src/k8s.io/controller-manager/app/helper.go
+index 1807a38cc8a..f4daad28392 100644
+--- a/staging/src/k8s.io/controller-manager/app/helper.go
++++ b/staging/src/k8s.io/controller-manager/app/helper.go
+@@ -34,7 +34,7 @@ func WaitForAPIServer(client clientset.Interface, timeout time.Duration) error {
+ 
+ 	err := wait.PollImmediate(time.Second, timeout, func() (bool, error) {
+ 		healthStatus := 0
+-		result := client.Discovery().RESTClient().Get().AbsPath("/healthz").Do(context.TODO()).StatusCode(&healthStatus)
++		result := client.Discovery().RESTClient().Get().AbsPath("/healthz").Param("exclude", "kms-provider-0").Do(context.TODO()).StatusCode(&healthStatus)
+ 		if result.Error() != nil {
+ 			lastErr = fmt.Errorf("failed to get apiserver /healthz status: %v", result.Error())
+ 			return false, nil
