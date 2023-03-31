@@ -65,7 +65,7 @@ workflow:
   stage: test
   script:
     - *script_apply_patches
-    - ./hack/install_unit_test_dependencies.sh ./kubernetes/
+    - ./hack/install_test_dependencies.sh ./kubernetes/
     - export PATH=/usr/local/go/bin:$PATH
     - pushd ./kubernetes/ && make test KUBE_RACE=-race KUBE_TIMEOUT=--timeout=900s && popd
   rules:
@@ -89,9 +89,38 @@ workflow:
   stage: test
   script:
     - *script_apply_patches
-    - ./hack/install_unit_test_dependencies.sh ./kubernetes/
+    - ./hack/install_test_dependencies.sh ./kubernetes/
     - export PATH=/usr/local/go/bin:$PATH
     - pushd ./kubernetes/ && hack/verify-typecheck.sh --platform="linux/amd64" && popd
+  rules:
+    - if: $CI_PIPELINE_SOURCE != "schedule"
+      changes:
+        - patches/$MINOR_VERSION/**/*
+
+.test_integration:
+  tags:
+    - arch:amd64
+    - size:large
+  image: ubuntu:latest
+  before_script:
+    - apt-get update && apt-get install git -q -y
+    - *script_git_config
+  variables:
+    KUBE_INTEGRATION_TEST_MAX_CONCURRENCY: 4
+    KUBE_TIMEOUT: "--timeout=3600s"
+    LOG_LEVEL: 4
+  stage: test
+  script:
+    - *script_apply_patches
+    - ./hack/install_test_dependencies.sh ./kubernetes/
+    - export PATH=/usr/local/go/bin:$PATH
+    - pushd ./kubernetes/
+    - ./hack/install-etcd.sh
+    - export PATH="${PWD}/third_party/etcd:${PATH}"
+    - prlimit --pid $$ --nofile=1048576:1048576
+    - sysctl fs.inotify.max_user_watches=1048576
+    - sysctl fs.inotify.max_user_instances=8192
+    - make test-integration
   rules:
     - if: $CI_PIPELINE_SOURCE != "schedule"
       changes:
@@ -115,6 +144,11 @@ test_verify:
 test_unit:
   extends:
   - .test_unit
+  <<: *kubernetes_matrix
+
+test_integration:
+  extends:
+  - .test_integration
   <<: *kubernetes_matrix
 
 test_apply_patches:

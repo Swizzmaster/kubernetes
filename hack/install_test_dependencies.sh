@@ -31,6 +31,8 @@ packages=(
   make
   rsync
   wget
+  curl
+  net-tools
 )
 if ! command -v apt-get &> /dev/null; then
   echo "apt-get not found, assuming [${packages[*]}] packages are already installed"
