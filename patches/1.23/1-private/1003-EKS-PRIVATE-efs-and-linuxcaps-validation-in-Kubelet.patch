@@ -7,26 +7,30 @@ cr https://code.amazon.com/reviews/CR-30564575
 
 Signed-off-by: Davanum Srinivas <davanum@gmail.com>
 ---
- pkg/kubelet/kubelet.go                        |   2 +-
+ pkg/kubelet/kubelet.go                        |   3 +-
+ .../kuberuntime/fake_kuberuntime_manager.go   |   2 +
+ .../kuberuntime/kuberuntime_manager.go        |  11 ++
+ .../kuberuntime/kuberuntime_manager_test.go   |  56 ++++++
  .../lifecycle/fargate_pod_admit_handler.go    |   5 +-
- .../lifecycle/fargate_pod_validator.go        | 129 ++++++++++++--
- .../lifecycle/fargate_pod_validator_test.go   | 158 ++++++++++++++++++
+ .../lifecycle/fargate_pod_validator.go        | 168 ++++++++++++++++--
+ .../lifecycle/fargate_pod_validator_test.go   | 167 +++++++++++++++++
  .../invalid-daemon-sets.yaml                  |  31 ++++
  .../invalid-default-scheduler.yaml            |  24 +++
  .../invalid-host-network.yaml                 |  25 +++
  .../invalid-pod-securitycontext.yaml          |  27 +++
- .../invalid-ports.yaml                        |  19 +++
+ .../invalid-ports.yaml                        |  21 +++
  ...d-security-context-blocked-linux-caps.yaml |  41 +++++
+ .../invalid-security-context-ctr.yaml         |  31 ++++
  .../invalid-security-context.yaml             |  32 ++++
  .../invalid-spec-fields.yaml                  |  24 +++
  .../invalid-volume-non-efspv.yaml             |  30 ++++
  .../invalid-volume-unboundpvc.yaml            |  23 +++
- .../invalid-volumemount.yaml                  |  24 +++
- .../valid-fargate-scheduler.yaml              |  69 ++++++++
- ...-security-context-advanced-linux-caps.yaml |  39 +++++
+ .../invalid-volumemount.yaml                  |  26 +++
+ .../valid-fargate-scheduler.yaml              |  69 +++++++
+ ...-security-context-advanced-linux-caps.yaml |  39 ++++
  .../valid-security-context.yaml               |  32 ++++
  .../valid-volumes.yaml                        |  74 ++++++++
- 19 files changed, 794 insertions(+), 14 deletions(-)
+ 23 files changed, 940 insertions(+), 21 deletions(-)
  create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator_test.go
  create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-daemon-sets.yaml
  create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-default-scheduler.yaml
@@ -34,6 +38,7 @@ Signed-off-by: Davanum Srinivas <davanum@gmail.com>
  create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-pod-securitycontext.yaml
  create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-ports.yaml
  create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-security-context-blocked-linux-caps.yaml
+ create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-security-context-ctr.yaml
  create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-security-context.yaml
  create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-spec-fields.yaml
  create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-volume-non-efspv.yaml
@@ -45,10 +50,18 @@ Signed-off-by: Davanum Srinivas <davanum@gmail.com>
  create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator_testdata/valid-volumes.yaml
 
 diff --git a/pkg/kubelet/kubelet.go b/pkg/kubelet/kubelet.go
-index 24fae94826a..da416465ce1 100644
+index 24fae94826a..a48ccc6b3e8 100644
 --- a/pkg/kubelet/kubelet.go
 +++ b/pkg/kubelet/kubelet.go
-@@ -851,7 +851,7 @@ func NewMainKubelet(kubeCfg *kubeletconfiginternal.KubeletConfiguration,
+@@ -686,6 +686,7 @@ func NewMainKubelet(kubeCfg *kubeletconfiginternal.KubeletConfiguration,
+ 		kubeCfg.MemorySwap.SwapBehavior,
+ 		kubeDeps.ContainerManager.GetNodeAllocatableAbsolute,
+ 		*kubeCfg.MemoryThrottlingFactor,
++		lifecycle.NewPodSpecValidator(klet.kubeClient),
+ 	)
+ 	if err != nil {
+ 		return nil, err
+@@ -851,7 +852,7 @@ func NewMainKubelet(kubeCfg *kubeletconfiginternal.KubeletConfiguration,
  		klet.softAdmitHandlers.AddPodAdmitHandler(lifecycle.NewAppArmorAdmitHandler(klet.appArmorValidator))
  	}
  	if utilfeature.DefaultFeatureGate.Enabled(features.PodSecurityValidator) {
@@ -57,6 +70,136 @@ index 24fae94826a..da416465ce1 100644
  	}
  	klet.softAdmitHandlers.AddPodAdmitHandler(lifecycle.NewNoNewPrivsAdmitHandler(klet.containerRuntime))
  	klet.softAdmitHandlers.AddPodAdmitHandler(lifecycle.NewProcMountAdmitHandler(klet.containerRuntime))
+diff --git a/pkg/kubelet/kuberuntime/fake_kuberuntime_manager.go b/pkg/kubelet/kuberuntime/fake_kuberuntime_manager.go
+index e62866eb1b7..498b385737c 100644
+--- a/pkg/kubelet/kuberuntime/fake_kuberuntime_manager.go
++++ b/pkg/kubelet/kuberuntime/fake_kuberuntime_manager.go
+@@ -25,6 +25,7 @@ import (
+ 	"k8s.io/apimachinery/pkg/api/resource"
+ 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+ 	"k8s.io/apimachinery/pkg/types"
++	"k8s.io/client-go/kubernetes/fake"
+ 	"k8s.io/client-go/tools/record"
+ 	"k8s.io/client-go/util/flowcontrol"
+ 	"k8s.io/component-base/logs/logreduction"
+@@ -105,6 +106,7 @@ func newFakeKubeRuntimeManager(runtimeService internalapi.RuntimeService, imageS
+ 		logReduction:           logreduction.NewLogReduction(identicalErrorDelay),
+ 		logManager:             logManager,
+ 		memoryThrottlingFactor: 0.8,
++		fargatePodValidator:    lifecycle.NewPodSpecValidator(fake.NewSimpleClientset()),
+ 	}
+ 
+ 	typedVersion, err := runtimeService.Version(kubeRuntimeAPIVersion)
+diff --git a/pkg/kubelet/kuberuntime/kuberuntime_manager.go b/pkg/kubelet/kuberuntime/kuberuntime_manager.go
+index 33a84a12475..83170c65896 100644
+--- a/pkg/kubelet/kuberuntime/kuberuntime_manager.go
++++ b/pkg/kubelet/kuberuntime/kuberuntime_manager.go
+@@ -160,6 +160,9 @@ type kubeGenericRuntimeManager struct {
+ 
+ 	// Memory throttling factor for MemoryQoS
+ 	memoryThrottlingFactor float64
++
++	// fargate pod validation handler
++	fargatePodValidator lifecycle.PodValidator
+ }
+ 
+ // KubeGenericRuntime is a interface contains interfaces for container runtime and command.
+@@ -205,6 +208,7 @@ func NewKubeGenericRuntimeManager(
+ 	memorySwapBehavior string,
+ 	getNodeAllocatable func() v1.ResourceList,
+ 	memoryThrottlingFactor float64,
++	fargatePodValidator lifecycle.PodValidator,
+ ) (KubeGenericRuntime, error) {
+ 	kubeRuntimeManager := &kubeGenericRuntimeManager{
+ 		recorder:               recorder,
+@@ -228,6 +232,7 @@ func NewKubeGenericRuntimeManager(
+ 		memorySwapBehavior:     memorySwapBehavior,
+ 		getNodeAllocatable:     getNodeAllocatable,
+ 		memoryThrottlingFactor: memoryThrottlingFactor,
++		fargatePodValidator:    fargatePodValidator,
+ 	}
+ 
+ 	typedVersion, err := kubeRuntimeManager.getTypedVersion()
+@@ -889,6 +894,12 @@ func (m *kubeGenericRuntimeManager) SyncPod(pod *v1.Pod, podStatus *kubecontaine
+ 		startContainerResult := kubecontainer.NewSyncResult(kubecontainer.StartContainer, spec.container.Name)
+ 		result.AddSyncResult(startContainerResult)
+ 
++		if admit, err := m.fargatePodValidator.ValidateContainer(spec.container); !admit {
++			startContainerResult.Fail(err, err.Error())
++			klog.V(4).InfoS(fmt.Sprintf("Failed to start container due to %s in pod", err.Error()), "containerType", typeName, "container", spec.container, "pod", klog.KObj(pod))
++			return err
++		}
++
+ 		isInBackOff, msg, err := m.doBackOff(pod, spec.container, podStatus, backOff)
+ 		if isInBackOff {
+ 			startContainerResult.Fail(err, msg)
+diff --git a/pkg/kubelet/kuberuntime/kuberuntime_manager_test.go b/pkg/kubelet/kuberuntime/kuberuntime_manager_test.go
+index 8bec90c8f84..eb939acc67a 100644
+--- a/pkg/kubelet/kuberuntime/kuberuntime_manager_test.go
++++ b/pkg/kubelet/kuberuntime/kuberuntime_manager_test.go
+@@ -707,6 +707,62 @@ func TestPruneInitContainers(t *testing.T) {
+ 	}
+ }
+ 
++func TestSyncPodWhenContainerValidationFails(t *testing.T) {
++	_, _, m, err := createTestRuntimeManager()
++	assert.NoError(t, err)
++
++	volumeDevices := v1.VolumeDevice{
++		Name:       "volumeDevice",
++		DevicePath: "test/path",
++	}
++	containers := []v1.Container{
++		{
++			Name:  "container1",
++			Image: "busybox",
++			SecurityContext: &v1.SecurityContext{
++				Capabilities: &v1.Capabilities{
++					Add: []v1.Capability{"NET_ADMIN"},
++				},
++			},
++		},
++		{
++			Name:          "container2",
++			Image:         "busybox",
++			VolumeDevices: []v1.VolumeDevice{volumeDevices},
++		},
++	}
++
++	pod := &v1.Pod{
++		ObjectMeta: metav1.ObjectMeta{
++			UID:       "12345678",
++			Name:      "foo",
++			Namespace: "new",
++		},
++		Spec: v1.PodSpec{
++			Containers: containers,
++		},
++	}
++
++	podStatus, err := m.GetPodStatus(pod.UID, pod.Name, pod.Namespace)
++	backOff := flowcontrol.NewBackOff(time.Second, time.Minute)
++	result := m.SyncPod(pod, podStatus, []v1.Secret{}, backOff)
++	expectErrMsgCtr1 := "invalid SecurityContext fields: Capabilities added: NET_ADMIN"
++	expectErrMsgCtr2 := "volumeDevices not supported"
++
++	assert.ErrorContainsf(t, result.Error(), "failed to \"StartContainer\" for \"container1\"", expectErrMsgCtr1)
++	assert.ErrorContainsf(t, result.Error(), "failed to \"StartContainer\" for \"container2\"", expectErrMsgCtr2)
++
++	// return error when unallowlisted advanced linux caps are added to containers
++	admit, err := m.fargatePodValidator.ValidateContainer(&containers[0])
++	assert.False(t, admit)
++	assert.EqualError(t, err, expectErrMsgCtr1)
++
++	// return error when unallowlisted advanced linux caps are added to containers
++	admit, err = m.fargatePodValidator.ValidateContainer(&containers[1])
++	assert.False(t, admit)
++	assert.EqualError(t, err, expectErrMsgCtr2)
++}
++
+ func TestSyncPodWithInitContainers(t *testing.T) {
+ 	fakeRuntime, _, m, err := createTestRuntimeManager()
+ 	assert.NoError(t, err)
 diff --git a/pkg/kubelet/lifecycle/fargate_pod_admit_handler.go b/pkg/kubelet/lifecycle/fargate_pod_admit_handler.go
 index b058b342349..dda6d97448d 100644
 --- a/pkg/kubelet/lifecycle/fargate_pod_admit_handler.go
@@ -82,7 +225,7 @@ index b058b342349..dda6d97448d 100644
  }
  
 diff --git a/pkg/kubelet/lifecycle/fargate_pod_validator.go b/pkg/kubelet/lifecycle/fargate_pod_validator.go
-index aca39d8c6f5..549c139c4bd 100644
+index aca39d8c6f5..09bbe62d028 100644
 --- a/pkg/kubelet/lifecycle/fargate_pod_validator.go
 +++ b/pkg/kubelet/lifecycle/fargate_pod_validator.go
 @@ -1,10 +1,18 @@
@@ -91,9 +234,9 @@ index aca39d8c6f5..549c139c4bd 100644
  import (
 +	"context"
  	"fmt"
++	"os"
  	"strings"
 +	"time"
-+	"os"
  
  	corev1 "k8s.io/api/core/v1"
 +	"k8s.io/apimachinery/pkg/api/errors"
@@ -104,15 +247,15 @@ index aca39d8c6f5..549c139c4bd 100644
  )
  
  const (
-@@ -30,6 +38,22 @@ var permittedCaps = map[string]bool{
+@@ -30,18 +38,37 @@ var permittedCaps = map[string]bool{
  	"SYS_CHROOT":       true,
  }
  
 +var advancedPermittedCaps = map[string]bool{
-+	"IPC_LOCK":         true,
-+	"LINUX_IMMUTABLE":  true,
-+	"SYS_PTRACE":       true,
-+	"SYS_RESOURCE":     true,
++	"IPC_LOCK":        true,
++	"LINUX_IMMUTABLE": true,
++	"SYS_PTRACE":      true,
++	"SYS_RESOURCE":    true,
 +}
 +
 +// Err towards more retries here since the node_authorizer/kubelet race causes a terminal failure starting the Fargate pod
@@ -127,8 +270,9 @@ index aca39d8c6f5..549c139c4bd 100644
  type validationFuncs func(*corev1.Pod) (bool, string)
  
  // PodValidator validates pods to be launched on Fargate.
-@@ -37,11 +61,13 @@ type PodValidator interface {
+ type PodValidator interface {
  	Validate(*corev1.Pod) error
++	ValidateContainer(container *corev1.Container) (bool, error)
  }
  
 -type podSpecValidator struct{}
@@ -144,7 +288,7 @@ index aca39d8c6f5..549c139c4bd 100644
  }
  
  // Validate checks if the pod is eligible to run on Fargate.
-@@ -53,7 +79,7 @@ func (v *podSpecValidator) Validate(pod *corev1.Pod) error {
+@@ -53,7 +80,7 @@ func (v *podSpecValidator) Validate(pod *corev1.Pod) error {
  		validateSchedulerName,
  		validateOwnerReferences,
  		validateTopLevelFields,
@@ -153,9 +297,24 @@ index aca39d8c6f5..549c139c4bd 100644
  		validateSecurityContexts,
  		validateVolumeDevices,
  		validatePorts,
-@@ -140,8 +166,11 @@ func validatePodSecurityContext(sc *corev1.PodSecurityContext) (bool, string) {
- //       drop:
- //       - all
+@@ -132,16 +159,19 @@ func validatePodSecurityContext(sc *corev1.PodSecurityContext) (bool, string) {
+ // Allow ambient capabilities to be added. This is useful if only one or more are desired
+ // while the rest are dropped. Ex:
+ //
+-//   securityContext:
+-//     allowPrivilegeEscalation: false
+-//     capabilities:
+-//       add:
+-//       - NET_BIND_SERVICE
+-//       drop:
+-//       - all
++//	securityContext:
++//	  allowPrivilegeEscalation: false
++//	  capabilities:
++//	    add:
++//	    - NET_BIND_SERVICE
++//	    drop:
++//	    - all
  func validateAddedCapabilities(requested []corev1.Capability) (permitted bool, rejectedCaps []string) {
 +	currentPermittedCaps := getPermittedCapsWithAdvancedCaps()
 +	fmt.Println("Currently permitted linux capabilities:", currentPermittedCaps)
@@ -166,23 +325,23 @@ index aca39d8c6f5..549c139c4bd 100644
  			rejectedCaps = append(rejectedCaps, string(req))
  		}
  	}
-@@ -151,6 +180,25 @@ func validateAddedCapabilities(requested []corev1.Capability) (permitted bool, r
+@@ -151,6 +181,25 @@ func validateAddedCapabilities(requested []corev1.Capability) (permitted bool, r
  	return true, nil
  }
  
-+func getPermittedCapsWithAdvancedCaps() map[string]bool{
++func getPermittedCapsWithAdvancedCaps() map[string]bool {
 +	allowedCaps := map[string]bool{}
-+	for key,value := range permittedCaps {
++	for key, value := range permittedCaps {
 +		allowedCaps[key] = value
 +	}
 +	if os.Getenv("ADVANCED_LINUX_CAPS") == "true" {
-+		for key,value := range advancedPermittedCaps {
++		for key, value := range advancedPermittedCaps {
 +			allowedCaps[key] = value
 +		}
 +	}
 +	if os.Getenv("BLOCKED_LINUX_CAPS") != "" {
 +		blockedCaps := strings.Split(os.Getenv("BLOCKED_LINUX_CAPS"), ",")
-+		for _,blockedCap := range blockedCaps {
++		for _, blockedCap := range blockedCaps {
 +			allowedCaps[blockedCap] = false
 +		}
 +	}
@@ -192,7 +351,7 @@ index aca39d8c6f5..549c139c4bd 100644
  func validateContainerSecurityContext(sc *corev1.SecurityContext) (bool, string) {
  	var invalidFields []string
  
-@@ -199,8 +247,9 @@ func validateTopLevelFields(pod *corev1.Pod) (bool, string) {
+@@ -199,8 +248,9 @@ func validateTopLevelFields(pod *corev1.Pod) (bool, string) {
  	return true, ""
  }
  
@@ -204,7 +363,7 @@ index aca39d8c6f5..549c139c4bd 100644
  
  	for _, volume := range pod.Spec.Volumes {
  		if volume.EmptyDir == nil &&
-@@ -208,18 +257,76 @@ func validateVolumes(pod *corev1.Pod) (bool, string) {
+@@ -208,18 +258,76 @@ func validateVolumes(pod *corev1.Pod) (bool, string) {
  			volume.ConfigMap == nil &&
  			volume.Projected == nil &&
  			volume.DownwardAPI == nil &&
@@ -285,12 +444,40 @@ index aca39d8c6f5..549c139c4bd 100644
  func validateVolumeDevices(pod *corev1.Pod) (bool, string) {
  	var invalidContainers []string
  
+@@ -269,3 +377,27 @@ func validatePorts(pod *corev1.Pod) (bool, string) {
+ 	}
+ 	return true, ""
+ }
++
++func (v *podSpecValidator) ValidateContainer(container *corev1.Container) (bool, error) {
++	// validate securityContext
++	admitted, message := validateContainerSecurityContext(container.SecurityContext)
++	if !admitted {
++		return false, fmt.Errorf("invalid SecurityContext fields: %s", message)
++	}
++
++	// validate volumeDevices
++	if len(container.VolumeDevices) > 0 {
++		return false, fmt.Errorf("volumeDevices not supported")
++	}
++
++	// validate ports, currently should be no-op for ephemeral containers
++	// since fields such as ports, livenessProbe, readinessProbe are disallowed on ephemeral containers
++	// https://kubernetes.io/docs/concepts/workloads/pods/ephemeral-containers
++	for _, port := range container.Ports {
++		if !validatePort(port) {
++			return false, fmt.Errorf("port contains HostIP or HostPort")
++		}
++	}
++
++	return true, nil
++}
 diff --git a/pkg/kubelet/lifecycle/fargate_pod_validator_test.go b/pkg/kubelet/lifecycle/fargate_pod_validator_test.go
 new file mode 100644
-index 00000000000..cb936909723
+index 00000000000..b7c7471a5c3
 --- /dev/null
 +++ b/pkg/kubelet/lifecycle/fargate_pod_validator_test.go
-@@ -0,0 +1,158 @@
+@@ -0,0 +1,167 @@
 +package lifecycle
 +
 +import (
@@ -298,8 +485,10 @@ index 00000000000..cb936909723
 +	"io/ioutil"
 +	"os"
 +	"path/filepath"
++	"strconv"
 +	"testing"
 +
++	"github.com/stretchr/testify/assert"
 +	corev1 "k8s.io/api/core/v1"
 +	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 +	clientset "k8s.io/client-go/kubernetes"
@@ -310,10 +499,12 @@ index 00000000000..cb936909723
 +var fixtureDir = "./fargate_pod_validator_testdata"
 +
 +const (
-+	admitPodAnnotation   = "fargate.eks.amazonaws.com/admit"
-+	messagePodAnnotation = "fargate.eks.amazonaws.com/admitMessage"
-+	advancedLinuxCapsPodAnnotation = "fargate.eks.amazonaws.com/advancedLinuxCaps"
++	admitPodAnnotation                    = "fargate.eks.amazonaws.com/admit"
++	messagePodAnnotation                  = "fargate.eks.amazonaws.com/admitMessage"
++	advancedLinuxCapsPodAnnotation        = "fargate.eks.amazonaws.com/advancedLinuxCaps"
 +	blockedAdvancedLinuxCapsPodAnnotation = "fargate.eks.amazonaws.com/blockedAdvancedLinuxCaps"
++	runContainerValidationAnnotation      = "fargate.eks.amazonaws.com/runContainerValidation"
++	containerAdmitMessageAnnotation       = "fargate.eks.amazonaws.com/containerAdmitMessage"
 +)
 +
 +// TestPodValidation tests the podSpecValidator.
@@ -363,6 +554,11 @@ index 00000000000..cb936909723
 +					t.Errorf("Pod %s in file %s expected message '%s', got '%s'",
 +						pod.Name, path, expectedAdmitMessage, message)
 +				}
++			}
++			if _, ok := pod.Annotations[runContainerValidationAnnotation]; ok {
++				admit, err = validator.ValidateContainer(&pod.Spec.Containers[0])
++				assert.Equal(t, strconv.FormatBool(admit), pod.Annotations[admitPodAnnotation])
++				assert.EqualError(t, err, pod.Annotations[containerAdmitMessageAnnotation])
 +			}
 +		})
 +		return nil
@@ -582,16 +778,18 @@ index 00000000000..c48f8d9319c
 +      emptyDir: {}
 diff --git a/pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-ports.yaml b/pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-ports.yaml
 new file mode 100644
-index 00000000000..c58a453d799
+index 00000000000..6b99017ee66
 --- /dev/null
 +++ b/pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-ports.yaml
-@@ -0,0 +1,19 @@
+@@ -0,0 +1,21 @@
 +apiVersion: v1
 +kind: Pod
 +metadata:
 +  annotations:
 +    "fargate.eks.amazonaws.com/admit": "false"
 +    "fargate.eks.amazonaws.com/admitMessage": "Pod not supported: port contains HostIP or HostPort"
++    "fargate.eks.amazonaws.com/runContainerValidation": "true"
++    "fargate.eks.amazonaws.com/containerAdmitMessage": "port contains HostIP or HostPort"
 +  name: hostport-pod
 +  namespace: eks-fargate-namespace
 +  labels:
@@ -652,6 +850,43 @@ index 00000000000..bc6281a11ba
 +            - "LINUX_IMMUTABLE"
 +            - "SYS_PTRACE"
 +            - "SYS_RESOURCE"
+diff --git a/pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-security-context-ctr.yaml b/pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-security-context-ctr.yaml
+new file mode 100644
+index 00000000000..bb2e16276ef
+--- /dev/null
++++ b/pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-security-context-ctr.yaml
+@@ -0,0 +1,31 @@
++apiVersion: v1
++kind: Pod
++metadata:
++  annotations:
++    "fargate.eks.amazonaws.com/admit": "false"
++    "fargate.eks.amazonaws.com/admitMessage": "Pod not supported: invalid SecurityContext fields: Capabilities added: NET_ADMIN, IPC_LOCK, LINUX_IMMUTABLE, SYS_PTRACE, SYS_RESOURCE"
++    "fargate.eks.amazonaws.com/runContainerValidation": "true"
++    "fargate.eks.amazonaws.com/containerAdmitMessage": "invalid SecurityContext fields: Capabilities added: NET_ADMIN, IPC_LOCK, LINUX_IMMUTABLE, SYS_PTRACE, SYS_RESOURCE"
++  name: init-security-context
++  namespace: eks-fargate-namespace
++  labels:
++    "eks.amazonaws.com/fargate-profile": "my-profile"
++spec:
++  schedulerName: fargate-scheduler
++  initContainers:
++    - image: nginx:alpine
++      name: nginx
++  containers:
++    - image: nginx:alpine
++      name: nginx
++      securityContext:
++        capabilities:
++          add:
++            - "NET_ADMIN"
++            - "IPC_LOCK"
++            - "LINUX_IMMUTABLE"
++            - "SYS_PTRACE"
++            - "SYS_RESOURCE"
++  volumes:
++    - name: scratch
++      emptyDir: {}
 diff --git a/pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-security-context.yaml b/pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-security-context.yaml
 new file mode 100644
 index 00000000000..33f32e491c6
@@ -788,16 +1023,18 @@ index 00000000000..b13ce34f714
 +        claimName: invalid-pvc
 diff --git a/pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-volumemount.yaml b/pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-volumemount.yaml
 new file mode 100644
-index 00000000000..01ec12f3b62
+index 00000000000..bb1b9a68423
 --- /dev/null
 +++ b/pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-volumemount.yaml
-@@ -0,0 +1,24 @@
+@@ -0,0 +1,26 @@
 +apiVersion: v1
 +kind: Pod
 +metadata:
 +  annotations:
 +    "fargate.eks.amazonaws.com/admit": "false"
 +    "fargate.eks.amazonaws.com/admitMessage": "Pod not supported: data is of an unsupported volume Type, volumeDevices not supported"
++    "fargate.eks.amazonaws.com/runContainerValidation": "true"
++    "fargate.eks.amazonaws.com/containerAdmitMessage": "volumeDevices not supported"
 +  name: volumedevice-pod
 +  namespace: eks-fargate-namespace
 +  labels:
