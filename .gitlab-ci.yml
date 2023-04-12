@@ -51,8 +51,7 @@ workflow:
 
 .test_unit:
   tags:
-    - arch:amd64
-    - size:large
+    - group:eks-dataplane
   image: ubuntu:latest
   before_script:
     - apt-get update && apt-get install git -q -y
@@ -75,8 +74,7 @@ workflow:
 
 .test_verify:
   tags:
-    - arch:amd64
-    - size:large
+    - group:eks-dataplane
   image: ubuntu:latest
   before_script:
     - apt-get update && apt-get install git -q -y
@@ -99,8 +97,7 @@ workflow:
 
 .test_integration:
   tags:
-    - arch:amd64
-    - size:large
+    - group:eks-dataplane
   image: ubuntu:latest
   before_script:
     - apt-get update && apt-get install git -q -y
@@ -117,7 +114,6 @@ workflow:
     - pushd ./kubernetes/
     - ./hack/install-etcd.sh
     - export PATH="${PWD}/third_party/etcd:${PATH}"
-    - prlimit --pid $$ --nofile=1048576:1048576
     - sysctl fs.inotify.max_user_watches=1048576
     - sysctl fs.inotify.max_user_instances=8192
     - make test-integration
