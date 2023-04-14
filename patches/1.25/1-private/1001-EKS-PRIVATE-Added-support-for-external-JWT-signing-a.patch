@@ -364,7 +364,7 @@ index 67f9922abf2..9d6b78c4e57 100644
  
  func newWebhookTokenAuthenticator(config Config) (authenticator.Token, error) {
 diff --git a/pkg/kubeapiserver/options/authentication.go b/pkg/kubeapiserver/options/authentication.go
-index bde2778b938..2ad11495be5 100644
+index 65908b57a13..e6c7acbcaf8 100644
 --- a/pkg/kubeapiserver/options/authentication.go
 +++ b/pkg/kubeapiserver/options/authentication.go
 @@ -90,6 +90,7 @@ type ServiceAccountAuthenticationOptions struct {
@@ -375,7 +375,7 @@ index bde2778b938..2ad11495be5 100644
  	ExtendExpiration bool
  }
  
-@@ -341,6 +342,9 @@ func (o *BuiltInAuthenticationOptions) AddFlags(fs *pflag.FlagSet) {
+@@ -345,6 +346,9 @@ func (o *BuiltInAuthenticationOptions) AddFlags(fs *pflag.FlagSet) {
  			"and key set are served to relying parties from a URL other than the "+
  			"API server's external (as auto-detected or overridden with external-hostname). ")
  
@@ -385,7 +385,7 @@ index bde2778b938..2ad11495be5 100644
  		fs.DurationVar(&o.ServiceAccounts.MaxExpiration, "service-account-max-token-expiration", o.ServiceAccounts.MaxExpiration, ""+
  			"The maximum validity duration of a token created by the service account token issuer. If an otherwise valid "+
  			"TokenRequest with a validity duration larger than this value is requested, a token will be issued with a validity duration of this value.")
-@@ -422,6 +426,7 @@ func (o *BuiltInAuthenticationOptions) ToAuthenticationConfig() (kubeauthenticat
+@@ -426,6 +430,7 @@ func (o *BuiltInAuthenticationOptions) ToAuthenticationConfig() (kubeauthenticat
  		ret.ServiceAccountKeyFiles = o.ServiceAccounts.KeyFiles
  		ret.ServiceAccountIssuers = o.ServiceAccounts.Issuers
  		ret.ServiceAccountLookup = o.ServiceAccounts.Lookup
@@ -1527,7 +1527,7 @@ index 00000000000..0ec98768eb1
 +	return out, err
 +}
 diff --git a/vendor/modules.txt b/vendor/modules.txt
-index 3e3ac99a070..88fc4e6f643 100644
+index ae3d567c0e6..be17ce72e33 100644
 --- a/vendor/modules.txt
 +++ b/vendor/modules.txt
 @@ -1342,6 +1342,7 @@ gopkg.in/natefinch/lumberjack.v2
