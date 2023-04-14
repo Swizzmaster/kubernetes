@@ -9,7 +9,7 @@ Signed-off-by: Davanum Srinivas <davanum@gmail.com>
 ---
  pkg/kubelet/kubelet.go                        |   3 +-
  .../kuberuntime/fake_kuberuntime_manager.go   |   2 +
- .../kuberuntime/kuberuntime_manager.go        |  11 ++
+ .../kuberuntime/kuberuntime_manager.go        |  13 ++
  .../kuberuntime/kuberuntime_manager_test.go   |  56 ++++++
  .../lifecycle/fargate_pod_admit_handler.go    |   5 +-
  .../lifecycle/fargate_pod_validator.go        | 168 ++++++++++++++++--
@@ -30,7 +30,7 @@ Signed-off-by: Davanum Srinivas <davanum@gmail.com>
  ...-security-context-advanced-linux-caps.yaml |  39 ++++
  .../valid-security-context.yaml               |  32 ++++
  .../valid-volumes.yaml                        |  74 ++++++++
- 23 files changed, 940 insertions(+), 21 deletions(-)
+ 23 files changed, 942 insertions(+), 21 deletions(-)
  create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator_test.go
  create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-daemon-sets.yaml
  create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-default-scheduler.yaml
@@ -91,7 +91,7 @@ index e62866eb1b7..498b385737c 100644
  
  	typedVersion, err := runtimeService.Version(kubeRuntimeAPIVersion)
 diff --git a/pkg/kubelet/kuberuntime/kuberuntime_manager.go b/pkg/kubelet/kuberuntime/kuberuntime_manager.go
-index 49cad688cb2..6d47eb5829d 100644
+index 49cad688cb2..ce215609ea8 100644
 --- a/pkg/kubelet/kuberuntime/kuberuntime_manager.go
 +++ b/pkg/kubelet/kuberuntime/kuberuntime_manager.go
 @@ -156,6 +156,9 @@ type kubeGenericRuntimeManager struct {
@@ -120,14 +120,16 @@ index 49cad688cb2..6d47eb5829d 100644
  	}
  
  	typedVersion, err := kubeRuntimeManager.getTypedVersion()
-@@ -875,6 +880,12 @@ func (m *kubeGenericRuntimeManager) SyncPod(pod *v1.Pod, podStatus *kubecontaine
+@@ -875,6 +880,14 @@ func (m *kubeGenericRuntimeManager) SyncPod(pod *v1.Pod, podStatus *kubecontaine
  		startContainerResult := kubecontainer.NewSyncResult(kubecontainer.StartContainer, spec.container.Name)
  		result.AddSyncResult(startContainerResult)
  
-+		if admit, err := m.fargatePodValidator.ValidateContainer(spec.container); !admit {
-+			startContainerResult.Fail(err, err.Error())
-+			klog.V(4).InfoS(fmt.Sprintf("Failed to start container due to %s in pod", err.Error()), "containerType", typeName, "container", spec.container, "pod", klog.KObj(pod))
-+			return err
++		if utilfeature.DefaultFeatureGate.Enabled(features.PodSecurityValidator) {
++			if admit, err := m.fargatePodValidator.ValidateContainer(spec.container); !admit {
++				startContainerResult.Fail(err, err.Error())
++				klog.V(4).InfoS(fmt.Sprintf("Failed to start container due to %s in pod", err.Error()), "containerType", typeName, "container", spec.container, "pod", klog.KObj(pod))
++				return err
++			}
 +		}
 +
  		isInBackOff, msg, err := m.doBackOff(pod, spec.container, podStatus, backOff)
