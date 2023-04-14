@@ -363,7 +363,7 @@ index 67f9922abf2..9d6b78c4e57 100644
  
  func newWebhookTokenAuthenticator(config Config) (authenticator.Token, error) {
 diff --git a/pkg/kubeapiserver/options/authentication.go b/pkg/kubeapiserver/options/authentication.go
-index 9fc64598746..732be196e96 100644
+index d0832662f8c..bbe14a63fe8 100644
 --- a/pkg/kubeapiserver/options/authentication.go
 +++ b/pkg/kubeapiserver/options/authentication.go
 @@ -90,6 +90,7 @@ type ServiceAccountAuthenticationOptions struct {
@@ -374,7 +374,7 @@ index 9fc64598746..732be196e96 100644
  	ExtendExpiration bool
  }
  
-@@ -341,6 +342,9 @@ func (o *BuiltInAuthenticationOptions) AddFlags(fs *pflag.FlagSet) {
+@@ -345,6 +346,9 @@ func (o *BuiltInAuthenticationOptions) AddFlags(fs *pflag.FlagSet) {
  			"and key set are served to relying parties from a URL other than the "+
  			"API server's external (as auto-detected or overridden with external-hostname). ")
  
@@ -384,7 +384,7 @@ index 9fc64598746..732be196e96 100644
  		// Deprecated in 1.13
  		fs.StringSliceVar(&o.APIAudiences, "service-account-api-audiences", o.APIAudiences, ""+
  			"Identifiers of the API. The service account token authenticator will validate that "+
-@@ -428,6 +432,7 @@ func (o *BuiltInAuthenticationOptions) ToAuthenticationConfig() (kubeauthenticat
+@@ -432,6 +436,7 @@ func (o *BuiltInAuthenticationOptions) ToAuthenticationConfig() (kubeauthenticat
  		ret.ServiceAccountKeyFiles = o.ServiceAccounts.KeyFiles
  		ret.ServiceAccountIssuers = o.ServiceAccounts.Issuers
  		ret.ServiceAccountLookup = o.ServiceAccounts.Lookup
@@ -1526,7 +1526,7 @@ index 00000000000..0ec98768eb1
 +	return out, err
 +}
 diff --git a/vendor/modules.txt b/vendor/modules.txt
-index 44556070ea7..4490ef725cb 100644
+index 976f670b417..b2909638628 100644
 --- a/vendor/modules.txt
 +++ b/vendor/modules.txt
 @@ -1350,6 +1350,7 @@ gopkg.in/natefinch/lumberjack.v2
