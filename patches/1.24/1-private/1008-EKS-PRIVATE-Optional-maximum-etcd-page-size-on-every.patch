@@ -30,10 +30,10 @@ index 1ff41c6bcb9..bd2bdc387b5 100644
  		"The time in seconds that each lease is reused. A lower value could avoid large number of objects reusing the same lease. Notice that a too small value may cause performance problems at storage layer.")
  }
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/metrics/metrics.go b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/metrics/metrics.go
-index dc9917cef91..d876664aae2 100644
+index 6f3ad250557..e6e481fb0e5 100644
 --- a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/metrics/metrics.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/metrics/metrics.go
-@@ -117,6 +117,15 @@ var (
+@@ -126,6 +126,15 @@ var (
  		},
  		[]string{"resource"},
  	)
@@ -49,15 +49,15 @@ index dc9917cef91..d876664aae2 100644
  )
  
  var registerMetrics sync.Once
-@@ -135,6 +144,7 @@ func Register() {
- 		legacyregistry.MustRegister(listStorageNumFetched)
+@@ -145,6 +154,7 @@ func Register() {
  		legacyregistry.MustRegister(listStorageNumSelectorEvals)
  		legacyregistry.MustRegister(listStorageNumReturned)
+ 		legacyregistry.MustRegister(decodeErrorCounts)
 +		legacyregistry.MustRegister(listStorageLatency)
  	})
  }
  
-@@ -149,6 +159,11 @@ func RecordEtcdRequestLatency(verb, resource string, startTime time.Time) {
+@@ -159,6 +169,11 @@ func RecordEtcdRequestLatency(verb, resource string, startTime time.Time) {
  	etcdRequestLatency.WithLabelValues(verb, resource).Observe(sinceInSeconds(startTime))
  }
  
@@ -70,7 +70,7 @@ index dc9917cef91..d876664aae2 100644
  func RecordEtcdBookmark(resource string) {
  	etcdBookmarkCounts.WithLabelValues(resource).Inc()
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go
-index 0e2fb368705..959e9f63a03 100644
+index 442e163913e..e5bd6fb9b5f 100644
 --- a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go
 @@ -81,9 +81,24 @@ type store struct {
@@ -132,7 +132,7 @@ index 0e2fb368705..959e9f63a03 100644
  	return result
  }
  
-@@ -619,7 +638,11 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
+@@ -643,7 +662,11 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
  	var limitOption *clientv3.OpOption
  	var limit int64 = pred.Limit
  	options := make([]clientv3.OpOption, 0, 4)
@@ -145,7 +145,7 @@ index 0e2fb368705..959e9f63a03 100644
  		options = append(options, clientv3.WithLimit(limit))
  		limitOption = &options[len(options)-1]
  	}
-@@ -659,7 +682,7 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
+@@ -683,7 +706,7 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
  			withRev = continueRV
  			returnedRV = continueRV
  		}
@@ -154,7 +154,7 @@ index 0e2fb368705..959e9f63a03 100644
  		if fromRV != nil {
  			switch match {
  			case metav1.ResourceVersionMatchNotOlderThan:
-@@ -669,7 +692,7 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
+@@ -693,7 +716,7 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
  				returnedRV = int64(*fromRV)
  				withRev = returnedRV
  			case "": // legacy case
@@ -163,7 +163,7 @@ index 0e2fb368705..959e9f63a03 100644
  					returnedRV = int64(*fromRV)
  					withRev = returnedRV
  				}
-@@ -709,9 +732,16 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
+@@ -733,9 +756,16 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
  	var getResp *clientv3.GetResponse
  	var numFetched int
  	var numEvald int
@@ -180,7 +180,7 @@ index 0e2fb368705..959e9f63a03 100644
  		numReturn := v.Len()
  		metrics.RecordStorageListMetrics(s.groupResourceString, numFetched, numEvald, numReturn)
  	}()
-@@ -727,6 +757,7 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
+@@ -751,6 +781,7 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
  			return interpretListError(err, len(pred.Continue) > 0, continueKey, keyPrefix)
  		}
  		numFetched += len(getResp.Kvs)
@@ -188,7 +188,7 @@ index 0e2fb368705..959e9f63a03 100644
  		if err = s.validateMinimumResourceVersion(resourceVersion, uint64(getResp.Header.Revision)); err != nil {
  			return err
  		}
-@@ -746,7 +777,7 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
+@@ -770,7 +801,7 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
  
  		// take items from the response until the bucket is full, filtering as we go
  		for i, kv := range getResp.Kvs {
@@ -197,7 +197,7 @@ index 0e2fb368705..959e9f63a03 100644
  				hasMore = true
  				break
  			}
-@@ -776,16 +807,16 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
+@@ -801,16 +832,16 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
  			break
  		}
  		// we're paging but we have filled our bucket

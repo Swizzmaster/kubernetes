@@ -12,13 +12,13 @@ Description of changes, customer issues, internal docs, etc.:
 ---
  .../apiserver/pkg/server/options/etcd.go      |   3 +
  .../pkg/storage/etcd3/metrics/metrics.go      |  15 +
- .../apiserver/pkg/storage/etcd3/store.go      | 260 ++++++++++--------
+ .../apiserver/pkg/storage/etcd3/store.go      | 261 ++++++++++--------
  .../apiserver/pkg/storage/etcd3/store_test.go | 119 +++++++-
  .../pkg/storage/etcd3/watcher_test.go         |   8 +-
  .../pkg/storage/storagebackend/config.go      |   2 +
  .../storage/storagebackend/factory/etcd3.go   |   3 +-
  .../pkg/storage/tests/cacher_test.go          |   4 +-
- 8 files changed, 280 insertions(+), 134 deletions(-)
+ 8 files changed, 281 insertions(+), 134 deletions(-)
 
 diff --git a/staging/src/k8s.io/apiserver/pkg/server/options/etcd.go b/staging/src/k8s.io/apiserver/pkg/server/options/etcd.go
 index 2c1c27e1592..baeae618a44 100644
@@ -35,12 +35,12 @@ index 2c1c27e1592..baeae618a44 100644
  		"The time in seconds that each lease is reused. A lower value could avoid large number of objects reusing the same lease. Notice that a too small value may cause performance problems at storage layer.")
  }
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/metrics/metrics.go b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/metrics/metrics.go
-index c10eb273e67..ebb415ef20a 100644
+index 0aa0e8f4c44..a0e30481687 100644
 --- a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/metrics/metrics.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/metrics/metrics.go
-@@ -85,6 +85,15 @@ var (
+@@ -94,6 +94,15 @@ var (
  		},
- 		[]string{},
+ 		[]string{"resource"},
  	)
 +	listStorageLatency = compbasemetrics.NewHistogramVec(
 +		&compbasemetrics.HistogramOpts{
@@ -54,15 +54,15 @@ index c10eb273e67..ebb415ef20a 100644
  )
  
  var registerMetrics sync.Once
-@@ -99,6 +108,7 @@ func Register() {
- 		legacyregistry.MustRegister(dbTotalSize)
+@@ -109,6 +118,7 @@ func Register() {
  		legacyregistry.MustRegister(etcdBookmarkCounts)
  		legacyregistry.MustRegister(etcdLeaseObjectCounts)
+ 		legacyregistry.MustRegister(decodeErrorCounts)
 +		legacyregistry.MustRegister(listStorageLatency)
  	})
  }
  
-@@ -113,6 +123,11 @@ func RecordEtcdRequestLatency(verb, resource string, startTime time.Time) {
+@@ -123,6 +133,11 @@ func RecordEtcdRequestLatency(verb, resource string, startTime time.Time) {
  	etcdRequestLatency.WithLabelValues(verb, resource).Observe(sinceInSeconds(startTime))
  }
  
@@ -75,7 +75,7 @@ index c10eb273e67..ebb415ef20a 100644
  func RecordEtcdBookmark(resource string) {
  	etcdBookmarkCounts.WithLabelValues(resource).Inc()
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go
-index ecb8b179cee..60155ae8dd0 100644
+index 4b7dfb06d19..4cae2af1315 100644
 --- a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go
 @@ -23,6 +23,7 @@ import (
@@ -153,7 +153,7 @@ index ecb8b179cee..60155ae8dd0 100644
  	}
  	return result
  }
-@@ -628,6 +635,108 @@ func encodeContinue(key, keyPrefix string, resourceVersion int64) (string, error
+@@ -648,6 +655,109 @@ func encodeContinue(key, keyPrefix string, resourceVersion int64) (string, error
  	return base64.RawURLEncoding.EncodeToString(out), nil
  }
  
@@ -239,6 +239,7 @@ index ecb8b179cee..60155ae8dd0 100644
 +			}
 +
 +			if err := appendListItem(v, data, uint64(kv.ModRevision), pred, s.codec, s.versioner, newItemFunc); err != nil {
++				recordDecodeError(typeName, string(kv.Key))
 +				return false, "", 0, 0, err
 +			}
 +
@@ -262,7 +263,7 @@ index ecb8b179cee..60155ae8dd0 100644
  // List implements storage.Interface.List.
  func (s *store) List(ctx context.Context, key string, opts storage.ListOptions, listObj runtime.Object) error {
  	preparedKey, err := s.prepareKey(key)
-@@ -662,14 +771,6 @@ func (s *store) List(ctx context.Context, key string, opts storage.ListOptions,
+@@ -682,14 +792,6 @@ func (s *store) List(ctx context.Context, key string, opts storage.ListOptions,
  	}
  	keyPrefix := preparedKey
  
@@ -277,7 +278,7 @@ index ecb8b179cee..60155ae8dd0 100644
  	newItemFunc := getNewItemFunc(listObj, v)
  
  	var fromRV *uint64
-@@ -681,10 +782,10 @@ func (s *store) List(ctx context.Context, key string, opts storage.ListOptions,
+@@ -701,10 +803,10 @@ func (s *store) List(ctx context.Context, key string, opts storage.ListOptions,
  		fromRV = &parsedRV
  	}
  
@@ -291,7 +292,7 @@ index ecb8b179cee..60155ae8dd0 100644
  		continueKey, continueRV, err = decodeContinue(pred.Continue, keyPrefix)
  		if err != nil {
  			return apierrors.NewBadRequest(fmt.Sprintf("invalid continue token: %v", err))
-@@ -694,8 +795,7 @@ func (s *store) List(ctx context.Context, key string, opts storage.ListOptions,
+@@ -714,8 +816,7 @@ func (s *store) List(ctx context.Context, key string, opts storage.ListOptions,
  			return apierrors.NewBadRequest("specifying resource version is not allowed when using continue")
  		}
  
@@ -301,7 +302,7 @@ index ecb8b179cee..60155ae8dd0 100644
  		preparedKey = continueKey
  
  		// If continueRV > 0, the LIST request needs a specific resource version.
-@@ -703,29 +803,25 @@ func (s *store) List(ctx context.Context, key string, opts storage.ListOptions,
+@@ -723,29 +824,25 @@ func (s *store) List(ctx context.Context, key string, opts storage.ListOptions,
  		// If continueRV < 0, the request is for the latest resource version.
  		if continueRV > 0 {
  			withRev = continueRV
@@ -335,7 +336,7 @@ index ecb8b179cee..60155ae8dd0 100644
  	default:
  		if fromRV != nil {
  			switch match {
-@@ -733,91 +829,26 @@ func (s *store) List(ctx context.Context, key string, opts storage.ListOptions,
+@@ -753,91 +850,26 @@ func (s *store) List(ctx context.Context, key string, opts storage.ListOptions,
  				// The not older than constraint is checked after we get a response from etcd,
  				// and returnedRV is then set to the revision we get from the etcd response.
  			case metav1.ResourceVersionMatchExact:
@@ -433,7 +434,7 @@ index ecb8b179cee..60155ae8dd0 100644
  		if err != nil {
  			return err
  		}
-@@ -827,15 +858,14 @@ func (s *store) List(ctx context.Context, key string, opts storage.ListOptions,
+@@ -847,15 +879,14 @@ func (s *store) List(ctx context.Context, key string, opts storage.ListOptions,
  		// Only set remainingItemCount if the predicate is empty.
  		if utilfeature.DefaultFeatureGate.Enabled(features.RemainingItemCount) {
  			if pred.Empty() {
