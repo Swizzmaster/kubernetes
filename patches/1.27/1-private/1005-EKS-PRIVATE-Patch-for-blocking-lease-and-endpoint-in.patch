@@ -6,20 +6,21 @@ Subject: [PATCH] --EKS-PRIVATE-- Patch for blocking lease and endpoint in
 
 ref: https://quip-amazon.com/0k7FAEo7j60v/Stop-software-operations-in-the-impacted-AZ
 Signed-off-by: Davanum Srinivas <davanum@gmail.com>
+Signed-off-by: Jyoti Mahapatra <jyotima@amazon.com>
 ---
- .../coordination/validation/validation.go     |  57 ++
+ .../coordination/validation/validation.go     |  60 ++
  .../validation/validation_test.go             | 191 +++++
  pkg/controlplane/reconcilers/lease.go         |  47 +-
  pkg/controlplane/reconcilers/lease_test.go    | 694 ++++++++++++++++++
  pkg/kubeapiserver/az/utils.go                 |  49 ++
- 5 files changed, 1034 insertions(+), 4 deletions(-)
+ 5 files changed, 1037 insertions(+), 4 deletions(-)
  create mode 100644 pkg/kubeapiserver/az/utils.go
 
 diff --git a/pkg/apis/coordination/validation/validation.go b/pkg/apis/coordination/validation/validation.go
-index 4eae06265d0..cce564f7844 100644
+index 4eae06265d0..210fe4178f1 100644
 --- a/pkg/apis/coordination/validation/validation.go
 +++ b/pkg/apis/coordination/validation/validation.go
-@@ -17,15 +17,27 @@ limitations under the License.
+@@ -17,15 +17,30 @@ limitations under the License.
  package validation
  
  import (
@@ -34,9 +35,12 @@ index 4eae06265d0..cce564f7844 100644
  )
  
 +var eksManagedLeaseNames = map[string]struct{}{
-+	"kube-scheduler":           {},
-+	"kube-controller-manager":  {},
-+	"cloud-controller-manager": {},
++	"kube-scheduler":              {},
++	"kube-controller-manager":     {},
++	"cloud-controller-manager":    {},
++	"eks-certificates-controller": {},
++	"fargate-scheduler":           {},
++	"cp-vpc-resource-controller":  {},
 +}
 +
  // ValidateLease validates a Lease.
@@ -47,7 +51,7 @@ index 4eae06265d0..cce564f7844 100644
  	return allErrs
  }
  
-@@ -33,6 +45,7 @@ func ValidateLease(lease *coordination.Lease) field.ErrorList {
+@@ -33,6 +48,7 @@ func ValidateLease(lease *coordination.Lease) field.ErrorList {
  func ValidateLeaseUpdate(lease, oldLease *coordination.Lease) field.ErrorList {
  	allErrs := validation.ValidateObjectMetaUpdate(&lease.ObjectMeta, &oldLease.ObjectMeta, field.NewPath("metadata"))
  	allErrs = append(allErrs, ValidateLeaseSpec(&lease.Spec, field.NewPath("spec"))...)
@@ -55,7 +59,7 @@ index 4eae06265d0..cce564f7844 100644
  	return allErrs
  }
  
-@@ -50,3 +63,47 @@ func ValidateLeaseSpec(spec *coordination.LeaseSpec, fldPath *field.Path) field.
+@@ -50,3 +66,47 @@ func ValidateLeaseSpec(spec *coordination.LeaseSpec, fldPath *field.Path) field.
  	}
  	return allErrs
  }
