@@ -149,7 +149,7 @@ index 1855972f853..e3c0b33b303 100644
  	leaseDuration := time.Duration(kubeCfg.NodeLeaseDurationSeconds) * time.Second
  	renewInterval := time.Duration(float64(leaseDuration) * nodeLeaseRenewIntervalFraction)
 diff --git a/pkg/kubelet/kuberuntime/kuberuntime_container_linux.go b/pkg/kubelet/kuberuntime/kuberuntime_container_linux.go
-index 25917803b1c..c9aff479a12 100644
+index 1e9a2377b51..ac7d3ddd2b9 100644
 --- a/pkg/kubelet/kuberuntime/kuberuntime_container_linux.go
 +++ b/pkg/kubelet/kuberuntime/kuberuntime_container_linux.go
 @@ -35,6 +35,7 @@ import (
@@ -160,7 +160,7 @@ index 25917803b1c..c9aff479a12 100644
  )
  
  // applyPlatformSpecificContainerConfig applies platform specific configurations to runtimeapi.ContainerConfig.
-@@ -157,6 +158,8 @@ func (m *kubeGenericRuntimeManager) calculateLinuxResources(cpuRequest, cpuLimit
+@@ -165,6 +166,8 @@ func (m *kubeGenericRuntimeManager) calculateLinuxResources(cpuRequest, cpuLimit
  			cpuPeriod = int64(m.cpuCFSQuotaPeriod.Duration / time.Microsecond)
  		}
  		cpuQuota := milliCPUToQuota(cpuLimit.MilliValue(), cpuPeriod)
