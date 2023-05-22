@@ -276,7 +276,7 @@ index 00000000000..8f66dc9b437
 +    exit 1
 +fi
 diff --git a/pkg/features/kube_features.go b/pkg/features/kube_features.go
-index dae17977504..aad691850a3 100644
+index bf641bfa8fa..49e71148db5 100644
 --- a/pkg/features/kube_features.go
 +++ b/pkg/features/kube_features.go
 @@ -300,6 +300,12 @@ const (
@@ -1604,7 +1604,7 @@ index 00000000000..0ec98768eb1
 +	return out, err
 +}
 diff --git a/vendor/modules.txt b/vendor/modules.txt
-index 72ff405fc8c..6910b7a9892 100644
+index e4cadc63979..9554a082f36 100644
 --- a/vendor/modules.txt
 +++ b/vendor/modules.txt
 @@ -1199,6 +1199,7 @@ gopkg.in/natefinch/lumberjack.v2
