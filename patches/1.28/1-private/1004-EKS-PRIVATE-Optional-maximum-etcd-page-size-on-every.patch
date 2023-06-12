@@ -6,22 +6,21 @@ Subject: [PATCH] --EKS-PRIVATE-- Optional maximum etcd page size on every list
 Signed-off-by: Ernest Wong <ernwong@amazon.com>
 ---
  .../apiserver/pkg/server/options/etcd.go      |   3 +
+ .../cacher/cacher_testing_utils_test.go       |   7 +-
  .../storage/cacher/cacher_whitebox_test.go    |   3 +-
- .../pkg/storage/cacher/lister_watcher_test.go |   3 +-
  .../pkg/storage/etcd3/metrics/metrics.go      |  17 +++
  .../apiserver/pkg/storage/etcd3/store.go      |  56 +++++--
  .../apiserver/pkg/storage/etcd3/store_test.go |  55 ++++---
  .../pkg/storage/storagebackend/config.go      |   3 +-
  .../storage/storagebackend/factory/etcd3.go   |   3 +-
  .../pkg/storage/testing/store_tests.go        | 144 ++++++++++++++++++
- .../pkg/storage/tests/cacher_test.go          |  12 +-
- 10 files changed, 252 insertions(+), 47 deletions(-)
+ 9 files changed, 253 insertions(+), 38 deletions(-)
 
 diff --git a/staging/src/k8s.io/apiserver/pkg/server/options/etcd.go b/staging/src/k8s.io/apiserver/pkg/server/options/etcd.go
-index 3389c616f35..b6f71a7ceb8 100644
+index 4210dffc31c..62660e2a3ca 100644
 --- a/staging/src/k8s.io/apiserver/pkg/server/options/etcd.go
 +++ b/staging/src/k8s.io/apiserver/pkg/server/options/etcd.go
-@@ -208,6 +208,9 @@ func (s *EtcdOptions) AddFlags(fs *pflag.FlagSet) {
+@@ -203,6 +203,9 @@ func (s *EtcdOptions) AddFlags(fs *pflag.FlagSet) {
  	fs.DurationVar(&s.StorageConfig.HealthcheckTimeout, "etcd-healthcheck-timeout", s.StorageConfig.HealthcheckTimeout,
  		"The timeout to use when checking etcd health.")
  
@@ -31,11 +30,43 @@ index 3389c616f35..b6f71a7ceb8 100644
  	fs.DurationVar(&s.StorageConfig.ReadycheckTimeout, "etcd-readycheck-timeout", s.StorageConfig.ReadycheckTimeout,
  		"The timeout to use when checking etcd readiness")
  
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher_testing_utils_test.go b/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher_testing_utils_test.go
+index 34653a891bc..3b9f3cbf0b9 100644
+--- a/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher_testing_utils_test.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher_testing_utils_test.go
+@@ -36,6 +36,10 @@ import (
+ 	"k8s.io/apiserver/pkg/storage/value/encrypt/identity"
+ )
+ 
++const (
++	defaultListEtcdMaxLimit = 500
++)
++
+ var (
+ 	scheme   = runtime.NewScheme()
+ 	codecs   = serializer.NewCodecFactory(scheme)
+@@ -54,6 +58,7 @@ func newPodList() runtime.Object { return &example.PodList{} }
+ 
+ func newEtcdTestStorage(t *testing.T, prefix string, pagingEnabled bool) (*etcd3testing.EtcdTestServer, storage.Interface) {
+ 	server, _ := etcd3testing.NewUnsecuredEtcd3TestClientServer(t)
++	pagingConfig := etcd3.PagingConfig{PagingEnabled: pagingEnabled, MaximumPageSize: defaultListEtcdMaxLimit}
+ 	storage := etcd3.New(
+ 		server.V3Client,
+ 		apitesting.TestCodec(codecs, examplev1.SchemeGroupVersion),
+@@ -61,7 +66,7 @@ func newEtcdTestStorage(t *testing.T, prefix string, pagingEnabled bool) (*etcd3
+ 		prefix,
+ 		schema.GroupResource{Resource: "pods"},
+ 		identity.NewEncryptCheckTransformer(),
+-		pagingEnabled,
++		pagingConfig,
+ 		etcd3.NewDefaultLeaseManagerConfig())
+ 	return server, storage
+ }
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher_whitebox_test.go b/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher_whitebox_test.go
-index be3edd6fcbf..06a1e1de030 100644
+index d3cbfecc787..3b1bec2c94d 100644
 --- a/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher_whitebox_test.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher_whitebox_test.go
-@@ -1805,7 +1805,8 @@ func TestGetCurrentResourceVersionFromStorage(t *testing.T) {
+@@ -1768,7 +1768,8 @@ func TestGetCurrentResourceVersionFromStorage(t *testing.T) {
  	// test data
  	newEtcdTestStorage := func(t *testing.T, prefix string) (*etcd3testing.EtcdTestServer, storage.Interface) {
  		server, _ := etcd3testing.NewUnsecuredEtcd3TestClientServer(t)
@@ -45,26 +76,6 @@ index be3edd6fcbf..06a1e1de030 100644
  		return server, storage
  	}
  	server, etcdStorage := newEtcdTestStorage(t, "")
-diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/lister_watcher_test.go b/staging/src/k8s.io/apiserver/pkg/storage/cacher/lister_watcher_test.go
-index 8a2a8ab37e1..6e88d165ec2 100644
---- a/staging/src/k8s.io/apiserver/pkg/storage/cacher/lister_watcher_test.go
-+++ b/staging/src/k8s.io/apiserver/pkg/storage/cacher/lister_watcher_test.go
-@@ -41,13 +41,14 @@ func computePodKey(obj *example.Pod) string {
- 
- func newEtcdTestStorage(t *testing.T, prefix string) (*etcd3testing.EtcdTestServer, storage.Interface) {
- 	server, _ := etcd3testing.NewUnsecuredEtcd3TestClientServer(t)
-+	pagingConfig := etcd3.PagingConfig{PagingEnabled: true, MaximumPageSize: 500} // defaultListEtcdMaxLimit = 500
- 	storage := etcd3.New(
- 		server.V3Client,
- 		apitesting.TestCodec(codecs, examplev1.SchemeGroupVersion),
- 		newPod, prefix,
- 		schema.GroupResource{Resource: "pods"},
- 		identity.NewEncryptCheckTransformer(),
--		true,
-+		pagingConfig,
- 		etcd3.NewDefaultLeaseManagerConfig())
- 	return server, storage
- }
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/metrics/metrics.go b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/metrics/metrics.go
 index 78c9a598388..6d8fdaabc05 100644
 --- a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/metrics/metrics.go
@@ -562,33 +573,3 @@ index f5dfd72ec69..dfe50108b80 100644
  func RunTestCreate(ctx context.Context, t *testing.T, store storage.Interface, validation KeyValidation) {
  	out := &example.Pod{}
  	obj := &example.Pod{ObjectMeta: metav1.ObjectMeta{Name: "foo", Namespace: "test-ns", SelfLink: "testlink"}}
-diff --git a/staging/src/k8s.io/apiserver/pkg/storage/tests/cacher_test.go b/staging/src/k8s.io/apiserver/pkg/storage/tests/cacher_test.go
-index 6bb30764028..d3d319a3c13 100644
---- a/staging/src/k8s.io/apiserver/pkg/storage/tests/cacher_test.go
-+++ b/staging/src/k8s.io/apiserver/pkg/storage/tests/cacher_test.go
-@@ -56,6 +56,7 @@ var (
- const (
- 	// watchCacheDefaultCapacity syncs watch cache defaultLowerBoundCapacity.
- 	watchCacheDefaultCapacity = 100
-+	defaultListEtcdMaxLimit   = 500
- )
- 
- func init() {
-@@ -100,15 +101,8 @@ func newPodList() runtime.Object { return &example.PodList{} }
- 
- func newEtcdTestStorage(t *testing.T, prefix string, pagingEnabled bool) (*etcd3testing.EtcdTestServer, storage.Interface) {
- 	server, _ := etcd3testing.NewUnsecuredEtcd3TestClientServer(t)
--	storage := etcd3.New(
--		server.V3Client,
--		apitesting.TestCodec(codecs, examplev1.SchemeGroupVersion),
--		newPod,
--		prefix,
--		schema.GroupResource{Resource: "pods"},
--		identity.NewEncryptCheckTransformer(),
--		pagingEnabled,
--		etcd3.NewDefaultLeaseManagerConfig())
-+	pagingConfig := etcd3.PagingConfig{PagingEnabled: pagingEnabled, MaximumPageSize: defaultListEtcdMaxLimit}
-+	storage := etcd3.New(server.V3Client, apitesting.TestCodec(codecs, examplev1.SchemeGroupVersion), newPod, prefix, schema.GroupResource{Resource: "pods"}, identity.NewEncryptCheckTransformer(), pagingConfig, etcd3.NewDefaultLeaseManagerConfig())
- 	return server, storage
- }
- 

@@ -80,10 +80,10 @@ Signed-off-by: Jyoti Mahapatra<jyotima@amazon.com>
  create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator_testdata/valid-volumes.yaml
 
 diff --git a/pkg/features/kube_features.go b/pkg/features/kube_features.go
-index b7c9a0570cd..bfec97cd110 100644
+index d4cd944eaf8..0ed63c0110f 100644
 --- a/pkg/features/kube_features.go
 +++ b/pkg/features/kube_features.go
-@@ -618,6 +618,12 @@ const (
+@@ -627,6 +627,12 @@ const (
  	// Enable users to specify when a Pod is ready for scheduling.
  	PodSchedulingReadiness featuregate.Feature = "PodSchedulingReadiness"
  
@@ -96,7 +96,7 @@ index b7c9a0570cd..bfec97cd110 100644
  	// owner: @ehashman
  	// alpha: v1.21
  	// beta: v1.22
-@@ -1010,6 +1016,8 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
+@@ -1022,6 +1028,8 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
  
  	PodSchedulingReadiness: {Default: true, PreRelease: featuregate.Beta},
  
@@ -1610,7 +1610,7 @@ index 00000000000..335e08b08bb
 +    persistentVolumeClaim:
 +      claimName: efs-pvc
 diff --git a/pkg/kubelet/server/server.go b/pkg/kubelet/server/server.go
-index beaaeabb4a8..d113c767079 100644
+index 8e21d3fa50a..67b8e51ee26 100644
 --- a/pkg/kubelet/server/server.go
 +++ b/pkg/kubelet/server/server.go
 @@ -529,8 +529,7 @@ func (s *Server) InstallDebuggingHandlers() {

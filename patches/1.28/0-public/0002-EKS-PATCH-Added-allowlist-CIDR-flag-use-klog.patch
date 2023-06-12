@@ -198,10 +198,10 @@ index b766befa8ea..43d710fba96 100644
  	errs = append(errs, validateServiceNodePort(s)...)
  	errs = append(errs, validateAPIPriorityAndFairness(s)...)
 diff --git a/cmd/kube-apiserver/app/server.go b/cmd/kube-apiserver/app/server.go
-index da420e82162..078c0326525 100644
+index bc5deb924c7..31adda760ea 100644
 --- a/cmd/kube-apiserver/app/server.go
 +++ b/cmd/kube-apiserver/app/server.go
-@@ -245,7 +245,10 @@ func CreateKubeAPIServerConfig(s completedServerRunOptions) (
+@@ -221,7 +221,10 @@ func CreateKubeAPIServerConfig(s completedServerRunOptions) (
  	[]admission.PluginInitializer,
  	error,
  ) {
@@ -211,8 +211,8 @@ index da420e82162..078c0326525 100644
 +		return nil, nil, nil, err
 +	}
  
- 	genericConfig, versionedInformers, serviceResolver, pluginInitializers, admissionPostStartHook, storageFactory, err := buildGenericConfig(s.ServerRunOptions, proxyTransport)
- 	if err != nil {
+ 	genericConfig, versionedInformers, storageFactory, err := controlplaneapiserver.BuildGenericConfig(
+ 		s.ServerRunOptions,
 diff --git a/pkg/kubeapiserver/options/ipnetslice.go b/pkg/kubeapiserver/options/ipnetslice.go
 new file mode 100644
 index 00000000000..8cc2fe76574

@@ -89,10 +89,10 @@ index 43d710fba96..218faf51402 100644
  	return errs
  }
 diff --git a/cmd/kube-apiserver/app/server.go b/cmd/kube-apiserver/app/server.go
-index 078c0326525..ffff47c9655 100644
+index 31adda760ea..3468bf8bdca 100644
 --- a/cmd/kube-apiserver/app/server.go
 +++ b/cmd/kube-apiserver/app/server.go
-@@ -609,7 +609,27 @@ func Complete(s *options.ServerRunOptions) (completedServerRunOptions, error) {
+@@ -438,7 +438,27 @@ func Complete(s *options.ServerRunOptions) (completedServerRunOptions, error) {
  		if err != nil {
  			return options, fmt.Errorf("failed to build token generator: %v", err)
  		}
@@ -276,10 +276,10 @@ index 00000000000..8f66dc9b437
 +    exit 1
 +fi
 diff --git a/pkg/features/kube_features.go b/pkg/features/kube_features.go
-index bdc8dd13aac..b7c9a0570cd 100644
+index c10ef871ac0..d4cd944eaf8 100644
 --- a/pkg/features/kube_features.go
 +++ b/pkg/features/kube_features.go
-@@ -265,6 +265,12 @@ const (
+@@ -274,6 +274,12 @@ const (
  	// This flag used to be needed for dockershim CRI and currently does nothing.
  	ExperimentalHostUserNamespaceDefaultingGate featuregate.Feature = "ExperimentalHostUserNamespaceDefaulting"
  
@@ -292,7 +292,7 @@ index bdc8dd13aac..b7c9a0570cd 100644
  	// owner: @yuzhiquan, @bowei, @PxyUp, @SergeyKanzhelev
  	// kep: https://kep.k8s.io/2727
  	// alpha: v1.23
-@@ -908,6 +914,8 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
+@@ -920,6 +926,8 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
  
  	ExperimentalHostUserNamespaceDefaultingGate: {Default: false, PreRelease: featuregate.Deprecated, LockToDefault: true}, // remove in 1.30
  
@@ -1604,10 +1604,10 @@ index 00000000000..0ec98768eb1
 +	return out, err
 +}
 diff --git a/vendor/modules.txt b/vendor/modules.txt
-index 5bf24ee9f39..ed3eaa815b7 100644
+index b942bf93ecf..958c9ba5c9d 100644
 --- a/vendor/modules.txt
 +++ b/vendor/modules.txt
-@@ -1212,6 +1212,7 @@ gopkg.in/natefinch/lumberjack.v2
+@@ -1224,6 +1224,7 @@ gopkg.in/natefinch/lumberjack.v2
  ## explicit
  gopkg.in/square/go-jose.v2
  gopkg.in/square/go-jose.v2/cipher
