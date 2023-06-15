@@ -90,10 +90,10 @@ index 4bf416d6961..566077609ac 100644
  }
  
 diff --git a/cmd/kube-apiserver/app/server.go b/cmd/kube-apiserver/app/server.go
-index e265f03c8d9..84c10c024ef 100644
+index fa9161e6e52..833a8fdc96a 100644
 --- a/cmd/kube-apiserver/app/server.go
 +++ b/cmd/kube-apiserver/app/server.go
-@@ -605,7 +605,27 @@ func Complete(s *options.ServerRunOptions) (completedServerRunOptions, error) {
+@@ -607,7 +607,27 @@ func Complete(s *options.ServerRunOptions) (completedServerRunOptions, error) {
  		if err != nil {
  			return options, fmt.Errorf("failed to build token generator: %v", err)
  		}
@@ -1526,10 +1526,10 @@ index 00000000000..0ec98768eb1
 +	return out, err
 +}
 diff --git a/vendor/modules.txt b/vendor/modules.txt
-index 32ea2b757ab..391155c6421 100644
+index b51ab31181e..55ada96a1d4 100644
 --- a/vendor/modules.txt
 +++ b/vendor/modules.txt
-@@ -1351,6 +1351,7 @@ gopkg.in/natefinch/lumberjack.v2
+@@ -1365,6 +1365,7 @@ gopkg.in/natefinch/lumberjack.v2
  ## explicit
  gopkg.in/square/go-jose.v2
  gopkg.in/square/go-jose.v2/cipher

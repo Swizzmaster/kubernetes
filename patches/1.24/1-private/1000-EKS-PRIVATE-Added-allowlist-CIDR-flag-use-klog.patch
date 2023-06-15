@@ -198,10 +198,10 @@ index 38250a7a819..4bf416d6961 100644
  	errs = append(errs, validateServiceNodePort(s)...)
  	errs = append(errs, validateAPIPriorityAndFairness(s)...)
 diff --git a/cmd/kube-apiserver/app/server.go b/cmd/kube-apiserver/app/server.go
-index 0887d9124ba..e265f03c8d9 100644
+index 38f8d9ee0eb..fa9161e6e52 100644
 --- a/cmd/kube-apiserver/app/server.go
 +++ b/cmd/kube-apiserver/app/server.go
-@@ -240,7 +240,10 @@ func CreateKubeAPIServerConfig(s completedServerRunOptions) (
+@@ -242,7 +242,10 @@ func CreateKubeAPIServerConfig(s completedServerRunOptions) (
  	[]admission.PluginInitializer,
  	error,
  ) {
