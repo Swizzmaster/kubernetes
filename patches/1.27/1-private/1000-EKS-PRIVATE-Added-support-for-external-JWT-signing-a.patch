@@ -89,10 +89,10 @@ index 43d710fba96..218faf51402 100644
  	return errs
  }
 diff --git a/cmd/kube-apiserver/app/server.go b/cmd/kube-apiserver/app/server.go
-index 3787e197f58..edf83344305 100644
+index 1c1a989091a..cf92231cc49 100644
 --- a/cmd/kube-apiserver/app/server.go
 +++ b/cmd/kube-apiserver/app/server.go
-@@ -598,7 +598,27 @@ func Complete(s *options.ServerRunOptions) (completedServerRunOptions, error) {
+@@ -600,7 +600,27 @@ func Complete(s *options.ServerRunOptions) (completedServerRunOptions, error) {
  		if err != nil {
  			return options, fmt.Errorf("failed to build token generator: %v", err)
  		}
