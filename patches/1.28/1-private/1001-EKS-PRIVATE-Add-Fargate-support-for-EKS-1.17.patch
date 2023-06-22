@@ -80,7 +80,7 @@ Signed-off-by: Jyoti Mahapatra<jyotima@amazon.com>
  create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator_testdata/valid-volumes.yaml
 
 diff --git a/pkg/features/kube_features.go b/pkg/features/kube_features.go
-index d4cd944eaf8..0ed63c0110f 100644
+index 961253c8b4a..4fd0038dcac 100644
 --- a/pkg/features/kube_features.go
 +++ b/pkg/features/kube_features.go
 @@ -627,6 +627,12 @@ const (
@@ -196,7 +196,7 @@ index 2f6ef8e6977..c794fbe082d 100644
  
  	typedVersion, err := runtimeService.Version(ctx, kubeRuntimeAPIVersion)
 diff --git a/pkg/kubelet/kuberuntime/kuberuntime_container_linux.go b/pkg/kubelet/kuberuntime/kuberuntime_container_linux.go
-index 4c753b466f3..28bc2b34841 100644
+index 6db16bd03d1..7e1e218ac31 100644
 --- a/pkg/kubelet/kuberuntime/kuberuntime_container_linux.go
 +++ b/pkg/kubelet/kuberuntime/kuberuntime_container_linux.go
 @@ -37,6 +37,7 @@ import (

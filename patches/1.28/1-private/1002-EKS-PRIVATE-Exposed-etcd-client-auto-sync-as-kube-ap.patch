@@ -17,7 +17,7 @@ Signed-off-by: Davanum Srinivas <davanum@gmail.com>
  3 files changed, 6 insertions(+), 1 deletion(-)
 
 diff --git a/staging/src/k8s.io/apiserver/pkg/server/options/etcd.go b/staging/src/k8s.io/apiserver/pkg/server/options/etcd.go
-index 9f4402411ef..4210dffc31c 100644
+index 5ad5e0277cc..be8c2335abb 100644
 --- a/staging/src/k8s.io/apiserver/pkg/server/options/etcd.go
 +++ b/staging/src/k8s.io/apiserver/pkg/server/options/etcd.go
 @@ -169,6 +169,9 @@ func (s *EtcdOptions) AddFlags(fs *pflag.FlagSet) {
@@ -45,10 +45,10 @@ index 47534c97818..694ca749a1c 100644
  	KeyFile       string
  	CertFile      string
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/factory/etcd3.go b/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/factory/etcd3.go
-index c1785964956..97d73556d8a 100644
+index 64bcabadb97..ae38aac5ebc 100644
 --- a/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/factory/etcd3.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/factory/etcd3.go
-@@ -285,6 +285,7 @@ var newETCD3Client = func(c storagebackend.TransportConfig) (*clientv3.Client, e
+@@ -324,6 +324,7 @@ var newETCD3Client = func(c storagebackend.TransportConfig) (*clientv3.Client, e
  	}
  
  	cfg := clientv3.Config{

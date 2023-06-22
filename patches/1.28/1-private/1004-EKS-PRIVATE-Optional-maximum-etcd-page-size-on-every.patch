@@ -17,7 +17,7 @@ Signed-off-by: Ernest Wong <ernwong@amazon.com>
  9 files changed, 253 insertions(+), 38 deletions(-)
 
 diff --git a/staging/src/k8s.io/apiserver/pkg/server/options/etcd.go b/staging/src/k8s.io/apiserver/pkg/server/options/etcd.go
-index 4210dffc31c..62660e2a3ca 100644
+index be8c2335abb..88493edf8ca 100644
 --- a/staging/src/k8s.io/apiserver/pkg/server/options/etcd.go
 +++ b/staging/src/k8s.io/apiserver/pkg/server/options/etcd.go
 @@ -203,6 +203,9 @@ func (s *EtcdOptions) AddFlags(fs *pflag.FlagSet) {
@@ -405,10 +405,10 @@ index 694ca749a1c..4bf20243428 100644
  	Codec runtime.Codec
  	// EncodeVersioner is the same groupVersioner used to build the
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/factory/etcd3.go b/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/factory/etcd3.go
-index 97d73556d8a..b952e45c04a 100644
+index ae38aac5ebc..ced0b00d1d2 100644
 --- a/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/factory/etcd3.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/factory/etcd3.go
-@@ -398,7 +398,8 @@ func newETCD3Storage(c storagebackend.ConfigForResource, newFunc func() runtime.
+@@ -437,7 +437,8 @@ func newETCD3Storage(c storagebackend.ConfigForResource, newFunc func() runtime.
  	if transformer == nil {
  		transformer = identity.NewEncryptCheckTransformer()
  	}
