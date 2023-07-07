@@ -80,10 +80,10 @@ Signed-off-by: Jyoti Mahapatra<jyotima@amazon.com>
  create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator_testdata/valid-volumes.yaml
 
 diff --git a/pkg/features/kube_features.go b/pkg/features/kube_features.go
-index 961253c8b4a..4fd0038dcac 100644
+index 5bcb5e7628b..029c40b908a 100644
 --- a/pkg/features/kube_features.go
 +++ b/pkg/features/kube_features.go
-@@ -627,6 +627,12 @@ const (
+@@ -619,6 +619,12 @@ const (
  	// Enable users to specify when a Pod is ready for scheduling.
  	PodSchedulingReadiness featuregate.Feature = "PodSchedulingReadiness"
  
@@ -96,7 +96,7 @@ index 961253c8b4a..4fd0038dcac 100644
  	// owner: @ehashman
  	// alpha: v1.21
  	// beta: v1.22
-@@ -1022,6 +1028,8 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
+@@ -1014,6 +1020,8 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
  
  	PodSchedulingReadiness: {Default: true, PreRelease: featuregate.Beta},
  
@@ -196,7 +196,7 @@ index 2f6ef8e6977..c794fbe082d 100644
  
  	typedVersion, err := runtimeService.Version(ctx, kubeRuntimeAPIVersion)
 diff --git a/pkg/kubelet/kuberuntime/kuberuntime_container_linux.go b/pkg/kubelet/kuberuntime/kuberuntime_container_linux.go
-index 6db16bd03d1..7e1e218ac31 100644
+index 466378deda3..4fc112a77c2 100644
 --- a/pkg/kubelet/kuberuntime/kuberuntime_container_linux.go
 +++ b/pkg/kubelet/kuberuntime/kuberuntime_container_linux.go
 @@ -37,6 +37,7 @@ import (

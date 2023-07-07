@@ -31,10 +31,10 @@ index be8c2335abb..88493edf8ca 100644
  		"The timeout to use when checking etcd readiness")
  
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher_testing_utils_test.go b/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher_testing_utils_test.go
-index 34653a891bc..3b9f3cbf0b9 100644
+index f738cdbdea0..e306447f698 100644
 --- a/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher_testing_utils_test.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher_testing_utils_test.go
-@@ -36,6 +36,10 @@ import (
+@@ -39,6 +39,10 @@ import (
  	"k8s.io/apiserver/pkg/storage/value/encrypt/identity"
  )
  
@@ -45,7 +45,7 @@ index 34653a891bc..3b9f3cbf0b9 100644
  var (
  	scheme   = runtime.NewScheme()
  	codecs   = serializer.NewCodecFactory(scheme)
-@@ -54,6 +58,7 @@ func newPodList() runtime.Object { return &example.PodList{} }
+@@ -57,6 +61,7 @@ func newPodList() runtime.Object { return &example.PodList{} }
  
  func newEtcdTestStorage(t *testing.T, prefix string, pagingEnabled bool) (*etcd3testing.EtcdTestServer, storage.Interface) {
  	server, _ := etcd3testing.NewUnsecuredEtcd3TestClientServer(t)
@@ -53,7 +53,7 @@ index 34653a891bc..3b9f3cbf0b9 100644
  	storage := etcd3.New(
  		server.V3Client,
  		apitesting.TestCodec(codecs, examplev1.SchemeGroupVersion),
-@@ -61,7 +66,7 @@ func newEtcdTestStorage(t *testing.T, prefix string, pagingEnabled bool) (*etcd3
+@@ -64,7 +69,7 @@ func newEtcdTestStorage(t *testing.T, prefix string, pagingEnabled bool) (*etcd3
  		prefix,
  		schema.GroupResource{Resource: "pods"},
  		identity.NewEncryptCheckTransformer(),
@@ -63,10 +63,10 @@ index 34653a891bc..3b9f3cbf0b9 100644
  	return server, storage
  }
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher_whitebox_test.go b/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher_whitebox_test.go
-index d3cbfecc787..3b1bec2c94d 100644
+index 47219676e6d..bf6b105ccfd 100644
 --- a/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher_whitebox_test.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher_whitebox_test.go
-@@ -1768,7 +1768,8 @@ func TestGetCurrentResourceVersionFromStorage(t *testing.T) {
+@@ -1783,7 +1783,8 @@ func TestGetCurrentResourceVersionFromStorage(t *testing.T) {
  	// test data
  	newEtcdTestStorage := func(t *testing.T, prefix string) (*etcd3testing.EtcdTestServer, storage.Interface) {
  		server, _ := etcd3testing.NewUnsecuredEtcd3TestClientServer(t)
@@ -126,7 +126,7 @@ index 78c9a598388..6d8fdaabc05 100644
  func RecordEtcdBookmark(resource string) {
  	etcdBookmarkCounts.WithLabelValues(resource).Inc()
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go
-index aab39054477..aaf3c35ba3b 100644
+index ff700bf609d..917ef645e0e 100644
 --- a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go
 @@ -23,6 +23,7 @@ import (
@@ -283,7 +283,7 @@ index aab39054477..aaf3c35ba3b 100644
  			*limitOption = clientv3.WithLimit(limit)
  		}
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store_test.go b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store_test.go
-index 29be72a6668..ab4b282592e 100644
+index ffc9891b8da..1ca2a46296c 100644
 --- a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store_test.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store_test.go
 @@ -50,7 +50,10 @@ import (
@@ -419,7 +419,7 @@ index ae38aac5ebc..ced0b00d1d2 100644
  
  // startDBSizeMonitorPerEndpoint starts a loop to monitor etcd database size and update the
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/testing/store_tests.go b/staging/src/k8s.io/apiserver/pkg/storage/testing/store_tests.go
-index f5dfd72ec69..dfe50108b80 100644
+index aa0a8559d94..eabd57c6247 100644
 --- a/staging/src/k8s.io/apiserver/pkg/storage/testing/store_tests.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/testing/store_tests.go
 @@ -46,6 +46,150 @@ import (

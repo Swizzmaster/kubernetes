@@ -1,6 +1,6 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: Micah Hausler <mhausler@amazon.com>
-Date: Thu, 17 Jan 2019 15:41:00 -0800
+From: Ernest Wong <ernwong@amazon.com>
+Date: Fri, 7 Jul 2023 16:36:49 +0000
 Subject: [PATCH] --EKS-PRIVATE-- Added support for external JWT signing and
  verifying
 
@@ -13,11 +13,11 @@ possible from 1 issuer to another, so this patch needed to be rebased.
 
 Signed-off-by: Davanum Srinivas <davanum@gmail.com>
 ---
- cmd/kube-apiserver/app/options/validation.go  |  30 ++
- cmd/kube-apiserver/app/server.go              |  20 ++
  ...ate-generated-externalsigner-dockerized.sh |  63 ++++
  hack/update-generated-externalsigner.sh       |  29 ++
  hack/verify-generated-externalsigner.sh       |  45 +++
+ pkg/controlplane/apiserver/options/options.go |  20 ++
+ .../apiserver/options/validation.go           |  31 ++
  pkg/features/kube_features.go                 |   8 +
  pkg/kubeapiserver/authenticator/config.go     |  15 +-
  pkg/kubeapiserver/options/authentication.go   |   5 +
@@ -30,7 +30,7 @@ Signed-off-by: Davanum Srinivas <davanum@gmail.com>
  staging/src/k8s.io/client-go/util/cert/pem.go |   7 +-
  .../go-jose.v2/cryptosigner/cryptosigner.go   | 138 ++++++++
  vendor/modules.txt                            |   1 +
- 17 files changed, 1228 insertions(+), 72 deletions(-)
+ 17 files changed, 1229 insertions(+), 72 deletions(-)
  create mode 100755 hack/update-generated-externalsigner-dockerized.sh
  create mode 100755 hack/update-generated-externalsigner.sh
  create mode 100755 hack/verify-generated-externalsigner.sh
@@ -40,86 +40,6 @@ Signed-off-by: Davanum Srinivas <davanum@gmail.com>
  create mode 100644 pkg/serviceaccount/jwt_external_test.go
  create mode 100644 vendor/gopkg.in/square/go-jose.v2/cryptosigner/cryptosigner.go
 
-diff --git a/cmd/kube-apiserver/app/options/validation.go b/cmd/kube-apiserver/app/options/validation.go
-index 43d710fba96..218faf51402 100644
---- a/cmd/kube-apiserver/app/options/validation.go
-+++ b/cmd/kube-apiserver/app/options/validation.go
-@@ -158,6 +158,35 @@ func validateAPIPriorityAndFairness(options *ServerRunOptions) []error {
- 	return nil
- }
- 
-+func validateExternalKeyServer(options *ServerRunOptions) []error {
-+	var errs []error
-+
-+	enableAttempted := options.Authentication.ServiceAccounts.KeyServiceURL != ""
-+	requiredTokenFlagsSet := len(options.Authentication.ServiceAccounts.Issuers) != 0
-+
-+	if enableAttempted && !utilfeature.DefaultFeatureGate.Enabled(features.ExternalKeyService) {
-+		errs = append(errs, errors.New("the ExternalKeyService feature is not enabled but --key-service-url flag was passed"))
-+	}
-+
-+	// TODO: @micahhausler validate url format of --key-service-url
-+
-+	if enableAttempted && !requiredTokenFlagsSet {
-+		errs = append(errs, errors.New("the --key-service-url flag requires --service-account-issuer"))
-+	}
-+	return errs
-+}
-+
-+func validateAPIServerIdentity(options *ServerRunOptions) []error {
-+	var errs []error
-+	if utilfeature.DefaultFeatureGate.Enabled(features.ExternalKeyService) {
-+		errs = append(errs, validateExternalKeyServer(options)...)
-+	} else {
-+		errs = append(errs, validateTokenRequest(options)...)
-+	}
-+
-+	return errs
-+}
-+
- // Validate checks ServerRunOptions and return a slice of found errs.
- func (s *ServerRunOptions) Validate() []error {
- 	var errs []error
-@@ -179,6 +208,7 @@ func (s *ServerRunOptions) Validate() []error {
- 	errs = append(errs, s.APIEnablement.Validate(legacyscheme.Scheme, apiextensionsapiserver.Scheme, aggregatorscheme.Scheme)...)
- 	errs = append(errs, validateTokenRequest(s)...)
- 	errs = append(errs, s.Metrics.Validate()...)
-+	errs = append(errs, validateAPIServerIdentity(s)...)
- 
- 	return errs
- }
-diff --git a/cmd/kube-apiserver/app/server.go b/cmd/kube-apiserver/app/server.go
-index 31adda760ea..3468bf8bdca 100644
---- a/cmd/kube-apiserver/app/server.go
-+++ b/cmd/kube-apiserver/app/server.go
-@@ -438,7 +438,27 @@ func Complete(s *options.ServerRunOptions) (completedServerRunOptions, error) {
- 		if err != nil {
- 			return options, fmt.Errorf("failed to build token generator: %v", err)
- 		}
-+
-+		s.ServiceAccountTokenMaxExpiration = s.Authentication.ServiceAccounts.MaxExpiration
-+	}
-+
-+	if s.Authentication.ServiceAccounts.KeyServiceURL != "" && len(s.Authentication.ServiceAccounts.Issuers) != 0 {
-+		if s.Authentication.ServiceAccounts.MaxExpiration != 0 {
-+			lowBound := time.Hour
-+			upBound := time.Duration(1<<32) * time.Second
-+			if s.Authentication.ServiceAccounts.MaxExpiration < lowBound ||
-+				s.Authentication.ServiceAccounts.MaxExpiration > upBound {
-+				return options, fmt.Errorf("the serviceaccount max expiration must be between 1 hour to 2^32 seconds")
-+			}
-+		}
- 		s.ServiceAccountTokenMaxExpiration = s.Authentication.ServiceAccounts.MaxExpiration
-+		s.ServiceAccountIssuer, err = serviceaccount.ExternalJWTTokenGenerator(
-+			s.Authentication.ServiceAccounts.Issuers[0],
-+			s.Authentication.ServiceAccounts.KeyServiceURL,
-+		)
-+		if err != nil {
-+			return options, fmt.Errorf("failed to build external token generator: %v", err)
-+		}
- 	}
- 
- 	if s.Etcd.EnableWatchCache {
 diff --git a/hack/update-generated-externalsigner-dockerized.sh b/hack/update-generated-externalsigner-dockerized.sh
 new file mode 100755
 index 00000000000..50cf5b9994f
@@ -275,11 +195,98 @@ index 00000000000..8f66dc9b437
 +    echo "Generated EXTERNALSIGNER gRPC is out of date. Please run hack/update-generated-externalsigner.sh"
 +    exit 1
 +fi
+diff --git a/pkg/controlplane/apiserver/options/options.go b/pkg/controlplane/apiserver/options/options.go
+index 51836eaac65..8a855836b8f 100644
+--- a/pkg/controlplane/apiserver/options/options.go
++++ b/pkg/controlplane/apiserver/options/options.go
+@@ -242,6 +242,26 @@ func (o *Options) Complete(alternateDNS []string, alternateIPs []net.IP) (Comple
+ 		completed.ServiceAccountTokenMaxExpiration = completed.Authentication.ServiceAccounts.MaxExpiration
+ 	}
+ 
++	if completed.Authentication.ServiceAccounts.KeyServiceURL != "" && len(completed.Authentication.ServiceAccounts.Issuers) != 0 {
++		if completed.Authentication.ServiceAccounts.MaxExpiration != 0 {
++			lowBound := time.Hour
++			upBound := time.Duration(1<<32) * time.Second
++			if completed.Authentication.ServiceAccounts.MaxExpiration < lowBound ||
++				completed.Authentication.ServiceAccounts.MaxExpiration > upBound {
++				return CompletedOptions{}, fmt.Errorf("the serviceaccount max expiration must be between 1 hour to 2^32 seconds")
++			}
++		}
++		var err error
++		completed.ServiceAccountTokenMaxExpiration = completed.Authentication.ServiceAccounts.MaxExpiration
++		completed.ServiceAccountIssuer, err = serviceaccount.ExternalJWTTokenGenerator(
++			completed.Authentication.ServiceAccounts.Issuers[0],
++			completed.Authentication.ServiceAccounts.KeyServiceURL,
++		)
++		if err != nil {
++			return CompletedOptions{}, fmt.Errorf("failed to build external token generator: %v", err)
++		}
++	}
++
+ 	for key, value := range completed.APIEnablement.RuntimeConfig {
+ 		if key == "v1" || strings.HasPrefix(key, "v1/") ||
+ 			key == "api/v1" || strings.HasPrefix(key, "api/v1/") {
+diff --git a/pkg/controlplane/apiserver/options/validation.go b/pkg/controlplane/apiserver/options/validation.go
+index 017938f92ae..c99419e5d91 100644
+--- a/pkg/controlplane/apiserver/options/validation.go
++++ b/pkg/controlplane/apiserver/options/validation.go
+@@ -27,6 +27,7 @@ import (
+ 	aggregatorscheme "k8s.io/kube-aggregator/pkg/apiserver/scheme"
+ 
+ 	"k8s.io/kubernetes/pkg/api/legacyscheme"
++	"k8s.io/kubernetes/pkg/features"
+ )
+ 
+ func validateTokenRequest(options *Options) []error {
+@@ -69,6 +70,35 @@ func validateAPIPriorityAndFairness(options *Options) []error {
+ 	return nil
+ }
+ 
++func validateExternalKeyServer(options *Options) []error {
++	var errs []error
++
++	enableAttempted := options.Authentication.ServiceAccounts.KeyServiceURL != ""
++	requiredTokenFlagsSet := len(options.Authentication.ServiceAccounts.Issuers) != 0
++
++	if enableAttempted && !utilfeature.DefaultFeatureGate.Enabled(features.ExternalKeyService) {
++		errs = append(errs, errors.New("the ExternalKeyService feature is not enabled but --key-service-url flag was passed"))
++	}
++
++	// TODO: @micahhausler validate url format of --key-service-url
++
++	if enableAttempted && !requiredTokenFlagsSet {
++		errs = append(errs, errors.New("the --key-service-url flag requires --service-account-issuer"))
++	}
++	return errs
++}
++
++func validateAPIServerIdentity(options *Options) []error {
++	var errs []error
++	if utilfeature.DefaultFeatureGate.Enabled(features.ExternalKeyService) {
++		errs = append(errs, validateExternalKeyServer(options)...)
++	} else {
++		errs = append(errs, validateTokenRequest(options)...)
++	}
++
++	return errs
++}
++
+ // Validate checks Options and return a slice of found errs.
+ func (s *Options) Validate() []error {
+ 	var errs []error
+@@ -83,6 +113,7 @@ func (s *Options) Validate() []error {
+ 	errs = append(errs, s.APIEnablement.Validate(legacyscheme.Scheme, apiextensionsapiserver.Scheme, aggregatorscheme.Scheme)...)
+ 	errs = append(errs, validateTokenRequest(s)...)
+ 	errs = append(errs, s.Metrics.Validate()...)
++	errs = append(errs, validateAPIServerIdentity(s)...)
+ 
+ 	return errs
+ }
 diff --git a/pkg/features/kube_features.go b/pkg/features/kube_features.go
-index 0ece4f635b2..961253c8b4a 100644
+index 4b250991ea7..5bcb5e7628b 100644
 --- a/pkg/features/kube_features.go
 +++ b/pkg/features/kube_features.go
-@@ -274,6 +274,12 @@ const (
+@@ -266,6 +266,12 @@ const (
  	// This flag used to be needed for dockershim CRI and currently does nothing.
  	ExperimentalHostUserNamespaceDefaultingGate featuregate.Feature = "ExperimentalHostUserNamespaceDefaulting"
  
@@ -292,7 +299,7 @@ index 0ece4f635b2..961253c8b4a 100644
  	// owner: @yuzhiquan, @bowei, @PxyUp, @SergeyKanzhelev
  	// kep: https://kep.k8s.io/2727
  	// alpha: v1.23
-@@ -920,6 +926,8 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
+@@ -912,6 +918,8 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
  
  	ExperimentalHostUserNamespaceDefaultingGate: {Default: false, PreRelease: featuregate.Deprecated, LockToDefault: true}, // remove in 1.30
  
@@ -1604,10 +1611,10 @@ index 00000000000..0ec98768eb1
 +	return out, err
 +}
 diff --git a/vendor/modules.txt b/vendor/modules.txt
-index 8d65abfaca4..c4be9885899 100644
+index 2dd40e031c0..f52149a801a 100644
 --- a/vendor/modules.txt
 +++ b/vendor/modules.txt
-@@ -1224,6 +1224,7 @@ gopkg.in/natefinch/lumberjack.v2
+@@ -1225,6 +1225,7 @@ gopkg.in/natefinch/lumberjack.v2
  ## explicit
  gopkg.in/square/go-jose.v2
  gopkg.in/square/go-jose.v2/cipher

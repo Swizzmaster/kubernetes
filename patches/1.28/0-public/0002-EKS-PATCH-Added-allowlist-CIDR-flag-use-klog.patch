@@ -1,6 +1,6 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: Micah Hausler <mhausler@amazon.com>
-Date: Wed, 19 Sep 2018 18:16:23 -0700
+From: Ernest Wong <ernwong@amazon.com>
+Date: Fri, 7 Jul 2023 16:14:08 +0000
 Subject: [PATCH] --EKS-PATCH-- Added allowlist CIDR flag, use "klog"
 
 Alternative to https://github.com/kubernetes/kubernetes/pull/71980
@@ -22,13 +22,13 @@ Signed-off-by: Nick Turner <nic@amazon.com>
  cmd/kube-apiserver/app/options/allowlist.go   |   9 +
  cmd/kube-apiserver/app/options/options.go     |   9 +
  .../app/options/options_test.go               |   2 +
- cmd/kube-apiserver/app/options/validation.go  |  15 +
+ cmd/kube-apiserver/app/options/validation.go  |  16 +
  cmd/kube-apiserver/app/server.go              |   5 +-
  pkg/kubeapiserver/options/ipnetslice.go       |  93 +++++
  pkg/kubeapiserver/options/ipnetslice_test.go  |  36 ++
  pkg/kubeapiserver/options/options.go          |   1 +
  pkg/registry/core/node/strategy.go            |  17 +
- .../apiserver/proxy_cidr_allowlist_test.go    | 388 ++++++++++++++++++
+ .../apiserver/proxy_cidr_allowlist_test.go    | 387 ++++++++++++++++++
  11 files changed, 627 insertions(+), 1 deletion(-)
  create mode 100644 cmd/kube-apiserver/app/dialer.go
  create mode 100644 cmd/kube-apiserver/app/options/allowlist.go
@@ -38,7 +38,7 @@ Signed-off-by: Nick Turner <nic@amazon.com>
 
 diff --git a/cmd/kube-apiserver/app/dialer.go b/cmd/kube-apiserver/app/dialer.go
 new file mode 100644
-index 00000000000..b21d595ec31
+index 00000000000..a072351b851
 --- /dev/null
 +++ b/cmd/kube-apiserver/app/dialer.go
 @@ -0,0 +1,53 @@
@@ -60,7 +60,7 @@ index 00000000000..b21d595ec31
 +	kubeoptions "k8s.io/kubernetes/pkg/kubeapiserver/options"
 +)
 +
-+func CreateOutboundDialer(s completedServerRunOptions) (*http.Transport, error) {
++func CreateOutboundDialer(s kubeappoptions.CompletedOptions) (*http.Transport, error) {
 +	proxyDialerFn := createAllowlistDialer(s.ProxyCIDRAllowlist)
 +	// This must be set because it gets plumbed to node proxy handler later.
 +	kubeappoptions.ProxyCIDRAllowlist = s.ProxyCIDRAllowlist
@@ -111,27 +111,27 @@ index 00000000000..d10ec4ebdda
 +	ProxyCIDRAllowlist kubeoptions.IPNetSlice = kubeoptions.DefaultProxyCIDRAllowlist
 +)
 diff --git a/cmd/kube-apiserver/app/options/options.go b/cmd/kube-apiserver/app/options/options.go
-index ae0cbdff003..44db16b031f 100644
+index d40c4282fed..6d89e9dca5d 100644
 --- a/cmd/kube-apiserver/app/options/options.go
 +++ b/cmd/kube-apiserver/app/options/options.go
-@@ -62,6 +62,7 @@ type ServerRunOptions struct {
+@@ -46,6 +46,7 @@ type Extra struct {
+ 	AllowPrivileged           bool
  	KubeletConfig             kubeletclient.KubeletClientConfig
  	KubernetesServiceNodePort int
- 	MaxConnectionBytesPerSec  int64
 +	ProxyCIDRAllowlist        kubeoptions.IPNetSlice
  	// ServiceClusterIPRange is mapped to input provided by user
  	ServiceClusterIPRanges string
  	// PrimaryServiceClusterIPRange and SecondaryServiceClusterIPRange are the results
-@@ -131,6 +132,8 @@ func NewServerRunOptions() *ServerRunOptions {
- 		ServiceNodePortRange:                kubeoptions.DefaultServiceNodePortRange,
- 		AggregatorRejectForwardingRedirects: true,
+@@ -91,6 +92,8 @@ func NewServerRunOptions() *ServerRunOptions {
+ 			MasterCount:          1,
+ 		},
  	}
 +	s.ServiceClusterIPRanges = kubeoptions.DefaultServiceIPCIDR.String()
 +	s.ProxyCIDRAllowlist = kubeoptions.DefaultProxyCIDRAllowlist
  
- 	// Overwrite the default for storage data format.
- 	s.Etcd.DefaultStorageMediaType = "application/vnd.kubernetes.protobuf"
-@@ -191,6 +194,12 @@ func (s *ServerRunOptions) Flags() (fss cliflag.NamedFlagSets) {
+ 	return &s
+ }
+@@ -121,6 +124,12 @@ func (s *ServerRunOptions) Flags() (fss cliflag.NamedFlagSets) {
  		"A CIDR notation IP range from which to assign service cluster IPs. This must not "+
  		"overlap with any IP ranges assigned to nodes or pods. Max of two dual-stack CIDRs is allowed.")
  
@@ -145,10 +145,10 @@ index ae0cbdff003..44db16b031f 100644
  		"A port range to reserve for services with NodePort visibility.  This must not overlap with the ephemeral port range on nodes.  "+
  		"Example: '30000-32767'. Inclusive at both ends of the range.")
 diff --git a/cmd/kube-apiserver/app/options/options_test.go b/cmd/kube-apiserver/app/options/options_test.go
-index 7ac44afb1db..cebcc0897fa 100644
+index 432530f08e2..704c95a4ae1 100644
 --- a/cmd/kube-apiserver/app/options/options_test.go
 +++ b/cmd/kube-apiserver/app/options/options_test.go
-@@ -114,6 +114,7 @@ func TestAddFlags(t *testing.T) {
+@@ -115,6 +115,7 @@ func TestAddFlags(t *testing.T) {
  		"--kubelet-client-key=/var/run/kubernetes/server.key",
  		"--kubelet-certificate-authority=/var/run/kubernetes/caserver.crt",
  		"--tracing-config-file=/var/run/kubernetes/tracing_config.yaml",
@@ -156,23 +156,23 @@ index 7ac44afb1db..cebcc0897fa 100644
  		"--proxy-client-cert-file=/var/run/kubernetes/proxy.crt",
  		"--proxy-client-key-file=/var/run/kubernetes/proxy.key",
  		"--request-timeout=2m",
-@@ -130,6 +131,7 @@ func TestAddFlags(t *testing.T) {
- 		MasterCount:            5,
- 		EndpointReconcilerType: string(reconcilers.LeaseEndpointReconcilerType),
- 		AllowPrivileged:        false,
-+		ProxyCIDRAllowlist:     kubeoptions.NewIPNetSlice("192.168.0.0/24"),
- 		GenericServerRunOptions: &apiserveroptions.ServerRunOptions{
- 			AdvertiseAddress:            netutils.ParseIPSloppy("192.168.10.10"),
- 			CorsAllowedOriginList:       []string{"10.10.10.100", "10.10.10.200"},
+@@ -302,6 +303,7 @@ func TestAddFlags(t *testing.T) {
+ 			ServiceClusterIPRanges: (&net.IPNet{IP: netutils.ParseIPSloppy("192.168.128.0"), Mask: net.CIDRMask(17, 32)}).String(),
+ 			EndpointReconcilerType: string(reconcilers.LeaseEndpointReconcilerType),
+ 			AllowPrivileged:        false,
++			ProxyCIDRAllowlist:     kubeoptions.NewIPNetSlice("192.168.0.0/24"),
+ 			KubeletConfig: kubeletclient.KubeletClientConfig{
+ 				Port:         10250,
+ 				ReadOnlyPort: 10255,
 diff --git a/cmd/kube-apiserver/app/options/validation.go b/cmd/kube-apiserver/app/options/validation.go
-index b766befa8ea..43d710fba96 100644
+index 53dcdf5e628..0a449710381 100644
 --- a/cmd/kube-apiserver/app/options/validation.go
 +++ b/cmd/kube-apiserver/app/options/validation.go
 @@ -31,6 +31,18 @@ import (
- 	netutils "k8s.io/utils/net"
+ 	"k8s.io/kubernetes/pkg/features"
  )
  
-+func validateProxyCIDRAllowlist(options *ServerRunOptions) []error {
++func validateProxyCIDRAllowlist(options CompletedOptions) []error {
 +	errors := []error{}
 +
 +	// if its empty, don't add any IPs to the list
@@ -186,33 +186,33 @@ index b766befa8ea..43d710fba96 100644
 +
  // TODO: Longer term we should read this from some config store, rather than a flag.
  // validateClusterIPFlags is expected to be called after Complete()
- func validateClusterIPFlags(options *ServerRunOptions) []error {
-@@ -153,6 +165,9 @@ func (s *ServerRunOptions) Validate() []error {
+ func validateClusterIPFlags(options Extra) []error {
+@@ -138,5 +150,9 @@ func (s CompletedOptions) Validate() []error {
  		errs = append(errs, fmt.Errorf("--apiserver-count should be a positive number, but value '%d' provided", s.MasterCount))
  	}
- 	errs = append(errs, s.Etcd.Validate()...)
+ 
 +	if es := validateProxyCIDRAllowlist(s); len(es) > 0 {
 +		errs = append(errs, es...)
 +	}
- 	errs = append(errs, validateClusterIPFlags(s)...)
- 	errs = append(errs, validateServiceNodePort(s)...)
- 	errs = append(errs, validateAPIPriorityAndFairness(s)...)
++
+ 	return errs
+ }
 diff --git a/cmd/kube-apiserver/app/server.go b/cmd/kube-apiserver/app/server.go
-index bc5deb924c7..31adda760ea 100644
+index b021bac2574..81f31e7c160 100644
 --- a/cmd/kube-apiserver/app/server.go
 +++ b/cmd/kube-apiserver/app/server.go
-@@ -221,7 +221,10 @@ func CreateKubeAPIServerConfig(s completedServerRunOptions) (
+@@ -214,7 +214,10 @@ func CreateKubeAPIServerConfig(opts options.CompletedOptions) (
  	[]admission.PluginInitializer,
  	error,
  ) {
 -	proxyTransport := CreateProxyTransport()
-+	proxyTransport, err := CreateOutboundDialer(s)
++	proxyTransport, err := CreateOutboundDialer(opts)
 +	if err != nil {
 +		return nil, nil, nil, err
 +	}
  
  	genericConfig, versionedInformers, storageFactory, err := controlplaneapiserver.BuildGenericConfig(
- 		s.ServerRunOptions,
+ 		opts.CompletedOptions,
 diff --git a/pkg/kubeapiserver/options/ipnetslice.go b/pkg/kubeapiserver/options/ipnetslice.go
 new file mode 100644
 index 00000000000..8cc2fe76574
@@ -364,7 +364,7 @@ index 7f172208bcd..367eb6fb981 100644
  const DefaultEtcdPathPrefix = "/registry"
 +var DefaultProxyCIDRAllowlist IPNetSlice = NewIPNetSlice()
 diff --git a/pkg/registry/core/node/strategy.go b/pkg/registry/core/node/strategy.go
-index b2492d74281..88a59f5a863 100644
+index a6900429ff8..f676a770eea 100644
 --- a/pkg/registry/core/node/strategy.go
 +++ b/pkg/registry/core/node/strategy.go
 @@ -34,6 +34,7 @@ import (
@@ -375,7 +375,7 @@ index b2492d74281..88a59f5a863 100644
  	"k8s.io/kubernetes/pkg/api/legacyscheme"
  	api "k8s.io/kubernetes/pkg/apis/core"
  	"k8s.io/kubernetes/pkg/apis/core/validation"
-@@ -245,6 +246,22 @@ func ResourceLocation(getter ResourceGetter, connection client.ConnectionInfoGet
+@@ -244,6 +245,22 @@ func ResourceLocation(getter ResourceGetter, connection client.ConnectionInfoGet
  		return nil, nil, errors.NewBadRequest(err.Error())
  	}
  
@@ -400,10 +400,10 @@ index b2492d74281..88a59f5a863 100644
  	// - the requested port matches the kubelet port for this node
 diff --git a/test/integration/apiserver/proxy_cidr_allowlist_test.go b/test/integration/apiserver/proxy_cidr_allowlist_test.go
 new file mode 100644
-index 00000000000..d3044053ca4
+index 00000000000..7711511eaab
 --- /dev/null
 +++ b/test/integration/apiserver/proxy_cidr_allowlist_test.go
-@@ -0,0 +1,388 @@
+@@ -0,0 +1,387 @@
 +/*
 +Copyright 2018 The Kubernetes Authors.
 +
@@ -438,7 +438,6 @@ index 00000000000..d3044053ca4
 +	restclient "k8s.io/client-go/rest"
 +	kubeapiservertesting "k8s.io/kubernetes/cmd/kube-apiserver/app/testing"
 +	"k8s.io/kubernetes/pkg/apis/core/validation"
-+	proxyutil "k8s.io/kubernetes/pkg/proxy/util"
 +	"k8s.io/kubernetes/test/integration/framework"
 +)
 +
@@ -659,7 +658,7 @@ index 00000000000..d3044053ca4
 +		return true, nil
 +	}
 +
-+	if strings.Contains(err.Error(), proxyutil.ErrAddressNotAllowed.Error()) {
++	if strings.Contains(err.Error(), "address not allowed") {
 +		// IsProxyable denied apiserver and returned ErrAddressNotAllowed
 +		return false, nil
 +	}
