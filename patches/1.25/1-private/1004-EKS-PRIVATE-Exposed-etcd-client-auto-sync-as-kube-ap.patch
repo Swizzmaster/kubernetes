@@ -45,10 +45,10 @@ index 47534c97818..694ca749a1c 100644
  	KeyFile       string
  	CertFile      string
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/factory/etcd3.go b/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/factory/etcd3.go
-index 55e2cc0b42c..76b5fcffb2e 100644
+index 2f9908bd357..71a060518af 100644
 --- a/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/factory/etcd3.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/factory/etcd3.go
-@@ -251,6 +251,7 @@ var newETCD3Client = func(c storagebackend.TransportConfig) (*clientv3.Client, e
+@@ -293,6 +293,7 @@ var newETCD3Client = func(c storagebackend.TransportConfig) (*clientv3.Client, e
  	}
  
  	cfg := clientv3.Config{
