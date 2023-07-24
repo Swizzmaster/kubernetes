@@ -1021,7 +1021,7 @@ index 00000000000..3f7abbb9d90
 +	}
 +}
 diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/generic/webhook.go b/staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/generic/webhook.go
-index ad5ec18e24f..1b9c0031a52 100644
+index 6a513f1c11a..dd1b3337583 100644
 --- a/staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/generic/webhook.go
 +++ b/staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/generic/webhook.go
 @@ -20,6 +20,8 @@ import (
@@ -1031,10 +1031,10 @@ index ad5ec18e24f..1b9c0031a52 100644
 +	"k8s.io/apiserver/pkg/admission/plugin/webhook/generic/exclusionrules"
 +	"sync"
  
- 	admissionv1 "k8s.io/api/admission/v1"
- 	admissionv1beta1 "k8s.io/api/admission/v1beta1"
-@@ -42,6 +44,20 @@ import (
+ 	admissionmetrics "k8s.io/apiserver/pkg/admission/metrics"
  	"k8s.io/klog/v2"
+@@ -44,6 +46,20 @@ import (
+ 	clientset "k8s.io/client-go/kubernetes"
  )
  
 +var criticalPathExcluder exclusionrules.CriticalPathExcluder
@@ -1054,7 +1054,7 @@ index ad5ec18e24f..1b9c0031a52 100644
  // Webhook is an abstract admission plugin with all the infrastructure to define Admit or Validate on-top.
  type Webhook struct {
  	*admission.Handler
-@@ -91,6 +107,10 @@ func NewWebhook(handler *admission.Handler, configFile io.Reader, sourceFactory
+@@ -93,6 +109,10 @@ func NewWebhook(handler *admission.Handler, configFile io.Reader, sourceFactory
  	cm.SetAuthenticationInfoResolver(authInfoResolver)
  	cm.SetServiceResolver(webhookutil.NewDefaultServiceResolver())
  
@@ -1065,7 +1065,7 @@ index ad5ec18e24f..1b9c0031a52 100644
  	return &Webhook{
  		Handler:          handler,
  		sourceFactory:    sourceFactory,
-@@ -164,6 +184,10 @@ func (a *Webhook) ShouldCallHook(ctx context.Context, h webhook.WebhookAccessor,
+@@ -166,6 +186,10 @@ func (a *Webhook) ShouldCallHook(ctx context.Context, h webhook.WebhookAccessor,
  		return nil, nil
  	}
  
@@ -1364,10 +1364,10 @@ index 00000000000..3388050d507
 +	}
 +}
 diff --git a/vendor/modules.txt b/vendor/modules.txt
-index 229a886360a..2dd40e031c0 100644
+index 5da775893da..cb36b53fef8 100644
 --- a/vendor/modules.txt
 +++ b/vendor/modules.txt
-@@ -1441,6 +1441,7 @@ k8s.io/apiserver/pkg/admission/plugin/webhook/config/apis/webhookadmission/v1
+@@ -1442,6 +1442,7 @@ k8s.io/apiserver/pkg/admission/plugin/webhook/config/apis/webhookadmission/v1
  k8s.io/apiserver/pkg/admission/plugin/webhook/config/apis/webhookadmission/v1alpha1
  k8s.io/apiserver/pkg/admission/plugin/webhook/errors
  k8s.io/apiserver/pkg/admission/plugin/webhook/generic

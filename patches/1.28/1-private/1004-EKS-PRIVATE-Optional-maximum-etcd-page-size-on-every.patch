@@ -17,10 +17,10 @@ Signed-off-by: Ernest Wong <ernwong@amazon.com>
  9 files changed, 253 insertions(+), 38 deletions(-)
 
 diff --git a/staging/src/k8s.io/apiserver/pkg/server/options/etcd.go b/staging/src/k8s.io/apiserver/pkg/server/options/etcd.go
-index be8c2335abb..88493edf8ca 100644
+index 2a9c4be8b00..159f27a5303 100644
 --- a/staging/src/k8s.io/apiserver/pkg/server/options/etcd.go
 +++ b/staging/src/k8s.io/apiserver/pkg/server/options/etcd.go
-@@ -203,6 +203,9 @@ func (s *EtcdOptions) AddFlags(fs *pflag.FlagSet) {
+@@ -204,6 +204,9 @@ func (s *EtcdOptions) AddFlags(fs *pflag.FlagSet) {
  	fs.DurationVar(&s.StorageConfig.HealthcheckTimeout, "etcd-healthcheck-timeout", s.StorageConfig.HealthcheckTimeout,
  		"The timeout to use when checking etcd health.")
  
@@ -63,10 +63,10 @@ index f738cdbdea0..e306447f698 100644
  	return server, storage
  }
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher_whitebox_test.go b/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher_whitebox_test.go
-index 47219676e6d..bf6b105ccfd 100644
+index ebaad698d73..4255601d410 100644
 --- a/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher_whitebox_test.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher_whitebox_test.go
-@@ -1783,7 +1783,8 @@ func TestGetCurrentResourceVersionFromStorage(t *testing.T) {
+@@ -1818,7 +1818,8 @@ func TestGetCurrentResourceVersionFromStorage(t *testing.T) {
  	// test data
  	newEtcdTestStorage := func(t *testing.T, prefix string) (*etcd3testing.EtcdTestServer, storage.Interface) {
  		server, _ := etcd3testing.NewUnsecuredEtcd3TestClientServer(t)
@@ -77,10 +77,10 @@ index 47219676e6d..bf6b105ccfd 100644
  	}
  	server, etcdStorage := newEtcdTestStorage(t, "")
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/metrics/metrics.go b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/metrics/metrics.go
-index 78c9a598388..6d8fdaabc05 100644
+index 091eef85ab5..1e506967bb9 100644
 --- a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/metrics/metrics.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/metrics/metrics.go
-@@ -138,6 +138,7 @@ var (
+@@ -144,6 +144,7 @@ var (
  		},
  		[]string{"resource"},
  	)
@@ -88,7 +88,7 @@ index 78c9a598388..6d8fdaabc05 100644
  	decodeErrorCounts = compbasemetrics.NewCounterVec(
  		&compbasemetrics.CounterOpts{
  			Namespace:      "apiserver",
-@@ -147,6 +148,16 @@ var (
+@@ -153,6 +154,16 @@ var (
  		},
  		[]string{"resource"},
  	)
@@ -105,7 +105,7 @@ index 78c9a598388..6d8fdaabc05 100644
  )
  
  var registerMetrics sync.Once
-@@ -167,6 +178,7 @@ func Register() {
+@@ -174,6 +185,7 @@ func Register() {
  		legacyregistry.MustRegister(listStorageNumSelectorEvals)
  		legacyregistry.MustRegister(listStorageNumReturned)
  		legacyregistry.MustRegister(decodeErrorCounts)
@@ -113,7 +113,7 @@ index 78c9a598388..6d8fdaabc05 100644
  	})
  }
  
-@@ -191,6 +203,11 @@ func RecordEtcdEvent(resource string) {
+@@ -198,6 +210,11 @@ func RecordEtcdEvent(resource string) {
  	etcdEventsReceivedCounts.WithLabelValues(resource).Inc()
  }
  
@@ -126,7 +126,7 @@ index 78c9a598388..6d8fdaabc05 100644
  func RecordEtcdBookmark(resource string) {
  	etcdBookmarkCounts.WithLabelValues(resource).Inc()
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go
-index ff700bf609d..917ef645e0e 100644
+index 7374152239c..035f65c1836 100644
 --- a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go
 @@ -23,6 +23,7 @@ import (
@@ -137,12 +137,16 @@ index ff700bf609d..917ef645e0e 100644
  	"strings"
  	"time"
  
-@@ -82,9 +83,24 @@ type store struct {
+@@ -82,6 +83,7 @@ type store struct {
  	groupResourceString string
  	watcher             *watcher
  	pagingEnabled       bool
 +	maxPageSize         int64
  	leaseManager        *leaseManager
+ }
+ 
+@@ -91,6 +93,20 @@ func (s *store) RequestWatchProgress(ctx context.Context) error {
+ 	return s.client.RequestProgress(s.watchContext(ctx))
  }
  
 +// PagingConfig groups the parameter related with paging inside GetList calls.
@@ -162,7 +166,7 @@ index ff700bf609d..917ef645e0e 100644
  type objState struct {
  	obj   runtime.Object
  	meta  *storage.ResponseMeta
-@@ -94,11 +110,11 @@ type objState struct {
+@@ -100,11 +116,11 @@ type objState struct {
  }
  
  // New returns an etcd3 implementation of storage.Interface.
@@ -177,7 +181,7 @@ index ff700bf609d..917ef645e0e 100644
  	versioner := storage.APIObjectVersioner{}
  	// for compatibility with etcd2 impl.
  	// no-op for default prefix of '/registry'.
-@@ -113,13 +129,17 @@ func newStore(c *clientv3.Client, codec runtime.Codec, newFunc func() runtime.Ob
+@@ -119,13 +135,17 @@ func newStore(c *clientv3.Client, codec runtime.Codec, newFunc func() runtime.Ob
  		codec:               codec,
  		versioner:           versioner,
  		transformer:         transformer,
@@ -196,7 +200,7 @@ index ff700bf609d..917ef645e0e 100644
  	return result
  }
  
-@@ -623,7 +643,11 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
+@@ -629,7 +649,11 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
  	limit := pred.Limit
  	var paging bool
  	options := make([]clientv3.OpOption, 0, 4)
@@ -209,7 +213,7 @@ index ff700bf609d..917ef645e0e 100644
  		paging = true
  		options = append(options, clientv3.WithLimit(limit))
  		limitOption = &options[len(options)-1]
-@@ -664,7 +688,7 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
+@@ -670,7 +694,7 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
  			withRev = continueRV
  			returnedRV = continueRV
  		}
@@ -218,7 +222,7 @@ index ff700bf609d..917ef645e0e 100644
  		if fromRV != nil {
  			switch match {
  			case metav1.ResourceVersionMatchNotOlderThan:
-@@ -674,7 +698,7 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
+@@ -680,7 +704,7 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
  				returnedRV = int64(*fromRV)
  				withRev = returnedRV
  			case "": // legacy case
@@ -227,7 +231,7 @@ index ff700bf609d..917ef645e0e 100644
  					returnedRV = int64(*fromRV)
  					withRev = returnedRV
  				}
-@@ -714,9 +738,16 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
+@@ -720,9 +744,16 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
  	var getResp *clientv3.GetResponse
  	var numFetched int
  	var numEvald int
@@ -244,7 +248,7 @@ index ff700bf609d..917ef645e0e 100644
  		numReturn := v.Len()
  		metrics.RecordStorageListMetrics(s.groupResourceString, numFetched, numEvald, numReturn)
  	}()
-@@ -734,6 +765,7 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
+@@ -740,6 +771,7 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
  			return interpretListError(err, len(pred.Continue) > 0, continueKey, keyPrefix)
  		}
  		numFetched += len(getResp.Kvs)
@@ -252,7 +256,7 @@ index ff700bf609d..917ef645e0e 100644
  		if err = s.validateMinimumResourceVersion(resourceVersion, uint64(getResp.Header.Revision)); err != nil {
  			return err
  		}
-@@ -753,7 +785,7 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
+@@ -759,7 +791,7 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
  
  		// take items from the response until the bucket is full, filtering as we go
  		for i, kv := range getResp.Kvs {
@@ -261,7 +265,7 @@ index ff700bf609d..917ef645e0e 100644
  				hasMore = true
  				break
  			}
-@@ -784,16 +816,16 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
+@@ -790,16 +822,16 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
  			break
  		}
  		// we're paging but we have filled our bucket
@@ -405,10 +409,10 @@ index 694ca749a1c..4bf20243428 100644
  	Codec runtime.Codec
  	// EncodeVersioner is the same groupVersioner used to build the
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/factory/etcd3.go b/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/factory/etcd3.go
-index ae38aac5ebc..ced0b00d1d2 100644
+index 2149690d831..3a01720b66c 100644
 --- a/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/factory/etcd3.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/factory/etcd3.go
-@@ -437,7 +437,8 @@ func newETCD3Storage(c storagebackend.ConfigForResource, newFunc func() runtime.
+@@ -455,7 +455,8 @@ func newETCD3Storage(c storagebackend.ConfigForResource, newFunc func() runtime.
  	if transformer == nil {
  		transformer = identity.NewEncryptCheckTransformer()
  	}

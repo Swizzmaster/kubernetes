@@ -57,8 +57,8 @@ Signed-off-by: Jyoti Mahapatra<jyotima@amazon.com>
  .../valid-security-context.yaml               |  32 ++
  .../valid-volumes.yaml                        |  74 ++++
  pkg/kubelet/server/server.go                  |   3 +-
- pkg/kubelet/util/util.go                      |  20 +-
- 29 files changed, 1279 insertions(+), 7 deletions(-)
+ pkg/kubelet/util/util.go                      |  19 +
+ 29 files changed, 1279 insertions(+), 6 deletions(-)
  create mode 100644 pkg/kubelet/lifecycle/fargate_pod_admit_handler.go
  create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator.go
  create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator_test.go
@@ -80,10 +80,10 @@ Signed-off-by: Jyoti Mahapatra<jyotima@amazon.com>
  create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator_testdata/valid-volumes.yaml
 
 diff --git a/pkg/features/kube_features.go b/pkg/features/kube_features.go
-index 5bcb5e7628b..029c40b908a 100644
+index 87f67bbd187..5a9e609bb5a 100644
 --- a/pkg/features/kube_features.go
 +++ b/pkg/features/kube_features.go
-@@ -619,6 +619,12 @@ const (
+@@ -685,6 +685,12 @@ const (
  	// Enable users to specify when a Pod is ready for scheduling.
  	PodSchedulingReadiness featuregate.Feature = "PodSchedulingReadiness"
  
@@ -93,18 +93,18 @@ index 5bcb5e7628b..029c40b908a 100644
 +	// Enables kubelet to validate and restrict pods based on security contexts.
 +	PodSecurityValidator featuregate.Feature = "PodSecurityValidator"
 +
- 	// owner: @ehashman
+ 	// owner: @rphillips
  	// alpha: v1.21
  	// beta: v1.22
-@@ -1014,6 +1020,8 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
+@@ -1126,6 +1132,8 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
  
- 	PodSchedulingReadiness: {Default: true, PreRelease: featuregate.Beta},
+ 	ProbeTerminationGracePeriod: {Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 1.29
  
 +	PodSecurityValidator: {Default: false, PreRelease: featuregate.Alpha},
 +
- 	ProbeTerminationGracePeriod: {Default: true, PreRelease: featuregate.Beta}, // Default to true in beta 1.25
- 
  	ProcMountType: {Default: false, PreRelease: featuregate.Alpha},
+ 
+ 	ProxyTerminatingEndpoints: {Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 1.30
 diff --git a/pkg/kubelet/apis/config/fuzzer/fuzzer.go b/pkg/kubelet/apis/config/fuzzer/fuzzer.go
 index 79748b4b93f..685b7719d95 100644
 --- a/pkg/kubelet/apis/config/fuzzer/fuzzer.go
@@ -118,7 +118,7 @@ index 79748b4b93f..685b7719d95 100644
  			obj.MemoryThrottlingFactor = utilpointer.Float64(rand.Float64())
  			obj.LocalStorageCapacityIsolation = true
 diff --git a/pkg/kubelet/cm/helpers_linux.go b/pkg/kubelet/cm/helpers_linux.go
-index 18b0df17bfc..cb81154d46e 100644
+index 8a144e7a73c..c630e077850 100644
 --- a/pkg/kubelet/cm/helpers_linux.go
 +++ b/pkg/kubelet/cm/helpers_linux.go
 @@ -33,7 +33,8 @@ import (
@@ -154,10 +154,10 @@ index 18b0df17bfc..cb81154d46e 100644
  		}
  		mounts = append(mounts, m)
 diff --git a/pkg/kubelet/kubelet.go b/pkg/kubelet/kubelet.go
-index 709e35015fb..caffbf801ab 100644
+index e8918472ee8..b1076b84980 100644
 --- a/pkg/kubelet/kubelet.go
 +++ b/pkg/kubelet/kubelet.go
-@@ -678,6 +678,7 @@ func NewMainKubelet(kubeCfg *kubeletconfiginternal.KubeletConfiguration,
+@@ -664,6 +664,7 @@ func NewMainKubelet(kubeCfg *kubeletconfiginternal.KubeletConfiguration,
  		*kubeCfg.MemoryThrottlingFactor,
  		kubeDeps.PodStartupLatencyTracker,
  		kubeDeps.TracerProvider,
@@ -165,7 +165,7 @@ index 709e35015fb..caffbf801ab 100644
  	)
  	if err != nil {
  		return nil, err
-@@ -872,6 +873,9 @@ func NewMainKubelet(kubeCfg *kubeletconfiginternal.KubeletConfiguration,
+@@ -858,6 +859,9 @@ func NewMainKubelet(kubeCfg *kubeletconfiginternal.KubeletConfiguration,
  		klet.appArmorValidator = apparmor.NewValidator()
  		klet.softAdmitHandlers.AddPodAdmitHandler(lifecycle.NewAppArmorAdmitHandler(klet.appArmorValidator))
  	}
@@ -196,10 +196,10 @@ index 2f6ef8e6977..c794fbe082d 100644
  
  	typedVersion, err := runtimeService.Version(ctx, kubeRuntimeAPIVersion)
 diff --git a/pkg/kubelet/kuberuntime/kuberuntime_container_linux.go b/pkg/kubelet/kuberuntime/kuberuntime_container_linux.go
-index 466378deda3..4fc112a77c2 100644
+index c600d49bc25..fc8268b322b 100644
 --- a/pkg/kubelet/kuberuntime/kuberuntime_container_linux.go
 +++ b/pkg/kubelet/kuberuntime/kuberuntime_container_linux.go
-@@ -37,6 +37,7 @@ import (
+@@ -40,6 +40,7 @@ import (
  	kubecontainer "k8s.io/kubernetes/pkg/kubelet/container"
  	"k8s.io/kubernetes/pkg/kubelet/qos"
  	kubelettypes "k8s.io/kubernetes/pkg/kubelet/types"
@@ -207,7 +207,7 @@ index 466378deda3..4fc112a77c2 100644
  )
  
  var defaultPageSize = int64(os.Getpagesize())
-@@ -211,6 +212,8 @@ func (m *kubeGenericRuntimeManager) calculateLinuxResources(cpuRequest, cpuLimit
+@@ -210,6 +211,8 @@ func (m *kubeGenericRuntimeManager) calculateLinuxResources(cpuRequest, cpuLimit
  			cpuPeriod = int64(m.cpuCFSQuotaPeriod.Duration / time.Microsecond)
  		}
  		cpuQuota := milliCPUToQuota(cpuLimit.MilliValue(), cpuPeriod)
@@ -217,7 +217,7 @@ index 466378deda3..4fc112a77c2 100644
  		resources.CpuPeriod = cpuPeriod
  	}
 diff --git a/pkg/kubelet/kuberuntime/kuberuntime_manager.go b/pkg/kubelet/kuberuntime/kuberuntime_manager.go
-index 16c08f8d2ec..612901d876b 100644
+index c8e76d41f28..ba407f2cead 100644
 --- a/pkg/kubelet/kuberuntime/kuberuntime_manager.go
 +++ b/pkg/kubelet/kuberuntime/kuberuntime_manager.go
 @@ -168,6 +168,9 @@ type kubeGenericRuntimeManager struct {
@@ -246,7 +246,7 @@ index 16c08f8d2ec..612901d876b 100644
  	}
  
  	typedVersion, err := kubeRuntimeManager.getTypedVersion(ctx)
-@@ -1182,6 +1187,14 @@ func (m *kubeGenericRuntimeManager) SyncPod(ctx context.Context, pod *v1.Pod, po
+@@ -1179,6 +1184,14 @@ func (m *kubeGenericRuntimeManager) SyncPod(ctx context.Context, pod *v1.Pod, po
  		startContainerResult := kubecontainer.NewSyncResult(kubecontainer.StartContainer, spec.container.Name)
  		result.AddSyncResult(startContainerResult)
  
@@ -262,10 +262,10 @@ index 16c08f8d2ec..612901d876b 100644
  		if isInBackOff {
  			startContainerResult.Fail(err, msg)
 diff --git a/pkg/kubelet/kuberuntime/kuberuntime_manager_test.go b/pkg/kubelet/kuberuntime/kuberuntime_manager_test.go
-index 120d4d14174..dcd188b7055 100644
+index 83df1ec0271..7559b017c39 100644
 --- a/pkg/kubelet/kuberuntime/kuberuntime_manager_test.go
 +++ b/pkg/kubelet/kuberuntime/kuberuntime_manager_test.go
-@@ -709,6 +709,63 @@ func TestSyncPodWithConvertedPodSysctls(t *testing.T) {
+@@ -710,6 +710,63 @@ func TestSyncPodWithConvertedPodSysctls(t *testing.T) {
  	}
  }
  
@@ -1624,24 +1624,25 @@ index 8e21d3fa50a..67b8e51ee26 100644
  		To(s.getContainerLogs).
  		Operation("getContainerLogs"))
 diff --git a/pkg/kubelet/util/util.go b/pkg/kubelet/util/util.go
-index c2969a51126..1f5edaee902 100644
+index 97933afe39b..230031418aa 100644
 --- a/pkg/kubelet/util/util.go
 +++ b/pkg/kubelet/util/util.go
-@@ -18,8 +18,10 @@ package util
+@@ -18,9 +18,12 @@ package util
  
  import (
  	"fmt"
--
++	"os"
+ 
+ 	v1 "k8s.io/api/core/v1"
 +	"k8s.io/apimachinery/pkg/api/resource"
  	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 +	"k8s.io/klog/v2"
-+	"os"
  )
  
  // FromApiserverCache modifies <opts> so that the GET request will
-@@ -43,3 +45,19 @@ func GetNodenameForKernel(hostname string, hostDomainName string, setHostnameAsF
+@@ -57,3 +60,19 @@ func GetContainerByIndex(containers []v1.Container, statuses []v1.ContainerStatu
  	}
- 	return kernelHostname, nil
+ 	return containers[idx], true
  }
 +
 +// GetPodMaxCpuQuota, returns the max CPU quota that can be allocated to pod.

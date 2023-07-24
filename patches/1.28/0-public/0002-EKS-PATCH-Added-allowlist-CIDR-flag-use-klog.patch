@@ -198,10 +198,10 @@ index 53dcdf5e628..0a449710381 100644
  	return errs
  }
 diff --git a/cmd/kube-apiserver/app/server.go b/cmd/kube-apiserver/app/server.go
-index b021bac2574..81f31e7c160 100644
+index 807c169631f..de44c495b52 100644
 --- a/cmd/kube-apiserver/app/server.go
 +++ b/cmd/kube-apiserver/app/server.go
-@@ -214,7 +214,10 @@ func CreateKubeAPIServerConfig(opts options.CompletedOptions) (
+@@ -213,7 +213,10 @@ func CreateKubeAPIServerConfig(opts options.CompletedOptions) (
  	[]admission.PluginInitializer,
  	error,
  ) {

@@ -1,6 +1,6 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Ernest Wong <ernwong@amazon.com>
-Date: Fri, 7 Jul 2023 16:36:49 +0000
+Date: Mon, 24 Jul 2023 17:04:00 +0000
 Subject: [PATCH] --EKS-PRIVATE-- Added support for external JWT signing and
  verifying
 
@@ -17,7 +17,7 @@ Signed-off-by: Davanum Srinivas <davanum@gmail.com>
  hack/update-generated-externalsigner.sh       |  29 ++
  hack/verify-generated-externalsigner.sh       |  45 +++
  pkg/controlplane/apiserver/options/options.go |  20 ++
- .../apiserver/options/validation.go           |  31 ++
+ .../apiserver/options/validation.go           |  30 ++
  pkg/features/kube_features.go                 |   8 +
  pkg/kubeapiserver/authenticator/config.go     |  15 +-
  pkg/kubeapiserver/options/authentication.go   |   5 +
@@ -30,7 +30,7 @@ Signed-off-by: Davanum Srinivas <davanum@gmail.com>
  staging/src/k8s.io/client-go/util/cert/pem.go |   7 +-
  .../go-jose.v2/cryptosigner/cryptosigner.go   | 138 ++++++++
  vendor/modules.txt                            |   1 +
- 17 files changed, 1229 insertions(+), 72 deletions(-)
+ 17 files changed, 1228 insertions(+), 72 deletions(-)
  create mode 100755 hack/update-generated-externalsigner-dockerized.sh
  create mode 100755 hack/update-generated-externalsigner.sh
  create mode 100755 hack/verify-generated-externalsigner.sh
@@ -196,10 +196,10 @@ index 00000000000..8f66dc9b437
 +    exit 1
 +fi
 diff --git a/pkg/controlplane/apiserver/options/options.go b/pkg/controlplane/apiserver/options/options.go
-index 51836eaac65..8a855836b8f 100644
+index d3e19ddce9c..e84050951b4 100644
 --- a/pkg/controlplane/apiserver/options/options.go
 +++ b/pkg/controlplane/apiserver/options/options.go
-@@ -242,6 +242,26 @@ func (o *Options) Complete(alternateDNS []string, alternateIPs []net.IP) (Comple
+@@ -267,6 +267,26 @@ func (o *Options) Complete(alternateDNS []string, alternateIPs []net.IP) (Comple
  		completed.ServiceAccountTokenMaxExpiration = completed.Authentication.ServiceAccounts.MaxExpiration
  	}
  
@@ -227,19 +227,11 @@ index 51836eaac65..8a855836b8f 100644
  		if key == "v1" || strings.HasPrefix(key, "v1/") ||
  			key == "api/v1" || strings.HasPrefix(key, "api/v1/") {
 diff --git a/pkg/controlplane/apiserver/options/validation.go b/pkg/controlplane/apiserver/options/validation.go
-index 017938f92ae..c99419e5d91 100644
+index 879833ed2a7..c9ee582873f 100644
 --- a/pkg/controlplane/apiserver/options/validation.go
 +++ b/pkg/controlplane/apiserver/options/validation.go
-@@ -27,6 +27,7 @@ import (
- 	aggregatorscheme "k8s.io/kube-aggregator/pkg/apiserver/scheme"
- 
- 	"k8s.io/kubernetes/pkg/api/legacyscheme"
-+	"k8s.io/kubernetes/pkg/features"
- )
- 
- func validateTokenRequest(options *Options) []error {
-@@ -69,6 +70,35 @@ func validateAPIPriorityAndFairness(options *Options) []error {
- 	return nil
+@@ -96,6 +96,35 @@ func validateUnknownVersionInteroperabilityProxyFlags(options *Options) []error
+ 	return err
  }
  
 +func validateExternalKeyServer(options *Options) []error {
@@ -274,19 +266,19 @@ index 017938f92ae..c99419e5d91 100644
  // Validate checks Options and return a slice of found errs.
  func (s *Options) Validate() []error {
  	var errs []error
-@@ -83,6 +113,7 @@ func (s *Options) Validate() []error {
- 	errs = append(errs, s.APIEnablement.Validate(legacyscheme.Scheme, apiextensionsapiserver.Scheme, aggregatorscheme.Scheme)...)
- 	errs = append(errs, validateTokenRequest(s)...)
+@@ -112,6 +141,7 @@ func (s *Options) Validate() []error {
  	errs = append(errs, s.Metrics.Validate()...)
+ 	errs = append(errs, validateUnknownVersionInteroperabilityProxyFeature()...)
+ 	errs = append(errs, validateUnknownVersionInteroperabilityProxyFlags(s)...)
 +	errs = append(errs, validateAPIServerIdentity(s)...)
  
  	return errs
  }
 diff --git a/pkg/features/kube_features.go b/pkg/features/kube_features.go
-index 4b250991ea7..5bcb5e7628b 100644
+index dde237e8b08..87f67bbd187 100644
 --- a/pkg/features/kube_features.go
 +++ b/pkg/features/kube_features.go
-@@ -266,6 +266,12 @@ const (
+@@ -280,6 +280,12 @@ const (
  	// This flag used to be needed for dockershim CRI and currently does nothing.
  	ExperimentalHostUserNamespaceDefaultingGate featuregate.Feature = "ExperimentalHostUserNamespaceDefaulting"
  
@@ -299,7 +291,7 @@ index 4b250991ea7..5bcb5e7628b 100644
  	// owner: @yuzhiquan, @bowei, @PxyUp, @SergeyKanzhelev
  	// kep: https://kep.k8s.io/2727
  	// alpha: v1.23
-@@ -912,6 +918,8 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
+@@ -1012,6 +1018,8 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
  
  	ExperimentalHostUserNamespaceDefaultingGate: {Default: false, PreRelease: featuregate.Deprecated, LockToDefault: true}, // remove in 1.30
  
@@ -1611,7 +1603,7 @@ index 00000000000..0ec98768eb1
 +	return out, err
 +}
 diff --git a/vendor/modules.txt b/vendor/modules.txt
-index 2dd40e031c0..f52149a801a 100644
+index cb36b53fef8..d08f332fbf3 100644
 --- a/vendor/modules.txt
 +++ b/vendor/modules.txt
 @@ -1225,6 +1225,7 @@ gopkg.in/natefinch/lumberjack.v2
