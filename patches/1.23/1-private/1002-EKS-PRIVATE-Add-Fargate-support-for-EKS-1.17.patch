@@ -99,7 +99,7 @@ index 5d7ebb9cd58..f1eede94c5e 100644
  			obj.MemoryThrottlingFactor = utilpointer.Float64Ptr(rand.Float64())
  		},
 diff --git a/pkg/kubelet/cm/helpers_linux.go b/pkg/kubelet/cm/helpers_linux.go
-index 83c80501f5d..b198b266ae1 100644
+index 40876824fad..0e9e6eeaf43 100644
 --- a/pkg/kubelet/cm/helpers_linux.go
 +++ b/pkg/kubelet/cm/helpers_linux.go
 @@ -25,14 +25,15 @@ import (
@@ -157,10 +157,10 @@ index ae22fcb0294..24fae94826a 100644
  	klet.softAdmitHandlers.AddPodAdmitHandler(lifecycle.NewProcMountAdmitHandler(klet.containerRuntime))
  
 diff --git a/pkg/kubelet/kuberuntime/kuberuntime_container_linux.go b/pkg/kubelet/kuberuntime/kuberuntime_container_linux.go
-index 6cb9e54729e..76c24fbdcb9 100644
+index 0162301415c..8948f8cdad1 100644
 --- a/pkg/kubelet/kuberuntime/kuberuntime_container_linux.go
 +++ b/pkg/kubelet/kuberuntime/kuberuntime_container_linux.go
-@@ -36,6 +36,7 @@ import (
+@@ -35,6 +35,7 @@ import (
  	kubecontainer "k8s.io/kubernetes/pkg/kubelet/container"
  	"k8s.io/kubernetes/pkg/kubelet/qos"
  	kubelettypes "k8s.io/kubernetes/pkg/kubelet/types"
@@ -168,7 +168,7 @@ index 6cb9e54729e..76c24fbdcb9 100644
  )
  
  // applyPlatformSpecificContainerConfig applies platform specific configurations to runtimeapi.ContainerConfig.
-@@ -158,6 +159,8 @@ func (m *kubeGenericRuntimeManager) calculateLinuxResources(cpuRequest, cpuLimit
+@@ -157,6 +158,8 @@ func (m *kubeGenericRuntimeManager) calculateLinuxResources(cpuRequest, cpuLimit
  			cpuPeriod = int64(m.cpuCFSQuotaPeriod.Duration / time.Microsecond)
  		}
  		cpuQuota := milliCPUToQuota(cpuLimit.MilliValue(), cpuPeriod)
