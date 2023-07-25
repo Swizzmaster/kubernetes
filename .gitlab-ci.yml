@@ -9,7 +9,14 @@
 
 .script_prepare_patches: &script_prepare_patches
   - ./hack/prepare_patches.sh ./kubernetes/ ./patches/$MINOR_VERSION/
-  - git diff --exit-code
+  - |
+    if git diff --exit-code;
+    then
+      echo "Prepared patches.";
+    else
+      echo "Please prepare the patches again by running \"./hack/apply_patches.sh ./patches/$MINOR_VERSION/ ./kubernetes/ && ./hack/prepare_patches.sh ./kubernetes/ ./patches/$MINOR_VERSION/\" and commit the changes. This ensures the patches have a consistent format and the next person who runs it won't see an unexpected diff because prepare_patches is idempotent.";
+      exit 1;
+    fi
 
 default:
   image: bitnami/git
