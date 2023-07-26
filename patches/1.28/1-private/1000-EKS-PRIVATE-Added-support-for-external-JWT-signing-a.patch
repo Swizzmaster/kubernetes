@@ -275,7 +275,7 @@ index 879833ed2a7..c9ee582873f 100644
  	return errs
  }
 diff --git a/pkg/features/kube_features.go b/pkg/features/kube_features.go
-index dde237e8b08..87f67bbd187 100644
+index 9b4d183f634..5bac1ee3e89 100644
 --- a/pkg/features/kube_features.go
 +++ b/pkg/features/kube_features.go
 @@ -280,6 +280,12 @@ const (
@@ -291,7 +291,7 @@ index dde237e8b08..87f67bbd187 100644
  	// owner: @yuzhiquan, @bowei, @PxyUp, @SergeyKanzhelev
  	// kep: https://kep.k8s.io/2727
  	// alpha: v1.23
-@@ -1012,6 +1018,8 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
+@@ -1019,6 +1025,8 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
  
  	ExperimentalHostUserNamespaceDefaultingGate: {Default: false, PreRelease: featuregate.Deprecated, LockToDefault: true}, // remove in 1.30
  
@@ -1603,10 +1603,10 @@ index 00000000000..0ec98768eb1
 +	return out, err
 +}
 diff --git a/vendor/modules.txt b/vendor/modules.txt
-index cb36b53fef8..d08f332fbf3 100644
+index d801ee72139..8ed0b80b387 100644
 --- a/vendor/modules.txt
 +++ b/vendor/modules.txt
-@@ -1225,6 +1225,7 @@ gopkg.in/natefinch/lumberjack.v2
+@@ -1227,6 +1227,7 @@ gopkg.in/natefinch/lumberjack.v2
  ## explicit
  gopkg.in/square/go-jose.v2
  gopkg.in/square/go-jose.v2/cipher

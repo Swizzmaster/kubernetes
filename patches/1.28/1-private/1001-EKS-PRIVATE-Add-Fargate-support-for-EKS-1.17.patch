@@ -80,10 +80,10 @@ Signed-off-by: Jyoti Mahapatra<jyotima@amazon.com>
  create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator_testdata/valid-volumes.yaml
 
 diff --git a/pkg/features/kube_features.go b/pkg/features/kube_features.go
-index 87f67bbd187..5a9e609bb5a 100644
+index 5bac1ee3e89..9ebee35d7dc 100644
 --- a/pkg/features/kube_features.go
 +++ b/pkg/features/kube_features.go
-@@ -685,6 +685,12 @@ const (
+@@ -692,6 +692,12 @@ const (
  	// Enable users to specify when a Pod is ready for scheduling.
  	PodSchedulingReadiness featuregate.Feature = "PodSchedulingReadiness"
  
@@ -96,7 +96,7 @@ index 87f67bbd187..5a9e609bb5a 100644
  	// owner: @rphillips
  	// alpha: v1.21
  	// beta: v1.22
-@@ -1126,6 +1132,8 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
+@@ -1135,6 +1141,8 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
  
  	ProbeTerminationGracePeriod: {Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 1.29
  
@@ -196,10 +196,10 @@ index 2f6ef8e6977..c794fbe082d 100644
  
  	typedVersion, err := runtimeService.Version(ctx, kubeRuntimeAPIVersion)
 diff --git a/pkg/kubelet/kuberuntime/kuberuntime_container_linux.go b/pkg/kubelet/kuberuntime/kuberuntime_container_linux.go
-index c600d49bc25..fc8268b322b 100644
+index c76389c0d9f..db9362a53dc 100644
 --- a/pkg/kubelet/kuberuntime/kuberuntime_container_linux.go
 +++ b/pkg/kubelet/kuberuntime/kuberuntime_container_linux.go
-@@ -40,6 +40,7 @@ import (
+@@ -45,6 +45,7 @@ import (
  	kubecontainer "k8s.io/kubernetes/pkg/kubelet/container"
  	"k8s.io/kubernetes/pkg/kubelet/qos"
  	kubelettypes "k8s.io/kubernetes/pkg/kubelet/types"
@@ -207,7 +207,7 @@ index c600d49bc25..fc8268b322b 100644
  )
  
  var defaultPageSize = int64(os.Getpagesize())
-@@ -210,6 +211,8 @@ func (m *kubeGenericRuntimeManager) calculateLinuxResources(cpuRequest, cpuLimit
+@@ -215,6 +216,8 @@ func (m *kubeGenericRuntimeManager) calculateLinuxResources(cpuRequest, cpuLimit
  			cpuPeriod = int64(m.cpuCFSQuotaPeriod.Duration / time.Microsecond)
  		}
  		cpuQuota := milliCPUToQuota(cpuLimit.MilliValue(), cpuPeriod)
