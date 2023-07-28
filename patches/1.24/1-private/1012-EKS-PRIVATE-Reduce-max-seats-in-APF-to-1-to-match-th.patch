@@ -1,0 +1,199 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: "Mengqi (David) Yu" <mengqiyu@amazon.com>
+Date: Thu, 27 Jul 2023 23:12:10 +0000
+Subject: [PATCH] --EKS-PRIVATE-- Reduce max seats in APF to 1 to match the
+ behavior in 1.22
+
+Signed-off-by: David Yu <mengqiyu@amazon.com>
+---
+ .../pkg/util/flowcontrol/request/width.go     | 22 ++++++++++-
+ .../util/flowcontrol/request/width_test.go    | 38 +++++++++----------
+ 2 files changed, 40 insertions(+), 20 deletions(-)
+
+diff --git a/staging/src/k8s.io/apiserver/pkg/util/flowcontrol/request/width.go b/staging/src/k8s.io/apiserver/pkg/util/flowcontrol/request/width.go
+index c9f1d155c4a..ead381686cc 100644
+--- a/staging/src/k8s.io/apiserver/pkg/util/flowcontrol/request/width.go
++++ b/staging/src/k8s.io/apiserver/pkg/util/flowcontrol/request/width.go
+@@ -19,6 +19,8 @@ package request
+ import (
+ 	"fmt"
+ 	"net/http"
++	"os"
++	"strconv"
+ 	"time"
+ 
+ 	apirequest "k8s.io/apiserver/pkg/endpoints/request"
+@@ -29,14 +31,32 @@ const (
+ 	// the minimum number of seats a request must occupy
+ 	minimumSeats = 1
+ 
++	eksAPFMaxSeatEnvVar = "EKS_APISERVER_APF_MAX_SEATS"
++)
++
++var (
+ 	// the maximum number of seats a request can occupy
+ 	//
+ 	// NOTE: work_estimate_seats_samples metric uses the value of maximumSeats
+ 	// as the upper bound, so when we change maximumSeats we should also
+ 	// update the buckets of the metric.
+-	maximumSeats = 10
++	maximumSeats = uint(1)
+ )
+ 
++// Try to get the APF max seats from env var
++func init() {
++	msStr := os.Getenv(eksAPFMaxSeatEnvVar)
++	if msStr != "" {
++		ms, err := strconv.Atoi(msStr)
++		if err != nil {
++			klog.Errorf("failed to parse %s as integer to use as APF max seats", msStr)
++		} else {
++			maximumSeats = uint(ms)
++		}
++	}
++	klog.Infof("using max seats %v for APF", maximumSeats)
++}
++
+ // WorkEstimate carries three of the four parameters that determine the work in a request.
+ // The fourth parameter is the duration of the initial phase of execution.
+ type WorkEstimate struct {
+diff --git a/staging/src/k8s.io/apiserver/pkg/util/flowcontrol/request/width_test.go b/staging/src/k8s.io/apiserver/pkg/util/flowcontrol/request/width_test.go
+index 13c7849d848..3a1685a460d 100644
+--- a/staging/src/k8s.io/apiserver/pkg/util/flowcontrol/request/width_test.go
++++ b/staging/src/k8s.io/apiserver/pkg/util/flowcontrol/request/width_test.go
+@@ -75,7 +75,7 @@ func TestWorkEstimator(t *testing.T) {
+ 			counts: map[string]int64{
+ 				"events.foo.bar": 699,
+ 			},
+-			initialSeatsExpected: 8,
++			initialSeatsExpected: 1,
+ 		},
+ 		{
+ 			name:       "request verb is list, limit not set",
+@@ -88,7 +88,7 @@ func TestWorkEstimator(t *testing.T) {
+ 			counts: map[string]int64{
+ 				"events.foo.bar": 699,
+ 			},
+-			initialSeatsExpected: 7,
++			initialSeatsExpected: 1,
+ 		},
+ 		{
+ 			name:       "request verb is list, resource version not set",
+@@ -101,7 +101,7 @@ func TestWorkEstimator(t *testing.T) {
+ 			counts: map[string]int64{
+ 				"events.foo.bar": 699,
+ 			},
+-			initialSeatsExpected: 8,
++			initialSeatsExpected: 1,
+ 		},
+ 		{
+ 			name:       "request verb is list, no query parameters, count known",
+@@ -114,7 +114,7 @@ func TestWorkEstimator(t *testing.T) {
+ 			counts: map[string]int64{
+ 				"events.foo.bar": 399,
+ 			},
+-			initialSeatsExpected: 8,
++			initialSeatsExpected: 1,
+ 		},
+ 		{
+ 			name:       "request verb is list, no query parameters, count not known",
+@@ -138,7 +138,7 @@ func TestWorkEstimator(t *testing.T) {
+ 			counts: map[string]int64{
+ 				"events.foo.bar": 699,
+ 			},
+-			initialSeatsExpected: 8,
++			initialSeatsExpected: 1,
+ 		},
+ 		{
+ 			name:       "request verb is list, resource version is zero",
+@@ -151,7 +151,7 @@ func TestWorkEstimator(t *testing.T) {
+ 			counts: map[string]int64{
+ 				"events.foo.bar": 399,
+ 			},
+-			initialSeatsExpected: 4,
++			initialSeatsExpected: 1,
+ 		},
+ 		{
+ 			name:       "request verb is list, resource version is zero, no limit",
+@@ -164,7 +164,7 @@ func TestWorkEstimator(t *testing.T) {
+ 			counts: map[string]int64{
+ 				"events.foo.bar": 799,
+ 			},
+-			initialSeatsExpected: 8,
++			initialSeatsExpected: 1,
+ 		},
+ 		{
+ 			name:       "request verb is list, resource version match is Exact",
+@@ -177,7 +177,7 @@ func TestWorkEstimator(t *testing.T) {
+ 			counts: map[string]int64{
+ 				"events.foo.bar": 699,
+ 			},
+-			initialSeatsExpected: 8,
++			initialSeatsExpected: 1,
+ 		},
+ 		{
+ 			name:       "request verb is list, resource version match is NotOlderThan, limit not specified",
+@@ -190,7 +190,7 @@ func TestWorkEstimator(t *testing.T) {
+ 			counts: map[string]int64{
+ 				"events.foo.bar": 799,
+ 			},
+-			initialSeatsExpected: 8,
++			initialSeatsExpected: 1,
+ 		},
+ 		{
+ 			name:       "request verb is list, maximum is capped",
+@@ -302,8 +302,8 @@ func TestWorkEstimator(t *testing.T) {
+ 			},
+ 			watchCount:                29,
+ 			initialSeatsExpected:      1,
+-			finalSeatsExpected:        3,
+-			additionalLatencyExpected: 5 * time.Millisecond,
++			finalSeatsExpected:        1,
++			additionalLatencyExpected: 15 * time.Millisecond,
+ 		},
+ 		{
+ 			name:       "request verb is create, watches registered, no additional latency",
+@@ -328,8 +328,8 @@ func TestWorkEstimator(t *testing.T) {
+ 			},
+ 			watchCount:                199,
+ 			initialSeatsExpected:      1,
+-			finalSeatsExpected:        10,
+-			additionalLatencyExpected: 10 * time.Millisecond,
++			finalSeatsExpected:        1,
++			additionalLatencyExpected: 100 * time.Millisecond,
+ 		},
+ 		{
+ 			name:       "request verb is update, no watches",
+@@ -353,8 +353,8 @@ func TestWorkEstimator(t *testing.T) {
+ 			},
+ 			watchCount:                29,
+ 			initialSeatsExpected:      1,
+-			finalSeatsExpected:        3,
+-			additionalLatencyExpected: 5 * time.Millisecond,
++			finalSeatsExpected:        1,
++			additionalLatencyExpected: 15 * time.Millisecond,
+ 		},
+ 		{
+ 			name:       "request verb is patch, no watches",
+@@ -378,8 +378,8 @@ func TestWorkEstimator(t *testing.T) {
+ 			},
+ 			watchCount:                29,
+ 			initialSeatsExpected:      1,
+-			finalSeatsExpected:        3,
+-			additionalLatencyExpected: 5 * time.Millisecond,
++			finalSeatsExpected:        1,
++			additionalLatencyExpected: 15 * time.Millisecond,
+ 		},
+ 		{
+ 			name:       "request verb is delete, no watches",
+@@ -403,8 +403,8 @@ func TestWorkEstimator(t *testing.T) {
+ 			},
+ 			watchCount:                29,
+ 			initialSeatsExpected:      1,
+-			finalSeatsExpected:        3,
+-			additionalLatencyExpected: 5 * time.Millisecond,
++			finalSeatsExpected:        1,
++			additionalLatencyExpected: 15 * time.Millisecond,
+ 		},
+ 	}
+ 
