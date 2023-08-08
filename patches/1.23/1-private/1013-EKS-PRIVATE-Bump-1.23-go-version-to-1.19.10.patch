@@ -1,0 +1,21 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Josselin Costanzi <costanzj@amazon.com>
+Date: Wed, 2 Aug 2023 22:19:29 +0000
+Subject: [PATCH] --EKS-PRIVATE-- Bump 1.23 go version to 1.19.10
+
+Fix CVEs:
+CVE-2023-29402
+CVE-2023-29405
+CVE-2023-24540
+CVE-2023-29404
+---
+ build/build-image/cross/VERSION | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/build/build-image/cross/VERSION b/build/build-image/cross/VERSION
+index 6cade01ef65..ac5e98a028a 100644
+--- a/build/build-image/cross/VERSION
++++ b/build/build-image/cross/VERSION
+@@ -1 +1 @@
+-v1.23.0-go1.19.6-bullseye.0
++v1.23.0-go1.19.10-bullseye.0
