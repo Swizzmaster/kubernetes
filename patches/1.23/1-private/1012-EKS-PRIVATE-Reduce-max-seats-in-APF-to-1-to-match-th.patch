@@ -6,24 +6,102 @@ Subject: [PATCH] --EKS-PRIVATE-- Reduce max seats in APF to 1 to match the
 
 Signed-off-by: David Yu <mengqiyu@amazon.com>
 ---
- .../pkg/util/flowcontrol/request/width.go     | 22 ++++++++++-
- .../util/flowcontrol/request/width_test.go    | 38 +++++++++----------
- 2 files changed, 40 insertions(+), 20 deletions(-)
+ .../request/list_work_estimator.go            | 12 ++---
+ .../request/mutating_work_estimator.go        |  6 +--
+ .../pkg/util/flowcontrol/request/width.go     | 38 ++++++++++++++-
+ .../util/flowcontrol/request/width_test.go    | 48 +++++++++----------
+ 4 files changed, 69 insertions(+), 35 deletions(-)
 
+diff --git a/staging/src/k8s.io/apiserver/pkg/util/flowcontrol/request/list_work_estimator.go b/staging/src/k8s.io/apiserver/pkg/util/flowcontrol/request/list_work_estimator.go
+index 2a096738a6d..44d6aca19e3 100644
+--- a/staging/src/k8s.io/apiserver/pkg/util/flowcontrol/request/list_work_estimator.go
++++ b/staging/src/k8s.io/apiserver/pkg/util/flowcontrol/request/list_work_estimator.go
+@@ -45,7 +45,7 @@ func (e *listWorkEstimator) estimate(r *http.Request, flowSchemaName, priorityLe
+ 	if !ok {
+ 		// no RequestInfo should never happen, but to be on the safe side
+ 		// let's return maximumSeats
+-		return WorkEstimate{InitialSeats: maximumSeats}
++		return WorkEstimate{InitialSeats: maximumSeats()}
+ 	}
+ 
+ 	if requestInfo.Name != "" {
+@@ -64,7 +64,7 @@ func (e *listWorkEstimator) estimate(r *http.Request, flowSchemaName, priorityLe
+ 
+ 		// This request is destined to fail in the validation layer,
+ 		// return maximumSeats for this request to be consistent.
+-		return WorkEstimate{InitialSeats: maximumSeats}
++		return WorkEstimate{InitialSeats: maximumSeats()}
+ 	}
+ 	isListFromCache := !shouldListFromStorage(query, &listOptions)
+ 
+@@ -75,7 +75,7 @@ func (e *listWorkEstimator) estimate(r *http.Request, flowSchemaName, priorityLe
+ 		// be conservative here and allocate maximum seats to this list request.
+ 		// NOTE: if a CRD is removed, its count will go stale first and then the
+ 		// pruner will eventually remove the CRD from the cache.
+-		return WorkEstimate{InitialSeats: maximumSeats}
++		return WorkEstimate{InitialSeats: maximumSeats()}
+ 	case err == ObjectCountNotFoundErr:
+ 		// there are multiple scenarios in which we can see this error:
+ 		//  a. the type is truly unknown, a typo on the caller's part.
+@@ -94,7 +94,7 @@ func (e *listWorkEstimator) estimate(r *http.Request, flowSchemaName, priorityLe
+ 		// we should never be here since Get returns either ObjectCountStaleErr or
+ 		// ObjectCountNotFoundErr, return maximumSeats to be on the safe side.
+ 		klog.ErrorS(err, "Unexpected error from object count tracker")
+-		return WorkEstimate{InitialSeats: maximumSeats}
++		return WorkEstimate{InitialSeats: maximumSeats()}
+ 	}
+ 
+ 	limit := numStored
+@@ -126,8 +126,8 @@ func (e *listWorkEstimator) estimate(r *http.Request, flowSchemaName, priorityLe
+ 	if seats < minimumSeats {
+ 		seats = minimumSeats
+ 	}
+-	if seats > maximumSeats {
+-		seats = maximumSeats
++	if seats > maximumSeats() {
++		seats = maximumSeats()
+ 	}
+ 	return WorkEstimate{InitialSeats: seats}
+ }
+diff --git a/staging/src/k8s.io/apiserver/pkg/util/flowcontrol/request/mutating_work_estimator.go b/staging/src/k8s.io/apiserver/pkg/util/flowcontrol/request/mutating_work_estimator.go
+index 1c6c441e27c..b05ad2122c8 100644
+--- a/staging/src/k8s.io/apiserver/pkg/util/flowcontrol/request/mutating_work_estimator.go
++++ b/staging/src/k8s.io/apiserver/pkg/util/flowcontrol/request/mutating_work_estimator.go
+@@ -65,7 +65,7 @@ func (e *mutatingWorkEstimator) estimate(r *http.Request, flowSchemaName, priori
+ 		// let's return a large value.
+ 		return WorkEstimate{
+ 			InitialSeats:      1,
+-			FinalSeats:        maximumSeats,
++			FinalSeats:        maximumSeats(),
+ 			AdditionalLatency: eventAdditionalDuration,
+ 		}
+ 	}
+@@ -129,8 +129,8 @@ func (e *mutatingWorkEstimator) estimate(r *http.Request, flowSchemaName, priori
+ 		//
+ 		// TODO: Confirm that the current cap of maximumSeats allow us to
+ 		//   achieve the above.
+-		if finalSeats > maximumSeats {
+-			finalSeats = maximumSeats
++		if finalSeats > maximumSeats() {
++			finalSeats = maximumSeats()
+ 		}
+ 		additionalLatency = finalWork.DurationPerSeat(float64(finalSeats))
+ 	}
 diff --git a/staging/src/k8s.io/apiserver/pkg/util/flowcontrol/request/width.go b/staging/src/k8s.io/apiserver/pkg/util/flowcontrol/request/width.go
-index 675433c2c31..41f40ec0b74 100644
+index 675433c2c31..fc5d489abd1 100644
 --- a/staging/src/k8s.io/apiserver/pkg/util/flowcontrol/request/width.go
 +++ b/staging/src/k8s.io/apiserver/pkg/util/flowcontrol/request/width.go
-@@ -19,6 +19,8 @@ package request
+@@ -19,6 +19,9 @@ package request
  import (
  	"fmt"
  	"net/http"
 +	"os"
 +	"strconv"
++	"sync"
  	"time"
  
  	apirequest "k8s.io/apiserver/pkg/endpoints/request"
-@@ -29,10 +31,28 @@ const (
+@@ -29,10 +32,41 @@ const (
  	// the minimum number of seats a request must occupy
  	minimumSeats = 1
  
@@ -33,7 +111,11 @@ index 675433c2c31..41f40ec0b74 100644
 +var (
  	// the maximum number of seats a request can occupy
 -	maximumSeats = 10
-+	maximumSeats = uint(1)
++	// internalMaximumSeats must not be accessed outside of this file.
++	// Please use maximumSeats() to access its value.
++	internalMaximumSeats = uint(1)
++
++	once sync.Once
  )
  
 +// Try to get the APF max seats from env var
@@ -44,19 +126,55 @@ index 675433c2c31..41f40ec0b74 100644
 +		if err != nil {
 +			klog.Errorf("failed to parse %s as integer to use as APF max seats", msStr)
 +		} else {
-+			maximumSeats = uint(ms)
++			internalMaximumSeats = uint(ms)
 +		}
 +	}
-+	klog.Infof("using max seats %v for APF", maximumSeats)
++}
++
++func maximumSeats() uint {
++	// We ensure we only log max seats when maximumSeats is accessed.
++	// There are scenarios that this package is imported as transitive
++	// dependency but is not really used. e.g. kubelet.
++	once.Do(func() {
++		klog.V(2).Infof("using max seats %v for APF", internalMaximumSeats)
++	})
++	return internalMaximumSeats
 +}
 +
  // WorkEstimate carries three of the four parameters that determine the work in a request.
  // The fourth parameter is the duration of the initial phase of execution.
  type WorkEstimate struct {
+@@ -101,7 +135,7 @@ func (e *workEstimator) estimate(r *http.Request, flowSchemaName, priorityLevelN
+ 	if !ok {
+ 		klog.ErrorS(fmt.Errorf("no RequestInfo found in context"), "Failed to estimate work for the request", "URI", r.RequestURI)
+ 		// no RequestInfo should never happen, but to be on the safe side let's return maximumSeats
+-		return WorkEstimate{InitialSeats: maximumSeats}
++		return WorkEstimate{InitialSeats: maximumSeats()}
+ 	}
+ 
+ 	switch requestInfo.Verb {
 diff --git a/staging/src/k8s.io/apiserver/pkg/util/flowcontrol/request/width_test.go b/staging/src/k8s.io/apiserver/pkg/util/flowcontrol/request/width_test.go
-index 13c7849d848..3a1685a460d 100644
+index 13c7849d848..3d896c3a078 100644
 --- a/staging/src/k8s.io/apiserver/pkg/util/flowcontrol/request/width_test.go
 +++ b/staging/src/k8s.io/apiserver/pkg/util/flowcontrol/request/width_test.go
+@@ -41,7 +41,7 @@ func TestWorkEstimator(t *testing.T) {
+ 			name:                 "request has no RequestInfo",
+ 			requestURI:           "http://server/apis/",
+ 			requestInfo:          nil,
+-			initialSeatsExpected: maximumSeats,
++			initialSeatsExpected: maximumSeats(),
+ 		},
+ 		{
+ 			name:       "request verb is not list",
+@@ -62,7 +62,7 @@ func TestWorkEstimator(t *testing.T) {
+ 			counts: map[string]int64{
+ 				"events.foo.bar": 799,
+ 			},
+-			initialSeatsExpected: maximumSeats,
++			initialSeatsExpected: maximumSeats(),
+ 		},
+ 		{
+ 			name:       "request verb is list, has limit and resource version is 1",
 @@ -75,7 +75,7 @@ func TestWorkEstimator(t *testing.T) {
  			counts: map[string]int64{
  				"events.foo.bar": 699,
@@ -138,6 +256,33 @@ index 13c7849d848..3a1685a460d 100644
  		},
  		{
  			name:       "request verb is list, maximum is capped",
+@@ -203,7 +203,7 @@ func TestWorkEstimator(t *testing.T) {
+ 			counts: map[string]int64{
+ 				"events.foo.bar": 1999,
+ 			},
+-			initialSeatsExpected: maximumSeats,
++			initialSeatsExpected: maximumSeats(),
+ 		},
+ 		{
+ 			name:       "request verb is list, list from cache, count not known",
+@@ -228,7 +228,7 @@ func TestWorkEstimator(t *testing.T) {
+ 				"events.foo.bar": 799,
+ 			},
+ 			countErr:             ObjectCountStaleErr,
+-			initialSeatsExpected: maximumSeats,
++			initialSeatsExpected: maximumSeats(),
+ 		},
+ 		{
+ 			name:       "request verb is list, object count is not found",
+@@ -250,7 +250,7 @@ func TestWorkEstimator(t *testing.T) {
+ 				Resource: "events",
+ 			},
+ 			countErr:             errors.New("unknown error"),
+-			initialSeatsExpected: maximumSeats,
++			initialSeatsExpected: maximumSeats(),
+ 		},
+ 		{
+ 			name:       "request verb is list, metadata.name specified",
 @@ -302,8 +302,8 @@ func TestWorkEstimator(t *testing.T) {
  			},
  			watchCount:                29,
