@@ -77,7 +77,7 @@ index ebaad698d73..4255601d410 100644
  	}
  	server, etcdStorage := newEtcdTestStorage(t, "")
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/metrics/metrics.go b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/metrics/metrics.go
-index 091eef85ab5..1e506967bb9 100644
+index ac023d55d8c..a68849a6b04 100644
 --- a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/metrics/metrics.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/metrics/metrics.go
 @@ -144,6 +144,7 @@ var (
