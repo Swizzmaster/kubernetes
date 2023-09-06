@@ -217,7 +217,7 @@ index c76389c0d9f..db9362a53dc 100644
  		resources.CpuPeriod = cpuPeriod
  	}
 diff --git a/pkg/kubelet/kuberuntime/kuberuntime_manager.go b/pkg/kubelet/kuberuntime/kuberuntime_manager.go
-index c8e76d41f28..ba407f2cead 100644
+index 49add764798..5a757b61a96 100644
 --- a/pkg/kubelet/kuberuntime/kuberuntime_manager.go
 +++ b/pkg/kubelet/kuberuntime/kuberuntime_manager.go
 @@ -168,6 +168,9 @@ type kubeGenericRuntimeManager struct {
@@ -246,7 +246,7 @@ index c8e76d41f28..ba407f2cead 100644
  	}
  
  	typedVersion, err := kubeRuntimeManager.getTypedVersion(ctx)
-@@ -1179,6 +1184,14 @@ func (m *kubeGenericRuntimeManager) SyncPod(ctx context.Context, pod *v1.Pod, po
+@@ -1226,6 +1231,14 @@ func (m *kubeGenericRuntimeManager) SyncPod(ctx context.Context, pod *v1.Pod, po
  		startContainerResult := kubecontainer.NewSyncResult(kubecontainer.StartContainer, spec.container.Name)
  		result.AddSyncResult(startContainerResult)
  
@@ -262,7 +262,7 @@ index c8e76d41f28..ba407f2cead 100644
  		if isInBackOff {
  			startContainerResult.Fail(err, msg)
 diff --git a/pkg/kubelet/kuberuntime/kuberuntime_manager_test.go b/pkg/kubelet/kuberuntime/kuberuntime_manager_test.go
-index 83df1ec0271..7559b017c39 100644
+index 42776e6e09c..d09c9bc0750 100644
 --- a/pkg/kubelet/kuberuntime/kuberuntime_manager_test.go
 +++ b/pkg/kubelet/kuberuntime/kuberuntime_manager_test.go
 @@ -710,6 +710,63 @@ func TestSyncPodWithConvertedPodSysctls(t *testing.T) {
