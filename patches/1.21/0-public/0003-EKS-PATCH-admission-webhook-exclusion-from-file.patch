@@ -3,14 +3,45 @@ From: Igor Velichkovich <igorveli@amazon.com>
 Date: Wed, 21 Dec 2022 20:12:26 -0600
 Subject: [PATCH] --EKS-PATCH-- admission webhook exclusion from file
 
+Description:
+* Allows for the bypassing of admission controller webhook for certain resources.
+
+Upstream PR, Issue, KEP, etc. links:
+* See below.
+
+If this patch is based on an upstream commit, how (if at all) do this patch and the upstream source differ?
+* N/A
+
+If this patch's changes have not been added by upstream, why not?
+* This patch has not been added by upstream, but work is being actively done to add the ability to filter webhooks. See:
+    - KEP-3716 -- https://github.com/kubernetes/enhancements/tree/master/keps/sig-api-machinery/3716-admission-webhook-match-conditions
+    and https://github.com/kubernetes/enhancements/pull/3717
+    - Tracking issue -- https://github.com/kubernetes/enhancements/issues/3716
+    - Kubernetes PR #116261 -- https://github.com/kubernetes/kubernetes/pull/116261
+
+Other patches related to this patch:
+* None
+
+Changes made to this patch after its initial creation and reasons for these changes:
+* February 2, 2023 -- This patch replaced 0002-EKS-PATCH-Bypassed-admission-controller-webhook-for-.patch
+(https://github.com/aws/eks-distro/blob/v1-22-eks-18/projects/kubernetes/kubernetes/1-22/patches/0002-EKS-PATCH-Bypassed-admission-controller-webhook-for-.patch).
+The difference between this patch and its predecessor is that this patch allows for users to supply a config file that
+defines which webhooks should be excluded. If this files is not provided, this patch and the previous one function the
+same.
+
+Kubernetes version this patch can be dropped:
+* When the upstream efforts to implement these changes are merged.
+* We can replace with new match using match conditions in 1.28+ or when match conditions become GA
+
+Signed-off-by: Jyoti Mahapatra <jyotima@amazon.com>
 ---
- .../exclusionrules/critical_path_excluder.go  | 152 +++++++
- .../critical_path_excluder_test.go            | 427 ++++++++++++++++++
- .../webhook/generic/exclusionrules/matcher.go |  81 ++++
- .../generic/exclusionrules/matcher_test.go    | 333 ++++++++++++++
+ .../exclusionrules/critical_path_excluder.go  | 144 ++++
+ .../critical_path_excluder_test.go            | 650 ++++++++++++++++++
+ .../webhook/generic/exclusionrules/matcher.go |  93 +++
+ .../generic/exclusionrules/matcher_test.go    | 422 ++++++++++++
  .../plugin/webhook/generic/webhook.go         |  24 +
- .../webhook_exclusion_rules_test.go           | 281 ++++++++++++
- 6 files changed, 1298 insertions(+)
+ .../webhook_exclusion_rules_test.go           | 283 ++++++++
+ 6 files changed, 1616 insertions(+)
  create mode 100644 staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/generic/exclusionrules/critical_path_excluder.go
  create mode 100644 staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/generic/exclusionrules/critical_path_excluder_test.go
  create mode 100644 staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/generic/exclusionrules/matcher.go
@@ -19,18 +50,19 @@ Subject: [PATCH] --EKS-PATCH-- admission webhook exclusion from file
 
 diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/generic/exclusionrules/critical_path_excluder.go b/staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/generic/exclusionrules/critical_path_excluder.go
 new file mode 100644
-index 00000000000..65abc4496a8
+index 00000000000..7e0e4f7ab3b
 --- /dev/null
 +++ b/staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/generic/exclusionrules/critical_path_excluder.go
-@@ -0,0 +1,152 @@
+@@ -0,0 +1,144 @@
 +package exclusionrules
 +
 +import (
 +	"encoding/json"
++	"os"
++
 +	v1 "k8s.io/api/admissionregistration/v1"
 +	"k8s.io/apiserver/pkg/admission"
 +	"k8s.io/klog/v2"
-+	"os"
 +)
 +
 +// Enables you to pass a config file to kube-api-server
@@ -67,6 +99,9 @@ index 00000000000..65abc4496a8
 +	// "Namespaced" means that only namespaced resources will match this rule.
 +	// Namespace field required for "Namespaced" scope otherwise namespace field disallowed
 +	Scope *v1.ScopeType `json:"scope,omitempty"`
++
++	// Username of the rbac user making the request
++	Username string `json:"username,omitempty"`
 +}
 +
 +func NewCriticalPathExcluder() CriticalPathExcluder {
@@ -78,44 +113,22 @@ index 00000000000..65abc4496a8
 +}
 +
 +func readFile() []ExclusionRule {
-+	//Default values for backwards compatability for eks-d
-+	namespace := v1.NamespacedScope
-+	defaultExclusion := []ExclusionRule{
-+		{
-+			APIGroup:   "coordination.k8s.io",
-+			APIVersion: "v1",
-+			Kind:       "Lease",
-+			Namespace:  "kube-system",
-+			Name:       []string{"kube-controller-manager", "kube-scheduler"},
-+			Scope:      &namespace,
-+		},
-+		{
-+			APIGroup:   "",
-+			APIVersion: "v1",
-+			Kind:       "Endpoints",
-+			Namespace:  "kube-system",
-+			Name:       []string{"kube-controller-manager", "kube-scheduler"},
-+			Scope:      &namespace,
-+		},
-+	}
-+
++	data := []ExclusionRule{}
 +	if fileLocation, ok := os.LookupEnv(ADMISSION_WEBHOOK_EXCLUSION_ENV_VAR); ok {
 +		file, err := os.ReadFile(fileLocation)
 +		if err != nil {
 +			klog.Errorf("Error reading %v file: %v", ADMISSION_WEBHOOK_EXCLUSION_ENV_VAR, err)
-+			return defaultExclusion
++			return data
 +		}
-+		data := []ExclusionRule{}
 +		err = json.Unmarshal(file, &data)
 +		if err != nil {
 +			klog.Errorf("Error converting %v file to exclusion rules: %v", ADMISSION_WEBHOOK_EXCLUSION_ENV_VAR, err)
-+			return defaultExclusion
++			return data
 +		}
 +		klog.Infof("Successfully found and loaded %v exclusion rules", len(data))
 +		return data
 +	}
-+	klog.Info("No environment variable set, using default exclusion rules")
-+	return defaultExclusion
++	return data
 +}
 +
 +func filterValidRules(inputExclusionRules []ExclusionRule) []ExclusionRule {
@@ -123,18 +136,8 @@ index 00000000000..65abc4496a8
 +	// * not allowed for Scope, APIVersion, APIGroup, Namespace or Kind
 +	filteredRules := []ExclusionRule{}
 +	for _, rule := range inputExclusionRules {
-+		if rule.Scope == nil {
-+			klog.Errorf("Invalid webhook admission exclusion rule, scope not set")
-+			continue
-+		}
-+
-+		// No wildcards
-+		if *rule.Scope == v1.AllScopes || rule.APIGroup == "*" || rule.APIVersion == "*" || rule.Namespace == "*" || rule.Kind == "*" {
-+			klog.Errorf("Invalid webhook admission exclusion rule, wildcard not allowed, skipping rule")
-+			continue
-+		}
-+		if contains(rule.Name, "*") && isDisallowedNameWildcard(rule) {
-+			klog.Errorf("Invalid webhook admission exclusion rule, wildcard only allowed for name for Lease in kube-node-lease, skipping rule")
++		if rule.Scope == nil || rule.Username == "" || nilOrEmpty(rule.Name) || rule.Kind == "" || rule.APIGroup == "" || rule.APIVersion == "" {
++			klog.Errorf("Invalid webhook admission exclusion rule, missing required field of (Name, Kind, APIGroup, APIVersion, Username, Scope), skipping rule")
 +			continue
 +		}
 +		// No namespace if cluster scoped
@@ -147,6 +150,19 @@ index 00000000000..65abc4496a8
 +			klog.Errorf("Invalid webhook admission exclusion rule, must set namespace with Namespaced Scope")
 +			continue
 +		}
++		if rule.Username == "*" {
++			// No wildcards
++			if *rule.Scope == v1.AllScopes || rule.APIGroup == "*" || rule.APIVersion == "*" || rule.Namespace == "*" || rule.Kind == "*" {
++				klog.Errorf("Invalid webhook admission exclusion rule, wildcard not allowed without user selection, skipping rule")
++				continue
++			}
++
++			if contains(rule.Name, "*") && isDisallowedNameWildcard(rule) {
++				klog.Errorf("Invalid webhook admission exclusion rule, wildcard only allowed for name for Lease in kube-node-lease, skipping rule")
++				continue
++			}
++		}
++
 +		filteredRules = append(filteredRules, rule)
 +	}
 +	return filteredRules
@@ -166,6 +182,13 @@ index 00000000000..65abc4496a8
 +	return false
 +}
 +
++func nilOrEmpty(s []string) bool {
++	if s == nil || len(s) == 0 {
++		return true
++	}
++	return false
++}
++
 +func (excludor CriticalPathExcluder) ShouldSkipWebhookDueToExclusionRules(attr admission.Attributes) bool {
 +	for _, r := range excludor.exclusionRules {
 +		m := Matcher{ExclusionRule: r, Attr: attr}
@@ -177,18 +200,20 @@ index 00000000000..65abc4496a8
 +}
 diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/generic/exclusionrules/critical_path_excluder_test.go b/staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/generic/exclusionrules/critical_path_excluder_test.go
 new file mode 100644
-index 00000000000..481348aa463
+index 00000000000..fa5a44ffdc1
 --- /dev/null
 +++ b/staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/generic/exclusionrules/critical_path_excluder_test.go
-@@ -0,0 +1,427 @@
+@@ -0,0 +1,650 @@
 +package exclusionrules
 +
 +import (
++	"testing"
++
 +	v1 "k8s.io/api/admissionregistration/v1"
 +	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 +	"k8s.io/apimachinery/pkg/runtime/schema"
 +	"k8s.io/apiserver/pkg/admission"
-+	"testing"
++	"k8s.io/apiserver/pkg/authentication/user"
 +)
 +
 +func getAttributes() admission.Attributes {
@@ -203,7 +228,9 @@ index 00000000000..481348aa463
 +		admission.Create,
 +		&metav1.CreateOptions{},
 +		false,
-+		nil,
++		&user.DefaultInfo{
++			Name: "exempt:user",
++		},
 +	)
 +}
 +
@@ -225,6 +252,7 @@ index 00000000000..481348aa463
 +					Name:       []string{"testName"},
 +					Namespace:  "ns",
 +					Scope:      &namespace,
++					Username:   "*",
 +				},
 +				{
 +					APIGroup:   "",
@@ -233,6 +261,7 @@ index 00000000000..481348aa463
 +					Name:       []string{"mismatch"},
 +					Namespace:  "ns",
 +					Scope:      &namespace,
++					Username:   "*",
 +				},
 +			},
 +			result: true,
@@ -248,6 +277,7 @@ index 00000000000..481348aa463
 +					Name:       []string{"mismatch"},
 +					Namespace:  "ns",
 +					Scope:      &namespace,
++					Username:   "*",
 +				},
 +				{
 +					APIGroup:   "apps",
@@ -256,6 +286,7 @@ index 00000000000..481348aa463
 +					Name:       []string{"testName"},
 +					Namespace:  "ns",
 +					Scope:      &namespace,
++					Username:   "*",
 +				},
 +			},
 +			result: true,
@@ -271,6 +302,7 @@ index 00000000000..481348aa463
 +					Name:       []string{"mismatch"},
 +					Namespace:  "ns",
 +					Scope:      &namespace,
++					Username:   "*",
 +				},
 +				{
 +					APIGroup:   "apps",
@@ -279,6 +311,7 @@ index 00000000000..481348aa463
 +					Name:       []string{"mismatch"},
 +					Namespace:  "ns",
 +					Scope:      &namespace,
++					Username:   "*",
 +				},
 +			},
 +			result: false,
@@ -314,6 +347,169 @@ index 00000000000..481348aa463
 +		expectedOutputRules int
 +	}{
 +		{
++			name: "No missing APIGroup",
++			inputRules: []ExclusionRule{
++				{
++					APIVersion: "v1",
++					Kind:       "Deployment",
++					Name:       []string{"testName"},
++					Namespace:  "ns",
++					Scope:      &namespace,
++					Username:   "*",
++				},
++				{
++					APIGroup:   "test",
++					APIVersion: "v1",
++					Kind:       "Deployment",
++					Name:       []string{"testName"},
++					Namespace:  "ns",
++					Scope:      &namespace,
++					Username:   "*",
++				},
++			},
++			expectedOutputRules: 1,
++		},
++		{
++			name: "No missing APIVersion",
++			inputRules: []ExclusionRule{
++				{
++					APIGroup:  "v1",
++					Kind:      "Deployment",
++					Name:      []string{"testName"},
++					Namespace: "ns",
++					Scope:     &namespace,
++					Username:  "*",
++				},
++				{
++					APIGroup:   "test",
++					APIVersion: "v1",
++					Kind:       "Deployment",
++					Name:       []string{"testName"},
++					Namespace:  "ns",
++					Scope:      &namespace,
++					Username:   "*",
++				},
++			},
++			expectedOutputRules: 1,
++		},
++		{
++			name: "No missing KIND",
++			inputRules: []ExclusionRule{
++				{
++					APIGroup:   "v1",
++					APIVersion: "v1",
++					Name:       []string{"testName"},
++					Namespace:  "ns",
++					Scope:      &namespace,
++					Username:   "*",
++				},
++				{
++					APIGroup:   "test",
++					APIVersion: "v1",
++					Kind:       "Deployment",
++					Name:       []string{"testName"},
++					Namespace:  "ns",
++					Scope:      &namespace,
++					Username:   "*",
++				},
++			},
++			expectedOutputRules: 1,
++		},
++		{
++			name: "No empty KIND",
++			inputRules: []ExclusionRule{
++				{
++					APIGroup:   "v1",
++					APIVersion: "v1",
++					Kind:       "",
++					Name:       []string{"testName"},
++					Namespace:  "ns",
++					Scope:      &namespace,
++					Username:   "*",
++				},
++				{
++					APIGroup:   "test",
++					APIVersion: "v1",
++					Kind:       "Deployment",
++					Name:       []string{"testName"},
++					Namespace:  "ns",
++					Scope:      &namespace,
++					Username:   "*",
++				},
++			},
++			expectedOutputRules: 1,
++		},
++		{
++			name: "No missing Name",
++			inputRules: []ExclusionRule{
++				{
++					APIGroup:   "v1",
++					APIVersion: "v1",
++					Kind:       "Deployment",
++					Namespace:  "ns",
++					Scope:      &namespace,
++					Username:   "*",
++				},
++				{
++					APIGroup:   "test",
++					APIVersion: "v1",
++					Kind:       "Deployment",
++					Name:       []string{"testName"},
++					Namespace:  "ns",
++					Scope:      &namespace,
++					Username:   "*",
++				},
++			},
++			expectedOutputRules: 1,
++		},
++		{
++			name: "No empty Name",
++			inputRules: []ExclusionRule{
++				{
++					APIGroup:   "v1",
++					APIVersion: "v1",
++					Kind:       "Deployment",
++					Name:       []string{},
++					Namespace:  "ns",
++					Scope:      &namespace,
++					Username:   "*",
++				},
++				{
++					APIGroup:   "test",
++					APIVersion: "v1",
++					Kind:       "Deployment",
++					Name:       []string{"testName"},
++					Namespace:  "ns",
++					Scope:      &namespace,
++					Username:   "*",
++				},
++			},
++			expectedOutputRules: 1,
++		},
++		{
++			name: "No missing username",
++			inputRules: []ExclusionRule{
++				{
++					APIGroup:   "v1",
++					APIVersion: "v1",
++					Kind:       "Deployment",
++					Name:       []string{"Deployment"},
++					Namespace:  "ns",
++					Scope:      &namespace,
++				},
++				{
++					APIGroup:   "test",
++					APIVersion: "v1",
++					Kind:       "Deployment",
++					Name:       []string{"testName"},
++					Namespace:  "ns",
++					Scope:      &namespace,
++					Username:   "*",
++				},
++			},
++			expectedOutputRules: 1,
++		},
++		{
 +			name: "No wildcard for APIGroup",
 +			inputRules: []ExclusionRule{
 +				{
@@ -323,6 +519,7 @@ index 00000000000..481348aa463
 +					Name:       []string{"testName"},
 +					Namespace:  "ns",
 +					Scope:      &namespace,
++					Username:   "*",
 +				},
 +				{
 +					APIGroup:   "*",
@@ -331,6 +528,7 @@ index 00000000000..481348aa463
 +					Name:       []string{"testName"},
 +					Namespace:  "ns",
 +					Scope:      &namespace,
++					Username:   "*",
 +				},
 +			},
 +			expectedOutputRules: 1,
@@ -345,6 +543,7 @@ index 00000000000..481348aa463
 +					Name:       []string{"testName"},
 +					Namespace:  "ns",
 +					Scope:      &namespace,
++					Username:   "*",
 +				},
 +				{
 +					APIGroup:   "apps",
@@ -353,6 +552,7 @@ index 00000000000..481348aa463
 +					Name:       []string{"testName"},
 +					Namespace:  "ns",
 +					Scope:      &namespace,
++					Username:   "*",
 +				},
 +			},
 +			expectedOutputRules: 1,
@@ -367,6 +567,7 @@ index 00000000000..481348aa463
 +					Name:       []string{"testName"},
 +					Namespace:  "ns",
 +					Scope:      &namespace,
++					Username:   "*",
 +				},
 +				{
 +					APIGroup:   "apps",
@@ -375,6 +576,7 @@ index 00000000000..481348aa463
 +					Name:       []string{"testName"},
 +					Namespace:  "ns",
 +					Scope:      &namespace,
++					Username:   "*",
 +				},
 +			},
 +			expectedOutputRules: 1,
@@ -389,6 +591,7 @@ index 00000000000..481348aa463
 +					Name:       []string{"testName"},
 +					Namespace:  "ns",
 +					Scope:      &namespace,
++					Username:   "*",
 +				},
 +				{
 +					APIGroup:   "apps",
@@ -397,6 +600,7 @@ index 00000000000..481348aa463
 +					Name:       []string{"testName"},
 +					Namespace:  "*",
 +					Scope:      &namespace,
++					Username:   "*",
 +				},
 +			},
 +			expectedOutputRules: 1,
@@ -411,6 +615,7 @@ index 00000000000..481348aa463
 +					Name:       []string{"testName"},
 +					Namespace:  "ns",
 +					Scope:      &namespace,
++					Username:   "*",
 +				},
 +				{
 +					APIGroup:   "apps",
@@ -418,6 +623,7 @@ index 00000000000..481348aa463
 +					Kind:       "Deployment",
 +					Name:       []string{"testName"},
 +					Namespace:  "ns",
++					Username:   "*",
 +				},
 +			},
 +			expectedOutputRules: 1,
@@ -432,6 +638,7 @@ index 00000000000..481348aa463
 +					Name:       []string{"testName"},
 +					Namespace:  "ns",
 +					Scope:      &namespace,
++					Username:   "*",
 +				},
 +				{
 +					APIGroup:   "apps",
@@ -440,6 +647,7 @@ index 00000000000..481348aa463
 +					Name:       []string{"testName"},
 +					Namespace:  "ns",
 +					Scope:      &allscopes,
++					Username:   "*",
 +				},
 +			},
 +			expectedOutputRules: 1,
@@ -454,6 +662,7 @@ index 00000000000..481348aa463
 +					Name:       []string{"testName"},
 +					Namespace:  "ns",
 +					Scope:      &namespace,
++					Username:   "*",
 +				},
 +				{
 +					APIGroup:   "apps",
@@ -462,6 +671,7 @@ index 00000000000..481348aa463
 +					Name:       []string{"*"},
 +					Namespace:  "ns",
 +					Scope:      &namespace,
++					Username:   "*",
 +				},
 +			},
 +			expectedOutputRules: 1,
@@ -476,6 +686,7 @@ index 00000000000..481348aa463
 +					Name:       []string{"testName"},
 +					Namespace:  "ns",
 +					Scope:      &namespace,
++					Username:   "*",
 +				},
 +				{
 +					APIGroup:   "coordination.k8s.io",
@@ -484,6 +695,7 @@ index 00000000000..481348aa463
 +					Name:       []string{"*"},
 +					Namespace:  "ns",
 +					Scope:      &namespace,
++					Username:   "*",
 +				},
 +			},
 +			expectedOutputRules: 1,
@@ -498,6 +710,7 @@ index 00000000000..481348aa463
 +					Name:       []string{"testName"},
 +					Namespace:  "ns",
 +					Scope:      &namespace,
++					Username:   "*",
 +				},
 +				{
 +					APIGroup:   "wrong",
@@ -506,6 +719,7 @@ index 00000000000..481348aa463
 +					Name:       []string{"*"},
 +					Namespace:  "ns",
 +					Scope:      &namespace,
++					Username:   "*",
 +				},
 +			},
 +			expectedOutputRules: 1,
@@ -520,6 +734,7 @@ index 00000000000..481348aa463
 +					Name:       []string{"testName"},
 +					Namespace:  "ns",
 +					Scope:      &namespace,
++					Username:   "*",
 +				},
 +				{
 +					APIGroup:   "coordination.k8s.io",
@@ -528,6 +743,7 @@ index 00000000000..481348aa463
 +					Name:       []string{"*"},
 +					Namespace:  "ns",
 +					Scope:      &namespace,
++					Username:   "*",
 +				},
 +			},
 +			expectedOutputRules: 1,
@@ -542,6 +758,7 @@ index 00000000000..481348aa463
 +					Name:       []string{"testName"},
 +					Namespace:  "ns",
 +					Scope:      &namespace,
++					Username:   "*",
 +				},
 +				{
 +					APIGroup:   "coordination.k8s.io",
@@ -550,6 +767,7 @@ index 00000000000..481348aa463
 +					Name:       []string{"*"},
 +					Namespace:  "kube-node-lease",
 +					Scope:      &namespace,
++					Username:   "*",
 +				},
 +			},
 +			expectedOutputRules: 2,
@@ -564,6 +782,7 @@ index 00000000000..481348aa463
 +					Name:       []string{"testName"},
 +					Namespace:  "ns",
 +					Scope:      &namespace,
++					Username:   "*",
 +				},
 +				{
 +					APIGroup:   "apps",
@@ -572,6 +791,7 @@ index 00000000000..481348aa463
 +					Name:       []string{"testName"},
 +					Namespace:  "ns",
 +					Scope:      &cluster,
++					Username:   "*",
 +				},
 +			},
 +			expectedOutputRules: 1,
@@ -586,6 +806,7 @@ index 00000000000..481348aa463
 +					Name:       []string{"testName"},
 +					Namespace:  "ns",
 +					Scope:      &namespace,
++					Username:   "*",
 +				},
 +				{
 +					APIGroup:   "apps",
@@ -594,9 +815,34 @@ index 00000000000..481348aa463
 +					Name:       []string{"testName"},
 +					Namespace:  "",
 +					Scope:      &namespace,
++					Username:   "*",
 +				},
 +			},
 +			expectedOutputRules: 1,
++		},
++		{
++			name: "allowed wildcards when user set",
++			inputRules: []ExclusionRule{
++				{
++					APIGroup:   "*",
++					APIVersion: "*",
++					Kind:       "*",
++					Name:       []string{"*"},
++					Namespace:  "*",
++					Scope:      &allscopes,
++					Username:   "exempt:user",
++				},
++				{
++					APIGroup:   "*",
++					APIVersion: "*",
++					Kind:       "*",
++					Name:       []string{"*"},
++					Namespace:  "*",
++					Scope:      &namespace,
++					Username:   "exempt:user",
++				},
++			},
++			expectedOutputRules: 2,
 +		},
 +	}
 +	for _, testcase := range testcases {
@@ -610,10 +856,10 @@ index 00000000000..481348aa463
 +}
 diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/generic/exclusionrules/matcher.go b/staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/generic/exclusionrules/matcher.go
 new file mode 100644
-index 00000000000..029abc43cd6
+index 00000000000..449fd2f2118
 --- /dev/null
 +++ b/staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/generic/exclusionrules/matcher.go
-@@ -0,0 +1,81 @@
+@@ -0,0 +1,93 @@
 +package exclusionrules
 +
 +import (
@@ -637,10 +883,11 @@ index 00000000000..029abc43cd6
 +		r.namespace() &&
 +		r.group() &&
 +		r.version() &&
-+		r.kind()
++		r.kind() &&
++		r.username()
 +}
 +
-+func exactOrWildcard(items []string, requested string) bool {
++func exactOrWildcardList(items []string, requested string) bool {
 +	for _, item := range items {
 +		if item == "*" {
 +			return true
@@ -651,6 +898,10 @@ index 00000000000..029abc43cd6
 +	}
 +
 +	return false
++}
++
++func exactOrWildcard(item string, requested string) bool {
++	return exactOrWildcardList([]string{item}, requested)
 +}
 +
 +func (r *Matcher) scope() bool {
@@ -677,42 +928,51 @@ index 00000000000..029abc43cd6
 +}
 +
 +func (r *Matcher) group() bool {
-+	return r.ExclusionRule.APIGroup == r.Attr.GetResource().Group
++	return exactOrWildcard(r.ExclusionRule.APIGroup, r.Attr.GetResource().Group)
 +}
 +
 +func (r *Matcher) name() bool {
-+	return exactOrWildcard(r.ExclusionRule.Name, r.Attr.GetName())
++	return exactOrWildcardList(r.ExclusionRule.Name, r.Attr.GetName())
 +}
 +
 +func (r *Matcher) namespace() bool {
-+	return r.ExclusionRule.Namespace == r.Attr.GetNamespace()
++	if r.ExclusionRule.Scope != nil && *r.ExclusionRule.Scope == v1.AllScopes {
++		return true
++	}
++	return exactOrWildcard(r.ExclusionRule.Namespace, r.Attr.GetNamespace())
 +}
 +
 +func (r *Matcher) version() bool {
-+	return r.ExclusionRule.APIVersion == r.Attr.GetResource().Version
++	return exactOrWildcard(r.ExclusionRule.APIVersion, r.Attr.GetResource().Version)
 +}
 +
 +func (r *Matcher) kind() bool {
-+	return r.ExclusionRule.Kind == r.Attr.GetKind().Kind
++	return exactOrWildcard(r.ExclusionRule.Kind, r.Attr.GetKind().Kind)
++}
++
++func (r *Matcher) username() bool {
++	return exactOrWildcard(r.ExclusionRule.Username, r.Attr.GetUserInfo().GetName())
 +}
 diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/generic/exclusionrules/matcher_test.go b/staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/generic/exclusionrules/matcher_test.go
 new file mode 100644
-index 00000000000..3f7abbb9d90
+index 00000000000..9c8ea7849b3
 --- /dev/null
 +++ b/staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/generic/exclusionrules/matcher_test.go
-@@ -0,0 +1,333 @@
+@@ -0,0 +1,422 @@
 +package exclusionrules
 +
 +import (
 +	"fmt"
++	"testing"
++
 +	adreg "k8s.io/api/admissionregistration/v1"
++	v1 "k8s.io/api/admissionregistration/v1"
 +	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 +	"k8s.io/apimachinery/pkg/runtime"
 +	"k8s.io/apimachinery/pkg/runtime/schema"
 +	"k8s.io/apimachinery/pkg/util/sets"
-+	"testing"
-+
 +	"k8s.io/apiserver/pkg/admission"
++	"k8s.io/apiserver/pkg/authentication/user"
 +)
 +
 +type exclusionRuleTest struct {
@@ -726,7 +986,7 @@ index 00000000000..3f7abbb9d90
 +	return a
 +}
 +
-+func a(group, version, kind, namespace, name string) admission.Attributes {
++func a(group, version, kind, namespace, name, username string) admission.Attributes {
 +	return admission.NewAttributesRecord(
 +		nil, nil,
 +		schema.GroupVersionKind{Group: group, Version: version, Kind: kind},
@@ -735,7 +995,9 @@ index 00000000000..3f7abbb9d90
 +		"",
 +		nil,
 +		false,
-+		nil,
++		&user.DefaultInfo{
++			Name: username,
++		},
 +	)
 +}
 +
@@ -767,17 +1029,25 @@ index 00000000000..3f7abbb9d90
 +
 +func TestGroup(t *testing.T) {
 +	table := tests{
++		"wildcard": {
++			exclusionRule: ExclusionRule{
++				APIGroup: "*",
++			},
++			match: attrList(
++				a("g1", "v1", "Lease", "", "kube-scheduler", "test:user"),
++			),
++		},
 +		"exact": {
 +			exclusionRule: ExclusionRule{
 +				APIGroup: "g1",
 +			},
 +			match: attrList(
-+				a("g1", "v", "r", "", "name"),
-+				a("g1", "v2", "r3", "", "name"),
++				a("g1", "v", "r", "", "name", "test:user"),
++				a("g1", "v2", "r3", "", "name", "test:user"),
 +			),
 +			noMatch: attrList(
-+				a("g3", "v", "r", "", "name"),
-+				a("g4", "v", "r", "", "name"),
++				a("g3", "v", "r", "", "name", "test:user"),
++				a("g4", "v", "r", "", "name", "test:user"),
 +			),
 +		},
 +	}
@@ -804,17 +1074,25 @@ index 00000000000..3f7abbb9d90
 +
 +func TestVersion(t *testing.T) {
 +	table := tests{
++		"wildcard": {
++			exclusionRule: ExclusionRule{
++				APIVersion: "*",
++			},
++			match: attrList(
++				a("g1", "v1", "Lease", "", "kube-scheduler", "test:user"),
++			),
++		},
 +		"exact": {
 +			exclusionRule: ExclusionRule{
 +				APIVersion: "v1",
 +			},
 +			match: attrList(
-+				a("g1", "v1", "r", "", "name"),
-+				a("g2", "v1", "r", "", "name"),
++				a("g1", "v1", "r", "", "name", "test:user"),
++				a("g2", "v1", "r", "", "name", "test:user"),
 +			),
 +			noMatch: attrList(
-+				a("g1", "v3", "r", "", "name"),
-+				a("g2", "v4", "r", "", "name"),
++				a("g1", "v3", "r", "", "name", "test:user"),
++				a("g2", "v4", "r", "", "name", "test:user"),
 +			),
 +		},
 +	}
@@ -840,17 +1118,25 @@ index 00000000000..3f7abbb9d90
 +
 +func TestKind(t *testing.T) {
 +	table := tests{
++		"wildcard": {
++			exclusionRule: ExclusionRule{
++				Kind: "*",
++			},
++			match: attrList(
++				a("g1", "v1", "Lease", "", "kube-scheduler", "test:user"),
++			),
++		},
 +		"exact": {
 +			exclusionRule: ExclusionRule{
 +				Kind: "Lease",
 +			},
 +			match: attrList(
-+				a("g1", "v1", "Lease", "", "name"),
-+				a("g2", "v2", "Lease", "", "name"),
++				a("g1", "v1", "Lease", "", "name", "test:user"),
++				a("g2", "v2", "Lease", "", "name", "test:user"),
 +			),
 +			noMatch: attrList(
-+				a("g1", "v3", "Deployment", "", "name"),
-+				a("g2", "v4", "Pod", "", "name"),
++				a("g1", "v3", "Deployment", "", "name", "test:user"),
++				a("g2", "v4", "Pod", "", "name", "test:user"),
 +			),
 +		},
 +	}
@@ -881,7 +1167,7 @@ index 00000000000..3f7abbb9d90
 +				Name: []string{"*"},
 +			},
 +			match: attrList(
-+				a("g1", "v1", "Lease", "", "kube-scheduler"),
++				a("g1", "v1", "Lease", "", "kube-scheduler", "test:user"),
 +			),
 +		},
 +		"exact": {
@@ -889,12 +1175,12 @@ index 00000000000..3f7abbb9d90
 +				Name: []string{"kube-scheduler"},
 +			},
 +			match: attrList(
-+				a("g1", "v1", "Lease", "", "kube-scheduler"),
-+				a("g2", "v2", "Lease", "", "kube-scheduler"),
++				a("g1", "v1", "Lease", "", "kube-scheduler", "test:user"),
++				a("g2", "v2", "Lease", "", "kube-scheduler", "test:user"),
 +			),
 +			noMatch: attrList(
-+				a("g1", "v3", "Deployment", "", "something"),
-+				a("g2", "v4", "Pod", "", "else"),
++				a("g1", "v3", "Deployment", "", "something", "test:user"),
++				a("g2", "v4", "Pod", "", "else", "test:user"),
 +			),
 +		},
 +	}
@@ -918,19 +1204,80 @@ index 00000000000..3f7abbb9d90
 +	}
 +}
 +
-+func TestNamespace(t *testing.T) {
++func TestUserName(t *testing.T) {
 +	table := tests{
++		"wildcard": {
++			exclusionRule: ExclusionRule{
++				Username: "*",
++			},
++			match: attrList(
++				a("g1", "v1", "Lease", "", "kube-scheduler", "test:user"),
++			),
++		},
++		"exact": {
++			exclusionRule: ExclusionRule{
++				Username: "exempt:user",
++			},
++			match: attrList(
++				a("g1", "v1", "Lease", "", "kube-scheduler", "exempt:user"),
++				a("g2", "v2", "Lease", "", "kube-scheduler", "exempt:user"),
++			),
++			noMatch: attrList(
++				a("g1", "v3", "Deployment", "", "something", "test:user1"),
++				a("g2", "v4", "Pod", "", "else", "test:user2"),
++			),
++		},
++	}
++	for name, tt := range table {
++		for i, m := range tt.match {
++			t.Run(fmt.Sprintf("%s_match_%d", name, i), func(t *testing.T) {
++				r := Matcher{tt.exclusionRule, m}
++				if !r.username() {
++					t.Errorf("%v: expected match %#v", name, m)
++				}
++			})
++		}
++		for i, m := range tt.noMatch {
++			t.Run(fmt.Sprintf("%s_match_%d", name, i), func(t *testing.T) {
++				r := Matcher{tt.exclusionRule, m}
++				if r.username() {
++					t.Errorf("%v: expected match %#v", name, m)
++				}
++			})
++		}
++	}
++}
++
++func TestNamespace(t *testing.T) {
++	allScopes := v1.AllScopes
++	table := tests{
++		"wildcardScope": {
++			exclusionRule: ExclusionRule{
++				Scope: &allScopes,
++			},
++			match: attrList(
++				a("g1", "v1", "Lease", "test", "kube-scheduler", "test:user"),
++			),
++		},
++		"wildcard": {
++			exclusionRule: ExclusionRule{
++				Namespace: "*",
++			},
++			match: attrList(
++				a("g1", "v1", "Lease", "test", "kube-scheduler", "test:user"),
++			),
++		},
 +		"exact": {
 +			exclusionRule: ExclusionRule{
 +				Namespace: "kube-system",
 +			},
 +			match: attrList(
-+				a("g1", "v1", "Lease", "kube-system", ""),
-+				a("g2", "v2", "Endpoint", "kube-system", ""),
++				a("g1", "v1", "Lease", "kube-system", "", "test:user"),
++				a("g2", "v2", "Endpoint", "kube-system", "", "test:user"),
 +			),
 +			noMatch: attrList(
-+				a("g1", "v3", "Deployment", "something", "something"),
-+				a("g2", "v4", "Pod", "else", "else"),
++				a("g1", "v3", "Deployment", "something", "something", "test:user"),
++				a("g2", "v4", "Pod", "else", "else", "test:user"),
 +			),
 +		},
 +	}
@@ -1092,22 +1439,23 @@ index c04225e94f7..8d9c56c9db6 100644
  		m := rules.Matcher{Rule: r, Attr: attr}
 diff --git a/test/integration/apiserver/admissionwebhook/webhook_exclusion_rules_test.go b/test/integration/apiserver/admissionwebhook/webhook_exclusion_rules_test.go
 new file mode 100644
-index 00000000000..3388050d507
+index 00000000000..2c26ca24870
 --- /dev/null
 +++ b/test/integration/apiserver/admissionwebhook/webhook_exclusion_rules_test.go
-@@ -0,0 +1,281 @@
+@@ -0,0 +1,283 @@
 +package admissionwebhook
 +
 +import (
 +	"context"
 +	"fmt"
-+	coordinationv1 "k8s.io/api/coordination/v1"
-+	"k8s.io/apiserver/pkg/admission/plugin/webhook/generic"
-+	"k8s.io/apiserver/pkg/admission/plugin/webhook/generic/exclusionrules"
 +	"os"
 +	"sync"
 +	"testing"
 +	"time"
++
++	coordinationv1 "k8s.io/api/coordination/v1"
++	"k8s.io/apiserver/pkg/admission/plugin/webhook/generic"
++	"k8s.io/apiserver/pkg/admission/plugin/webhook/generic/exclusionrules"
 +
 +	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 +	appsv1 "k8s.io/api/apps/v1"
@@ -1221,7 +1569,8 @@ index 00000000000..3388050d507
 +		"kind": "Deployment",
 +		"namespace": "default",
 +		"name": ["%v"],
-+		"scope": "Namespaced"
++		"scope": "Namespaced",
++		"username": "*"
 +	}
 +]`, deploymentNameExclusionRules)
 +

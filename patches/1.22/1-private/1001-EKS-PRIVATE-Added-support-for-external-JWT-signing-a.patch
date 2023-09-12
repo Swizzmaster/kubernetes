@@ -1521,7 +1521,7 @@ index 00000000000..0ec98768eb1
 +	return out, err
 +}
 diff --git a/vendor/modules.txt b/vendor/modules.txt
-index e5f8e00d86d..d026522ad09 100644
+index 74b19ee70bc..3e6ef6d7ca4 100644
 --- a/vendor/modules.txt
 +++ b/vendor/modules.txt
 @@ -1244,6 +1244,7 @@ gopkg.in/natefinch/lumberjack.v2
