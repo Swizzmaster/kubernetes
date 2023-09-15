@@ -64,7 +64,7 @@ Kubernetes version this patch can be dropped:
  create mode 100644 vendor/github.com/aws/aws-sdk-go/internal/shareddefaults/shared_config_resolve_home_go1.12.go
 
 diff --git a/go.mod b/go.mod
-index 48e44aa4c7b..43c6d8f447d 100644
+index 4d63a0134d7..9db6d13d005 100644
 --- a/go.mod
 +++ b/go.mod
 @@ -20,7 +20,7 @@ require (
@@ -77,7 +77,7 @@ index 48e44aa4c7b..43c6d8f447d 100644
  	github.com/container-storage-interface/spec v1.7.0
  	github.com/coredns/corefile-migration v1.0.17
 diff --git a/go.sum b/go.sum
-index 4bfdd7614ca..fdcf7f3f7d4 100644
+index b95f1e9d699..12a405f9ced 100644
 --- a/go.sum
 +++ b/go.sum
 @@ -110,8 +110,8 @@ github.com/armon/go-socks5 v0.0.0-20160902184237-e75332964ef5/go.mod h1:wHh0iHkY
@@ -161,7 +161,7 @@ index 9df9fb50257..943bdf00f57 100644
  	github.com/google/go-cmp v0.5.9
  	github.com/rubiojr/go-vhd v0.0.0-20200706105327-02e210299021
 diff --git a/staging/src/k8s.io/legacy-cloud-providers/go.sum b/staging/src/k8s.io/legacy-cloud-providers/go.sum
-index 927dfcd9fdc..8bb4e269e56 100644
+index 3946a0f9329..23d8f1698d5 100644
 --- a/staging/src/k8s.io/legacy-cloud-providers/go.sum
 +++ b/staging/src/k8s.io/legacy-cloud-providers/go.sum
 @@ -85,8 +85,8 @@ github.com/antihax/optional v1.0.0/go.mod h1:uupD/76wgC+ih3iEmQUL+0Ugr19nfwCT1kd
@@ -37641,7 +37641,7 @@ index 2b7e675ab86..63729d0a78b 100644
  	// You can pass a session tag with the same key as a tag that is already attached
  	// to the user you are federating. When you do, session tags override a user
 diff --git a/vendor/modules.txt b/vendor/modules.txt
-index 94e8c3382c5..a01f6202735 100644
+index 055fb2b4dcb..c1bf5cea2a6 100644
 --- a/vendor/modules.txt
 +++ b/vendor/modules.txt
 @@ -105,7 +105,7 @@ github.com/armon/go-socks5
