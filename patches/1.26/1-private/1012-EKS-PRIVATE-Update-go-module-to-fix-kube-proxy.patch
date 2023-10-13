@@ -16,7 +16,7 @@ Updating go module github.com/cyphar/filepath-securejoin to v0.2.4 to solve CVE
  delete mode 100644 vendor/github.com/cyphar/filepath-securejoin/.travis.yml
 
 diff --git a/go.mod b/go.mod
-index 2c892178e12..09e3338039e 100644
+index 1a02f2a8b91..86dab82b3f9 100644
 --- a/go.mod
 +++ b/go.mod
 @@ -153,7 +153,7 @@ require (
@@ -29,7 +29,7 @@ index 2c892178e12..09e3338039e 100644
  	github.com/dustin/go-humanize v1.0.0 // indirect
  	github.com/euank/go-kmsg-parser v2.0.0+incompatible // indirect
 diff --git a/go.sum b/go.sum
-index efdd5b2a172..16b4dfdb709 100644
+index 1edbecafd02..cf9b0147493 100644
 --- a/go.sum
 +++ b/go.sum
 @@ -202,8 +202,9 @@ github.com/cpuguy83/go-md2man/v2 v2.0.2/go.mod h1:tgQtvFlXSQOSOSIRvRPT7W67SCa46t
@@ -123,7 +123,7 @@ index 7dd08dbbdf7..aa32b85fb84 100644
  
  		// Next path component, p.
 diff --git a/vendor/modules.txt b/vendor/modules.txt
-index d28779d48c3..2690ec473e8 100644
+index 1f2c02cc2f4..a5dac83d69e 100644
 --- a/vendor/modules.txt
 +++ b/vendor/modules.txt
 @@ -219,7 +219,7 @@ github.com/coreos/go-systemd/v22/util
@@ -135,7 +135,7 @@ index d28779d48c3..2690ec473e8 100644
  ## explicit; go 1.13
  github.com/cyphar/filepath-securejoin
  # github.com/davecgh/go-spew v1.1.1
-@@ -1473,6 +1473,7 @@ k8s.io/apiserver/pkg/admission/plugin/webhook/config/apis/webhookadmission/v1
+@@ -1472,6 +1472,7 @@ k8s.io/apiserver/pkg/admission/plugin/webhook/config/apis/webhookadmission/v1
  k8s.io/apiserver/pkg/admission/plugin/webhook/config/apis/webhookadmission/v1alpha1
  k8s.io/apiserver/pkg/admission/plugin/webhook/errors
  k8s.io/apiserver/pkg/admission/plugin/webhook/generic

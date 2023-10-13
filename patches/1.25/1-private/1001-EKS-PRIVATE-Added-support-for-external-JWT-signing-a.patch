@@ -1527,10 +1527,10 @@ index 00000000000..0ec98768eb1
 +	return out, err
 +}
 diff --git a/vendor/modules.txt b/vendor/modules.txt
-index cc0b51685a7..8524adcd859 100644
+index 87a818da3ec..1e0032fbf17 100644
 --- a/vendor/modules.txt
 +++ b/vendor/modules.txt
-@@ -1357,6 +1357,7 @@ gopkg.in/natefinch/lumberjack.v2
+@@ -1356,6 +1356,7 @@ gopkg.in/natefinch/lumberjack.v2
  ## explicit
  gopkg.in/square/go-jose.v2
  gopkg.in/square/go-jose.v2/cipher
