@@ -80,7 +80,7 @@ Signed-off-by: Jyoti Mahapatra<jyotima@amazon.com>
  create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator_testdata/valid-volumes.yaml
 
 diff --git a/pkg/features/kube_features.go b/pkg/features/kube_features.go
-index 4201dac7a33..084d1413788 100644
+index c48b38dfa1f..9c5b5098254 100644
 --- a/pkg/features/kube_features.go
 +++ b/pkg/features/kube_features.go
 @@ -692,6 +692,12 @@ const (
@@ -196,7 +196,7 @@ index 2f6ef8e6977..c794fbe082d 100644
  
  	typedVersion, err := runtimeService.Version(ctx, kubeRuntimeAPIVersion)
 diff --git a/pkg/kubelet/kuberuntime/kuberuntime_container_linux.go b/pkg/kubelet/kuberuntime/kuberuntime_container_linux.go
-index c76389c0d9f..db9362a53dc 100644
+index f14b6d1a6fc..ab1609d6fff 100644
 --- a/pkg/kubelet/kuberuntime/kuberuntime_container_linux.go
 +++ b/pkg/kubelet/kuberuntime/kuberuntime_container_linux.go
 @@ -45,6 +45,7 @@ import (
@@ -207,7 +207,7 @@ index c76389c0d9f..db9362a53dc 100644
  )
  
  var defaultPageSize = int64(os.Getpagesize())
-@@ -215,6 +216,8 @@ func (m *kubeGenericRuntimeManager) calculateLinuxResources(cpuRequest, cpuLimit
+@@ -229,6 +230,8 @@ func (m *kubeGenericRuntimeManager) calculateLinuxResources(cpuRequest, cpuLimit
  			cpuPeriod = int64(m.cpuCFSQuotaPeriod.Duration / time.Microsecond)
  		}
  		cpuQuota := milliCPUToQuota(cpuLimit.MilliValue(), cpuPeriod)

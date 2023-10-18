@@ -409,7 +409,7 @@ index 694ca749a1c..4bf20243428 100644
  	Codec runtime.Codec
  	// EncodeVersioner is the same groupVersioner used to build the
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/factory/etcd3.go b/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/factory/etcd3.go
-index 2149690d831..3a01720b66c 100644
+index 055fa6a401f..538f5646bb5 100644
 --- a/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/factory/etcd3.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/factory/etcd3.go
 @@ -455,7 +455,8 @@ func newETCD3Storage(c storagebackend.ConfigForResource, newFunc func() runtime.
