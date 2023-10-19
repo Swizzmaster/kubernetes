@@ -12,10 +12,10 @@ Subject: [PATCH] --EKS-PATCH-- add Authentication tracking request/error
  4 files changed, 181 insertions(+), 11 deletions(-)
 
 diff --git a/staging/src/k8s.io/apiserver/pkg/endpoints/filters/authentication.go b/staging/src/k8s.io/apiserver/pkg/endpoints/filters/authentication.go
-index d6741bf3a3a..277bdcdfe5f 100644
+index 0fe62303b63..64b3569d0d9 100644
 --- a/staging/src/k8s.io/apiserver/pkg/endpoints/filters/authentication.go
 +++ b/staging/src/k8s.io/apiserver/pkg/endpoints/filters/authentication.go
-@@ -34,17 +34,17 @@ import (
+@@ -37,17 +37,17 @@ import (
  	"k8s.io/klog/v2"
  )
  
