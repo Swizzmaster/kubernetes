@@ -33,7 +33,7 @@ index 6cade01ef65..7bb04c31233 100644
 -v1.23.0-go1.19.6-bullseye.0
 +v1.23.0-go1.19.13-bullseye.0
 diff --git a/build/common.sh b/build/common.sh
-index e7819cc008f..eb536229d79 100755
+index e7819cc008f..dcc37d2370c 100755
 --- a/build/common.sh
 +++ b/build/common.sh
 @@ -91,7 +91,7 @@ readonly KUBE_CONTAINER_RSYNC_PORT=8730
@@ -41,12 +41,12 @@ index e7819cc008f..eb536229d79 100755
  # These are the default versions (image tags) for their respective base images.
  readonly __default_debian_iptables_version=bullseye-v1.1.0
 -readonly __default_go_runner_version=v2.3.1-go1.19.6-bullseye.0
-+readonly __default_go_runner_version=v2.3.1-go1.19.13-bullseye.0
++readonly __default_go_runner_version=v2.3.1-go1.20.10-bullseye.0
  readonly __default_setcap_version=bullseye-v1.0.0
  
  # These are the base images for the Docker-wrapped binaries.
 diff --git a/build/dependencies.yaml b/build/dependencies.yaml
-index 6618098c20c..6a85cdfd2df 100644
+index 6618098c20c..d7ca03b32f0 100644
 --- a/build/dependencies.yaml
 +++ b/build/dependencies.yaml
 @@ -87,7 +87,7 @@ dependencies:
@@ -72,7 +72,7 @@ index 6618098c20c..6a85cdfd2df 100644
  
    - name: "k8s.gcr.io/go-runner: dependents"
 -    version: v2.3.1-go1.19.6-bullseye.0
-+    version: v2.3.1-go1.19.13-bullseye.0
++    version: v2.3.1-go1.20.10-bullseye.0
      refPaths:
      - path: build/common.sh
        match: __default_go_runner_version=
