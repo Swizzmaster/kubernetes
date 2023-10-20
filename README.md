@@ -311,12 +311,16 @@ Use the following commands to push from local box and pull the image on CPI:
 
 ### (OPTIONAL) Manual Code Pipeline build
 
-In order to simulate the code-pipeline build process use the following. This build uses docker and is not advisable to perform on mac. To test the command, use dev desktop.
+In order to **simulate** the code-pipeline build process use the following.
+Please note that `hack/build-pipeline.sh` is not identical from the [script](https://code.amazon.com/packages/EKSDataPlaneCDK/blobs/mainline/--/eks_code_pipeline/build_deploy_scripts/k8s_build_patch.sh) used in the real [pipeline](https://tiny.amazon.com/2ff5wtha/IsenLink).
+This build uses docker and is not advisable to perform on mac. To test the command, use dev desktop.
 Docker is needed on dev-desktop https://builderhub.corp.amazon.com/docs/rde/cli-guide/setup-clouddesk.html#install-and-configure-docker
 ```
 export REGISTRY=$AWS_ACCOUNT_ID.dkr.ecr.us-west-2.amazonaws.com
 export VERSION_TAG=v1.22.6
 export IMAGE_TAG=v1.22.6-eks-test
 export KUBE_BUILD_PLATFORMS="linux/amd64"
-./hack/build-pipeline.sh ~/workplace/eks-kubernetes-patches
+./hack/build-pipeline.sh ~/workplace/eks-kubernetes-patches/kubernetes/
 ```
+
+
