@@ -46,7 +46,7 @@ Signed-off-by: Jyoti Mahapatra<jyotima@amazon.com>
  create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator.go
 
 diff --git a/pkg/features/kube_features.go b/pkg/features/kube_features.go
-index 71d85212140..55b484445a2 100644
+index f6626acef22..3e2b4f178a4 100644
 --- a/pkg/features/kube_features.go
 +++ b/pkg/features/kube_features.go
 @@ -691,6 +691,12 @@ const (
