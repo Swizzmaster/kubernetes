@@ -1,0 +1,46 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: James Sturtevant <jstur@microsoft.com>
+Date: Thu, 5 Oct 2023 18:23:55 +0000
+Subject: [PATCH] --EKS-PRIVATE-- Use golang library instead of mklink
+
+Signed-off-by: James Sturtevant <jstur@microsoft.com>
+
+Remove other cases where cmd is used
+
+Signed-off-by: James Sturtevant <jstur@microsoft.com>
+---
+ staging/src/k8s.io/mount-utils/mount_windows.go | 11 ++++++-----
+ 1 file changed, 6 insertions(+), 5 deletions(-)
+
+diff --git a/staging/src/k8s.io/mount-utils/mount_windows.go b/staging/src/k8s.io/mount-utils/mount_windows.go
+index 0ba4600e5ef..5e9a333282e 100644
+--- a/staging/src/k8s.io/mount-utils/mount_windows.go
++++ b/staging/src/k8s.io/mount-utils/mount_windows.go
+@@ -150,12 +150,12 @@ func (mounter *Mounter) MountSensitive(source string, target string, fstype stri
+ 		mklinkSource = mklinkSource + "\\"
+ 	}
+ 
+-	output, err := exec.Command("cmd", "/c", "mklink", "/D", target, mklinkSource).CombinedOutput()
++	err := os.Symlink(mklinkSource, target)
+ 	if err != nil {
+-		klog.Errorf("mklink failed: %v, source(%q) target(%q) output: %q", err, mklinkSource, target, string(output))
++		klog.Errorf("symlink failed: %v, source(%q) target(%q)", err, mklinkSource, target)
+ 		return err
+ 	}
+-	klog.V(2).Infof("mklink source(%q) on target(%q) successfully, output: %q", mklinkSource, target, string(output))
++	klog.V(2).Infof("symlink source(%q) on target(%q) successfully", mklinkSource, target)
+ 
+ 	return nil
+ }
+@@ -219,8 +219,9 @@ func removeSMBMapping(remotepath string) (string, error) {
+ func (mounter *Mounter) Unmount(target string) error {
+ 	klog.V(4).Infof("Unmount target (%q)", target)
+ 	target = NormalizeWindowsPath(target)
+-	if output, err := exec.Command("cmd", "/c", "rmdir", target).CombinedOutput(); err != nil {
+-		klog.Errorf("rmdir failed: %v, output: %q", err, string(output))
++
++	if err := os.RemoveAll(target); err != nil {
++		klog.Errorf("removing directory %s failed: %v", target, err)
+ 		return err
+ 	}
+ 	return nil
