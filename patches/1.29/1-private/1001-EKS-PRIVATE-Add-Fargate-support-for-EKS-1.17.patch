@@ -80,10 +80,10 @@ Signed-off-by: Jyoti Mahapatra<jyotima@amazon.com>
  create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator_testdata/valid-volumes.yaml
 
 diff --git a/pkg/features/kube_features.go b/pkg/features/kube_features.go
-index c48b38dfa1f..9c5b5098254 100644
+index 816c456ca59..d185e9966f8 100644
 --- a/pkg/features/kube_features.go
 +++ b/pkg/features/kube_features.go
-@@ -692,6 +692,12 @@ const (
+@@ -671,6 +671,12 @@ const (
  	// Enable users to specify when a Pod is ready for scheduling.
  	PodSchedulingReadiness featuregate.Feature = "PodSchedulingReadiness"
  
@@ -93,12 +93,12 @@ index c48b38dfa1f..9c5b5098254 100644
 +	// Enables kubelet to validate and restrict pods based on security contexts.
 +	PodSecurityValidator featuregate.Feature = "PodSecurityValidator"
 +
- 	// owner: @rphillips
- 	// alpha: v1.21
- 	// beta: v1.22
-@@ -1129,6 +1135,8 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
+ 	// owner: @jessfraz
+ 	// alpha: v1.12
+ 	//
+@@ -1144,6 +1150,8 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
  
- 	ProbeTerminationGracePeriod: {Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 1.29
+ 	PodSchedulingReadiness: {Default: true, PreRelease: featuregate.Beta},
  
 +	PodSecurityValidator: {Default: false, PreRelease: featuregate.Alpha},
 +
@@ -106,10 +106,10 @@ index c48b38dfa1f..9c5b5098254 100644
  
  	ProxyTerminatingEndpoints: {Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 1.30
 diff --git a/pkg/kubelet/apis/config/fuzzer/fuzzer.go b/pkg/kubelet/apis/config/fuzzer/fuzzer.go
-index 79748b4b93f..685b7719d95 100644
+index dfa988c0d04..11e2bc1da69 100644
 --- a/pkg/kubelet/apis/config/fuzzer/fuzzer.go
 +++ b/pkg/kubelet/apis/config/fuzzer/fuzzer.go
-@@ -113,6 +113,7 @@ func Funcs(codecs runtimeserializer.CodecFactory) []interface{} {
+@@ -114,6 +114,7 @@ func Funcs(codecs runtimeserializer.CodecFactory) []interface{} {
  			if obj.Logging.Format == "" {
  				obj.Logging.Format = "text"
  			}
@@ -154,10 +154,10 @@ index 8a144e7a73c..c630e077850 100644
  		}
  		mounts = append(mounts, m)
 diff --git a/pkg/kubelet/kubelet.go b/pkg/kubelet/kubelet.go
-index e8918472ee8..b1076b84980 100644
+index f5735b83502..49e7c6f4c63 100644
 --- a/pkg/kubelet/kubelet.go
 +++ b/pkg/kubelet/kubelet.go
-@@ -664,6 +664,7 @@ func NewMainKubelet(kubeCfg *kubeletconfiginternal.KubeletConfiguration,
+@@ -673,6 +673,7 @@ func NewMainKubelet(kubeCfg *kubeletconfiginternal.KubeletConfiguration,
  		*kubeCfg.MemoryThrottlingFactor,
  		kubeDeps.PodStartupLatencyTracker,
  		kubeDeps.TracerProvider,
@@ -165,7 +165,7 @@ index e8918472ee8..b1076b84980 100644
  	)
  	if err != nil {
  		return nil, err
-@@ -858,6 +859,9 @@ func NewMainKubelet(kubeCfg *kubeletconfiginternal.KubeletConfiguration,
+@@ -870,6 +871,9 @@ func NewMainKubelet(kubeCfg *kubeletconfiginternal.KubeletConfiguration,
  		klet.appArmorValidator = apparmor.NewValidator()
  		klet.softAdmitHandlers.AddPodAdmitHandler(lifecycle.NewAppArmorAdmitHandler(klet.appArmorValidator))
  	}
@@ -217,10 +217,10 @@ index f14b6d1a6fc..ab1609d6fff 100644
  		resources.CpuPeriod = cpuPeriod
  	}
 diff --git a/pkg/kubelet/kuberuntime/kuberuntime_manager.go b/pkg/kubelet/kuberuntime/kuberuntime_manager.go
-index 49add764798..5a757b61a96 100644
+index f833c28e426..026c9585580 100644
 --- a/pkg/kubelet/kuberuntime/kuberuntime_manager.go
 +++ b/pkg/kubelet/kuberuntime/kuberuntime_manager.go
-@@ -168,6 +168,9 @@ type kubeGenericRuntimeManager struct {
+@@ -169,6 +169,9 @@ type kubeGenericRuntimeManager struct {
  
  	// Memory throttling factor for MemoryQoS
  	memoryThrottlingFactor float64
@@ -230,7 +230,7 @@ index 49add764798..5a757b61a96 100644
  }
  
  // KubeGenericRuntime is a interface contains interfaces for container runtime and command.
-@@ -209,6 +212,7 @@ func NewKubeGenericRuntimeManager(
+@@ -210,6 +213,7 @@ func NewKubeGenericRuntimeManager(
  	memoryThrottlingFactor float64,
  	podPullingTimeRecorder images.ImagePodPullingTimeRecorder,
  	tracerProvider trace.TracerProvider,
@@ -238,7 +238,7 @@ index 49add764798..5a757b61a96 100644
  ) (KubeGenericRuntime, error) {
  	ctx := context.Background()
  	runtimeService = newInstrumentedRuntimeService(runtimeService)
-@@ -236,6 +240,7 @@ func NewKubeGenericRuntimeManager(
+@@ -237,6 +241,7 @@ func NewKubeGenericRuntimeManager(
  		memorySwapBehavior:     memorySwapBehavior,
  		getNodeAllocatable:     getNodeAllocatable,
  		memoryThrottlingFactor: memoryThrottlingFactor,
@@ -246,7 +246,7 @@ index 49add764798..5a757b61a96 100644
  	}
  
  	typedVersion, err := kubeRuntimeManager.getTypedVersion(ctx)
-@@ -1226,6 +1231,14 @@ func (m *kubeGenericRuntimeManager) SyncPod(ctx context.Context, pod *v1.Pod, po
+@@ -1232,6 +1237,14 @@ func (m *kubeGenericRuntimeManager) SyncPod(ctx context.Context, pod *v1.Pod, po
  		startContainerResult := kubecontainer.NewSyncResult(kubecontainer.StartContainer, spec.container.Name)
  		result.AddSyncResult(startContainerResult)
  
@@ -1610,10 +1610,10 @@ index 00000000000..335e08b08bb
 +    persistentVolumeClaim:
 +      claimName: efs-pvc
 diff --git a/pkg/kubelet/server/server.go b/pkg/kubelet/server/server.go
-index 8e21d3fa50a..67b8e51ee26 100644
+index 87a017f9ccc..ee67b63f059 100644
 --- a/pkg/kubelet/server/server.go
 +++ b/pkg/kubelet/server/server.go
-@@ -529,8 +529,7 @@ func (s *Server) InstallDebuggingHandlers() {
+@@ -528,8 +528,7 @@ func (s *Server) InstallDebuggingHandlers() {
  
  	s.addMetricsBucketMatcher("containerLogs")
  	ws = new(restful.WebService)
@@ -1624,7 +1624,7 @@ index 8e21d3fa50a..67b8e51ee26 100644
  		To(s.getContainerLogs).
  		Operation("getContainerLogs"))
 diff --git a/pkg/kubelet/util/util.go b/pkg/kubelet/util/util.go
-index 97933afe39b..230031418aa 100644
+index 79473a18184..4807a1bdce8 100644
 --- a/pkg/kubelet/util/util.go
 +++ b/pkg/kubelet/util/util.go
 @@ -18,9 +18,12 @@ package util
@@ -1637,10 +1637,10 @@ index 97933afe39b..230031418aa 100644
 +	"k8s.io/apimachinery/pkg/api/resource"
  	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 +	"k8s.io/klog/v2"
+ 	"k8s.io/kubernetes/pkg/util/filesystem"
  )
  
- // FromApiserverCache modifies <opts> so that the GET request will
-@@ -57,3 +60,19 @@ func GetContainerByIndex(containers []v1.Container, statuses []v1.ContainerStatu
+@@ -60,3 +63,19 @@ func GetContainerByIndex(containers []v1.Container, statuses []v1.ContainerStatu
  	}
  	return containers[idx], true
  }
