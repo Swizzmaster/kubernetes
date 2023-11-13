@@ -1,0 +1,118 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: James Gleixner <jameglei@amazon.com>
+Date: Wed, 6 Sep 2023 10:53:38 -0700
+Subject: [PATCH] --EKS-PRIVATE-- Adding wait-for-address flag
+
+Adding `wait-for-addresses` kubelet flag.
+
+EKS Fargate requires this flag to address issue https://t.corp.amazon.com/P92672406
+
+Use of external cloud control manager creates a race condition between the node marking itself ready and being able to acquire node addresses to create the CSR.
+When kubelet loses the race, the node is ready but users may be unable to exec into pods on the nodes for 30 seconds.
+This creates usability issues for EKS Fargate pods as Fargate node lifetimes closely match the pod life times.
+
+The node-ip flag is not useable with EKS Fargate since custom networking considerations mean that the node ip address is not available on a network interface
+in the network namespace where the kubelet is running so validations will fail.
+---
+ cmd/kubelet/app/options/options.go | 5 +++++
+ cmd/kubelet/app/server.go          | 3 ++-
+ pkg/kubelet/kubelet.go             | 5 +++++
+ pkg/kubelet/kubelet_node_status.go | 5 +++++
+ pkg/kubelet/kubelet_test.go        | 1 +
+ 5 files changed, 18 insertions(+), 1 deletion(-)
+
+diff --git a/cmd/kubelet/app/options/options.go b/cmd/kubelet/app/options/options.go
+index 71ea243361c..36b960370b1 100644
+--- a/cmd/kubelet/app/options/options.go
++++ b/cmd/kubelet/app/options/options.go
+@@ -62,6 +62,9 @@ type KubeletFlags struct {
+ 	// If set, kubelet will use this IP address for the node.
+ 	NodeIP string
+ 
++	// WaitForAddresses will direct the kubelet to wait for the control plane to populate ip addresses before marking itself ready.
++	WaitForAddresses bool
++
+ 	// Container-runtime-specific options.
+ 	config.ContainerRuntimeOptions
+ 
+@@ -297,6 +300,8 @@ func (f *KubeletFlags) AddFlags(mainfs *pflag.FlagSet) {
+ 
+ 	fs.StringVar(&f.NodeIP, "node-ip", f.NodeIP, "IP address (or comma-separated dual-stack IP addresses) of the node. If unset, kubelet will use the node's default IPv4 address, if any, or its default IPv6 address if it has no IPv4 addresses. You can pass '::' to make it prefer the default IPv6 address rather than the default IPv4 address.")
+ 
++	fs.BoolVar(&f.WaitForAddresses, "wait-for-addresses", f.WaitForAddresses, "If true, the kubelet will wait to ingest ip addresses from the control plane before marking itself ready")
++
+ 	fs.StringVar(&f.CertDirectory, "cert-dir", f.CertDirectory, "The directory where the TLS certs are located. "+
+ 		"If --tls-cert-file and --tls-private-key-file are provided, this flag will be ignored.")
+ 
+diff --git a/cmd/kubelet/app/server.go b/cmd/kubelet/app/server.go
+index 78b2d2c1394..ebfcfb92194 100644
+--- a/cmd/kubelet/app/server.go
++++ b/cmd/kubelet/app/server.go
+@@ -1283,7 +1283,8 @@ func createAndInitKubelet(kubeServer *options.KubeletServer,
+ 		kubeServer.KeepTerminatedPodVolumes,
+ 		kubeServer.NodeLabels,
+ 		kubeServer.NodeStatusMaxImages,
+-		kubeServer.KubeletFlags.SeccompDefault || kubeServer.KubeletConfiguration.SeccompDefault)
++		kubeServer.KubeletFlags.SeccompDefault || kubeServer.KubeletConfiguration.SeccompDefault,
++		kubeServer.WaitForAddresses)
+ 	if err != nil {
+ 		return nil, err
+ 	}
+diff --git a/pkg/kubelet/kubelet.go b/pkg/kubelet/kubelet.go
+index b1076b84980..36ec9a5035f 100644
+--- a/pkg/kubelet/kubelet.go
++++ b/pkg/kubelet/kubelet.go
+@@ -360,6 +360,7 @@ func NewMainKubelet(kubeCfg *kubeletconfiginternal.KubeletConfiguration,
+ 	nodeLabels map[string]string,
+ 	nodeStatusMaxImages int32,
+ 	seccompDefault bool,
++	waitForAddresses bool,
+ ) (*Kubelet, error) {
+ 	ctx := context.Background()
+ 	logger := klog.TODO()
+@@ -546,6 +547,7 @@ func NewMainKubelet(kubeCfg *kubeletconfiginternal.KubeletConfiguration,
+ 		containerManager:               kubeDeps.ContainerManager,
+ 		nodeIPs:                        nodeIPs,
+ 		nodeIPValidator:                validateNodeIP,
++		waitForAddresses:               waitForAddresses,
+ 		clock:                          clock.RealClock{},
+ 		enableControllerAttachDetach:   kubeCfg.EnableControllerAttachDetach,
+ 		makeIPTablesUtilChains:         kubeCfg.MakeIPTablesUtilChains,
+@@ -1223,6 +1225,9 @@ type Kubelet struct {
+ 	// use this function to validate the kubelet nodeIP
+ 	nodeIPValidator func(net.IP) error
+ 
++	// If true, wait for control plane to provide addresses before marking node ready
++	waitForAddresses bool
++
+ 	// If non-nil, this is a unique identifier for the node in an external database, eg. cloudprovider
+ 	providerID string
+ 
+diff --git a/pkg/kubelet/kubelet_node_status.go b/pkg/kubelet/kubelet_node_status.go
+index d598c55b79a..14b9e7d7e91 100644
+--- a/pkg/kubelet/kubelet_node_status.go
++++ b/pkg/kubelet/kubelet_node_status.go
+@@ -465,6 +465,11 @@ func (kl *Kubelet) fastNodeStatusUpdate(ctx context.Context, timeout bool) (comp
+ 		return false
+ 	}
+ 
++	if kl.waitForAddresses && (originalNode.Status.Addresses == nil || len(originalNode.Status.Addresses) == 0) {
++		klog.ErrorS(nil, "Node does not have addresses", "originalNode", originalNode)
++		return false
++	}
++
+ 	if originalNodeReady.Status == v1.ConditionTrue {
+ 		return true
+ 	}
+diff --git a/pkg/kubelet/kubelet_test.go b/pkg/kubelet/kubelet_test.go
+index 1b83b320c00..a944f51e35a 100644
+--- a/pkg/kubelet/kubelet_test.go
++++ b/pkg/kubelet/kubelet_test.go
+@@ -3003,6 +3003,7 @@ func TestNewMainKubeletStandAlone(t *testing.T) {
+ 		map[string]string{},
+ 		1024,
+ 		false,
++        false,
+ 	)
+ 	assert.NoError(t, err, "NewMainKubelet should succeed")
+ 	assert.NotNil(t, testMainKubelet, "testMainKubelet should not be nil")
