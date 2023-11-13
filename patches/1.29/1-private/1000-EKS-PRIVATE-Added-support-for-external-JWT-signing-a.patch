@@ -26,11 +26,11 @@ Signed-off-by: Davanum Srinivas <davanum@gmail.com>
  pkg/serviceaccount/jwt.go                     |  18 +-
  pkg/serviceaccount/jwt_external.go            | 225 +++++++++++++
  pkg/serviceaccount/jwt_external_test.go       | 130 +++++++
- pkg/serviceaccount/jwt_test.go                | 209 ++++++++----
+ pkg/serviceaccount/jwt_test.go                | 212 ++++++++----
  staging/src/k8s.io/client-go/util/cert/pem.go |   7 +-
  .../go-jose.v2/cryptosigner/cryptosigner.go   | 138 ++++++++
  vendor/modules.txt                            |   1 +
- 17 files changed, 1228 insertions(+), 72 deletions(-)
+ 17 files changed, 1228 insertions(+), 75 deletions(-)
  create mode 100755 hack/update-generated-externalsigner-dockerized.sh
  create mode 100755 hack/update-generated-externalsigner.sh
  create mode 100755 hack/verify-generated-externalsigner.sh
@@ -196,10 +196,10 @@ index 00000000000..8f66dc9b437
 +    exit 1
 +fi
 diff --git a/pkg/controlplane/apiserver/options/options.go b/pkg/controlplane/apiserver/options/options.go
-index d3e19ddce9c..e84050951b4 100644
+index a3a7b03442d..3572db9e9a5 100644
 --- a/pkg/controlplane/apiserver/options/options.go
 +++ b/pkg/controlplane/apiserver/options/options.go
-@@ -267,6 +267,26 @@ func (o *Options) Complete(alternateDNS []string, alternateIPs []net.IP) (Comple
+@@ -269,6 +269,26 @@ func (o *Options) Complete(alternateDNS []string, alternateIPs []net.IP) (Comple
  		completed.ServiceAccountTokenMaxExpiration = completed.Authentication.ServiceAccounts.MaxExpiration
  	}
  
@@ -227,7 +227,7 @@ index d3e19ddce9c..e84050951b4 100644
  		if key == "v1" || strings.HasPrefix(key, "v1/") ||
  			key == "api/v1" || strings.HasPrefix(key, "api/v1/") {
 diff --git a/pkg/controlplane/apiserver/options/validation.go b/pkg/controlplane/apiserver/options/validation.go
-index 879833ed2a7..c9ee582873f 100644
+index 1cae7323ab1..97c6f2dc9be 100644
 --- a/pkg/controlplane/apiserver/options/validation.go
 +++ b/pkg/controlplane/apiserver/options/validation.go
 @@ -96,6 +96,35 @@ func validateUnknownVersionInteroperabilityProxyFlags(options *Options) []error
@@ -275,10 +275,10 @@ index 879833ed2a7..c9ee582873f 100644
  	return errs
  }
 diff --git a/pkg/features/kube_features.go b/pkg/features/kube_features.go
-index 56791b47c87..c48b38dfa1f 100644
+index 816c456ca59..62e256dbfd7 100644
 --- a/pkg/features/kube_features.go
 +++ b/pkg/features/kube_features.go
-@@ -280,6 +280,12 @@ const (
+@@ -283,6 +283,12 @@ const (
  	// This flag used to be needed for dockershim CRI and currently does nothing.
  	ExperimentalHostUserNamespaceDefaultingGate featuregate.Feature = "ExperimentalHostUserNamespaceDefaulting"
  
@@ -288,20 +288,20 @@ index 56791b47c87..c48b38dfa1f 100644
 +	// External signing of projected service account tokens
 +	ExternalKeyService featuregate.Feature = "ExternalKeyService"
 +
- 	// owner: @yuzhiquan, @bowei, @PxyUp, @SergeyKanzhelev
- 	// kep: https://kep.k8s.io/2727
- 	// alpha: v1.23
-@@ -1013,6 +1019,8 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
+ 	// owner: @bobbypage
+ 	// alpha: v1.20
+ 	// beta:  v1.21
+@@ -1042,6 +1048,8 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
  
  	ExperimentalHostUserNamespaceDefaultingGate: {Default: false, PreRelease: featuregate.Deprecated, LockToDefault: true}, // remove in 1.30
  
 +	ExternalKeyService: {Default: false, PreRelease: featuregate.Alpha},
 +
- 	GRPCContainerProbe: {Default: true, PreRelease: featuregate.GA, LockToDefault: true}, //remove in 1.29
- 
  	GracefulNodeShutdown: {Default: true, PreRelease: featuregate.Beta},
+ 
+ 	GracefulNodeShutdownBasedOnPodPriority: {Default: true, PreRelease: featuregate.Beta},
 diff --git a/pkg/kubeapiserver/authenticator/config.go b/pkg/kubeapiserver/authenticator/config.go
-index 4e36040be8e..7d9eae44c19 100644
+index 9d32d00d9ba..05105e70fb4 100644
 --- a/pkg/kubeapiserver/authenticator/config.go
 +++ b/pkg/kubeapiserver/authenticator/config.go
 @@ -38,6 +38,7 @@ import (
@@ -312,7 +312,7 @@ index 4e36040be8e..7d9eae44c19 100644
  	"k8s.io/apiserver/plugin/pkg/authenticator/token/oidc"
  	"k8s.io/apiserver/plugin/pkg/authenticator/token/webhook"
  	typedv1core "k8s.io/client-go/kubernetes/typed/core/v1"
-@@ -46,6 +47,7 @@ import (
+@@ -47,6 +48,7 @@ import (
  	// Initialize all known client auth plugins.
  	_ "k8s.io/client-go/plugin/pkg/client/auth"
  	"k8s.io/client-go/util/keyutil"
@@ -320,7 +320,7 @@ index 4e36040be8e..7d9eae44c19 100644
  	"k8s.io/kubernetes/pkg/serviceaccount"
  )
  
-@@ -67,6 +69,7 @@ type Config struct {
+@@ -61,6 +63,7 @@ type Config struct {
  	ServiceAccountKeyFiles      []string
  	ServiceAccountLookup        bool
  	ServiceAccountIssuers       []string
@@ -328,16 +328,16 @@ index 4e36040be8e..7d9eae44c19 100644
  	APIAudiences                authenticator.Audiences
  	WebhookTokenAuthnConfigFile string
  	WebhookTokenAuthnVersion    string
-@@ -136,7 +139,7 @@ func (config Config) New() (authenticator.Request, *spec.SecurityDefinitions, er
+@@ -131,7 +134,7 @@ func (config Config) New() (authenticator.Request, *spec.SecurityDefinitions, sp
  		tokenAuthenticators = append(tokenAuthenticators, serviceAccountAuth)
  	}
  	if len(config.ServiceAccountIssuers) > 0 {
 -		serviceAccountAuth, err := newServiceAccountAuthenticator(config.ServiceAccountIssuers, config.ServiceAccountKeyFiles, config.APIAudiences, config.ServiceAccountTokenGetter)
 +		serviceAccountAuth, err := newServiceAccountAuthenticator(config.KeyServiceURL, config.ServiceAccountIssuers, config.ServiceAccountKeyFiles, config.APIAudiences, config.ServiceAccountTokenGetter)
  		if err != nil {
- 			return nil, nil, err
+ 			return nil, nil, nil, err
  		}
-@@ -288,7 +291,11 @@ func newLegacyServiceAccountAuthenticator(keyfiles []string, lookup bool, apiAud
+@@ -262,7 +265,11 @@ func newLegacyServiceAccountAuthenticator(keyfiles []string, lookup bool, apiAud
  }
  
  // newServiceAccountAuthenticator returns an authenticator.Token or an error
@@ -350,7 +350,7 @@ index 4e36040be8e..7d9eae44c19 100644
  	allPublicKeys := []interface{}{}
  	for _, keyfile := range keyfiles {
  		publicKeys, err := keyutil.PublicKeysFromFile(keyfile)
-@@ -297,9 +304,7 @@ func newServiceAccountAuthenticator(issuers []string, keyfiles []string, apiAudi
+@@ -271,9 +278,7 @@ func newServiceAccountAuthenticator(issuers []string, keyfiles []string, apiAudi
  		}
  		allPublicKeys = append(allPublicKeys, publicKeys...)
  	}
@@ -362,10 +362,10 @@ index 4e36040be8e..7d9eae44c19 100644
  
  func newWebhookTokenAuthenticator(config Config) (authenticator.Token, error) {
 diff --git a/pkg/kubeapiserver/options/authentication.go b/pkg/kubeapiserver/options/authentication.go
-index 914a3cac8e0..0b0c9dd3147 100644
+index 11501a2f3cb..e1818e56123 100644
 --- a/pkg/kubeapiserver/options/authentication.go
 +++ b/pkg/kubeapiserver/options/authentication.go
-@@ -89,6 +89,7 @@ type ServiceAccountAuthenticationOptions struct {
+@@ -117,6 +117,7 @@ type ServiceAccountAuthenticationOptions struct {
  	Issuers          []string
  	JWKSURI          string
  	MaxExpiration    time.Duration
@@ -373,7 +373,7 @@ index 914a3cac8e0..0b0c9dd3147 100644
  	ExtendExpiration bool
  }
  
-@@ -344,6 +345,9 @@ func (o *BuiltInAuthenticationOptions) AddFlags(fs *pflag.FlagSet) {
+@@ -396,6 +397,9 @@ func (o *BuiltInAuthenticationOptions) AddFlags(fs *pflag.FlagSet) {
  			"and key set are served to relying parties from a URL other than the "+
  			"API server's external (as auto-detected or overridden with external-hostname). ")
  
@@ -383,7 +383,7 @@ index 914a3cac8e0..0b0c9dd3147 100644
  		fs.DurationVar(&o.ServiceAccounts.MaxExpiration, "service-account-max-token-expiration", o.ServiceAccounts.MaxExpiration, ""+
  			"The maximum validity duration of a token created by the service account token issuer. If an otherwise valid "+
  			"TokenRequest with a validity duration larger than this value is requested, a token will be issued with a validity duration of this value.")
-@@ -425,6 +429,7 @@ func (o *BuiltInAuthenticationOptions) ToAuthenticationConfig() (kubeauthenticat
+@@ -545,6 +549,7 @@ func (o *BuiltInAuthenticationOptions) ToAuthenticationConfig() (kubeauthenticat
  		ret.ServiceAccountKeyFiles = o.ServiceAccounts.KeyFiles
  		ret.ServiceAccountIssuers = o.ServiceAccounts.Issuers
  		ret.ServiceAccountLookup = o.ServiceAccounts.Lookup
@@ -761,10 +761,10 @@ index 00000000000..cd8036f501b
 +  repeated PublicKey public_keys = 2;
 +}
 diff --git a/pkg/serviceaccount/jwt.go b/pkg/serviceaccount/jwt.go
-index 6722b206d1d..96765506aa5 100644
+index 57ae0a59b99..cb2c7a6ace4 100644
 --- a/pkg/serviceaccount/jwt.go
 +++ b/pkg/serviceaccount/jwt.go
-@@ -174,7 +174,11 @@ func signerFromECDSAPrivateKey(keyPair *ecdsa.PrivateKey) (jose.Signer, error) {
+@@ -175,7 +175,11 @@ func signerFromECDSAPrivateKey(keyPair *ecdsa.PrivateKey) (jose.Signer, error) {
  			Algorithm: alg,
  			Key:       privateJWK,
  		},
@@ -777,7 +777,7 @@ index 6722b206d1d..96765506aa5 100644
  	)
  	if err != nil {
  		return nil, fmt.Errorf("failed to create signer: %v", err)
-@@ -184,7 +188,9 @@ func signerFromECDSAPrivateKey(keyPair *ecdsa.PrivateKey) (jose.Signer, error) {
+@@ -185,7 +189,9 @@ func signerFromECDSAPrivateKey(keyPair *ecdsa.PrivateKey) (jose.Signer, error) {
  }
  
  func signerFromOpaqueSigner(opaqueSigner jose.OpaqueSigner) (jose.Signer, error) {
@@ -788,7 +788,7 @@ index 6722b206d1d..96765506aa5 100644
  
  	signer, err := jose.NewSigner(
  		jose.SigningKey{
-@@ -192,11 +198,15 @@ func signerFromOpaqueSigner(opaqueSigner jose.OpaqueSigner) (jose.Signer, error)
+@@ -193,11 +199,15 @@ func signerFromOpaqueSigner(opaqueSigner jose.OpaqueSigner) (jose.Signer, error)
  			Key: &jose.JSONWebKey{
  				Algorithm: string(alg),
  				Key:       opaqueSigner,
@@ -1174,7 +1174,7 @@ index 00000000000..510c36ec553
 +
 +}
 diff --git a/pkg/serviceaccount/jwt_test.go b/pkg/serviceaccount/jwt_test.go
-index ade7924aa71..ec5536a009b 100644
+index 629bb8496ab..40d1c6a8227 100644
 --- a/pkg/serviceaccount/jwt_test.go
 +++ b/pkg/serviceaccount/jwt_test.go
 @@ -34,8 +34,10 @@ import (
@@ -1210,7 +1210,7 @@ index ade7924aa71..ec5536a009b 100644
  	rsaSecret := &v1.Secret{
  		ObjectMeta: metav1.ObjectMeta{
  			Name:      "my-rsa-secret",
-@@ -194,6 +204,21 @@ func TestTokenGenerateAndValidate(t *testing.T) {
+@@ -217,6 +227,21 @@ func TestTokenGenerateAndValidate(t *testing.T) {
  
  	checkJSONWebSignatureHasKeyID(t, ecdsaToken, ecdsaKeyID)
  
@@ -1232,7 +1232,7 @@ index ade7924aa71..ec5536a009b 100644
  	// Generate signer with same keys as RSA signer but different unrecognized issuer
  	badIssuerGenerator, err := serviceaccount.JWTTokenGenerator("foo", getPrivateKey(rsaPrivateKey))
  	if err != nil {
-@@ -219,11 +244,15 @@ func TestTokenGenerateAndValidate(t *testing.T) {
+@@ -242,11 +267,15 @@ func TestTokenGenerateAndValidate(t *testing.T) {
  		Keys   []interface{}
  		Token  string
  
@@ -1253,9 +1253,9 @@ index ade7924aa71..ec5536a009b 100644
  	}{
  		"no keys": {
  			Token:       rsaToken,
-@@ -327,66 +356,122 @@ func TestTokenGenerateAndValidate(t *testing.T) {
+@@ -356,69 +385,122 @@ func TestTokenGenerateAndValidate(t *testing.T) {
+ 			Keys:        []interface{}{getPublicKey(rsaPublicKey)},
  			ExpectedErr: true,
- 			ExpectedOK:  false,
  		},
 +		"valid (external rsa)": {
 +			Token:                       remoteRsaToken,
@@ -1304,6 +1304,9 @@ index ade7924aa71..ec5536a009b 100644
 -			})),
 -			v1listers.NewPodLister(newIndexer(func(namespace, name string) (interface{}, error) {
 -				return tc.Client.CoreV1().Pods(namespace).Get(context.TODO(), name, metav1.GetOptions{})
+-			})),
+-			v1listers.NewNodeLister(newIndexer(func(_, name string) (interface{}, error) {
+-				return tc.Client.CoreV1().Nodes().Get(context.TODO(), name, metav1.GetOptions{})
 -			})),
 -		)
 -		var secretsWriter typedv1core.SecretsGetter
@@ -1603,10 +1606,10 @@ index 00000000000..0ec98768eb1
 +	return out, err
 +}
 diff --git a/vendor/modules.txt b/vendor/modules.txt
-index 679f91d42b4..4da3ec17601 100644
+index 5e935734690..8d4bc11d59e 100644
 --- a/vendor/modules.txt
 +++ b/vendor/modules.txt
-@@ -1226,6 +1226,7 @@ gopkg.in/natefinch/lumberjack.v2
+@@ -1256,6 +1256,7 @@ gopkg.in/natefinch/lumberjack.v2
  ## explicit
  gopkg.in/square/go-jose.v2
  gopkg.in/square/go-jose.v2/cipher
