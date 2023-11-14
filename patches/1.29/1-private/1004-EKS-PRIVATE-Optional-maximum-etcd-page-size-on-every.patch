@@ -168,8 +168,8 @@ index 1e5e40d6235..0a2e7716126 100644
  		leaseManager:        newDefaultLeaseManager(c, leaseManagerConfig),
  	}
  
-+	if result.maxPageSize <= 0 {
-+		result.maxPageSize = maxLimit
++	if s.maxPageSize <= 0 {
++		s.maxPageSize = maxLimit
 +	}
 +
  	w.getCurrentStorageRV = func(ctx context.Context) (uint64, error) {
