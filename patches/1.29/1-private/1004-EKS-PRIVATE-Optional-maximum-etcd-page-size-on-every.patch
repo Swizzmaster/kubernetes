@@ -1,0 +1,521 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Ernest Wong <ernwong@amazon.com>
+Date: Thu, 1 Jun 2023 02:30:49 +0000
+Subject: [PATCH] --EKS-PRIVATE-- Optional maximum etcd page size on every list
+
+Signed-off-by: Ernest Wong <ernwong@amazon.com>
+---
+ .../apiserver/pkg/server/options/etcd.go      |   3 +
+ .../cacher/cacher_testing_utils_test.go       |   6 +
+ .../pkg/storage/etcd3/metrics/metrics.go      |  16 ++
+ .../apiserver/pkg/storage/etcd3/store.go      |  48 +++++-
+ .../apiserver/pkg/storage/etcd3/store_test.go |  50 +++---
+ .../pkg/storage/storagebackend/config.go      |   2 +
+ .../storage/storagebackend/factory/etcd3.go   |   3 +-
+ .../pkg/storage/testing/store_tests.go        | 144 ++++++++++++++++++
+ 8 files changed, 245 insertions(+), 27 deletions(-)
+
+diff --git a/staging/src/k8s.io/apiserver/pkg/server/options/etcd.go b/staging/src/k8s.io/apiserver/pkg/server/options/etcd.go
+index a1fc3168c5d..43c6b98e36d 100644
+--- a/staging/src/k8s.io/apiserver/pkg/server/options/etcd.go
++++ b/staging/src/k8s.io/apiserver/pkg/server/options/etcd.go
+@@ -210,6 +210,9 @@ func (s *EtcdOptions) AddFlags(fs *pflag.FlagSet) {
+ 	fs.DurationVar(&s.StorageConfig.HealthcheckTimeout, "etcd-healthcheck-timeout", s.StorageConfig.HealthcheckTimeout,
+ 		"The timeout to use when checking etcd health.")
+ 
++	fs.Int64Var(&s.StorageConfig.MaximumPageSize, "maximum-page-size-for-etcd-lists", s.StorageConfig.MaximumPageSize,
++		"Maximum etcd page size for etcd lists. If zero, the limit is unbounded")
++
+ 	fs.DurationVar(&s.StorageConfig.ReadycheckTimeout, "etcd-readycheck-timeout", s.StorageConfig.ReadycheckTimeout,
+ 		"The timeout to use when checking etcd readiness")
+ 
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher_testing_utils_test.go b/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher_testing_utils_test.go
+index 4fe2e759ae7..6f580bc47ec 100644
+--- a/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher_testing_utils_test.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher_testing_utils_test.go
+@@ -39,6 +39,10 @@ import (
+ 	"k8s.io/apiserver/pkg/storage/value/encrypt/identity"
+ )
+ 
++const (
++	defaultListEtcdMaxLimit = 500
++)
++
+ var (
+ 	scheme   = runtime.NewScheme()
+ 	codecs   = serializer.NewCodecFactory(scheme)
+@@ -57,6 +61,7 @@ func newPodList() runtime.Object { return &example.PodList{} }
+ 
+ func newEtcdTestStorage(t *testing.T, prefix string) (*etcd3testing.EtcdTestServer, storage.Interface) {
+ 	server, _ := etcd3testing.NewUnsecuredEtcd3TestClientServer(t)
++	pagingConfig := etcd3.PagingConfig{MaximumPageSize: defaultListEtcdMaxLimit}
+ 	storage := etcd3.New(
+ 		server.V3Client,
+ 		apitesting.TestCodec(codecs, examplev1.SchemeGroupVersion),
+@@ -66,6 +71,7 @@ func newEtcdTestStorage(t *testing.T, prefix string) (*etcd3testing.EtcdTestServ
+ 		"/pods",
+ 		schema.GroupResource{Resource: "pods"},
+ 		identity.NewEncryptCheckTransformer(),
++		pagingConfig,
+ 		etcd3.NewDefaultLeaseManagerConfig())
+ 	return server, storage
+ }
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/metrics/metrics.go b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/metrics/metrics.go
+index fadc87d53de..92e2554091a 100644
+--- a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/metrics/metrics.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/metrics/metrics.go
+@@ -153,6 +153,16 @@ var (
+ 		},
+ 		[]string{"resource"},
+ 	)
++
++	listStorageLatency = compbasemetrics.NewHistogramVec(
++		&compbasemetrics.HistogramOpts{
++			Name:           "apiserver_storage_list_duration_seconds",
++			Help:           "Duration of objects returned for a LIST request from storage",
++			Buckets:        []float64{0.005, 0.025, 0.1, 0.25, 0.5, 1.0, 2.0, 4.0, 15.0, 30.0, 60.0},
++			StabilityLevel: compbasemetrics.ALPHA,
++		},
++		[]string{"resource"},
++	)
+ )
+ 
+ var registerMetrics sync.Once
+@@ -174,6 +184,7 @@ func Register() {
+ 		legacyregistry.MustRegister(listStorageNumSelectorEvals)
+ 		legacyregistry.MustRegister(listStorageNumReturned)
+ 		legacyregistry.MustRegister(decodeErrorCounts)
++		legacyregistry.MustRegister(listStorageLatency)
+ 	})
+ }
+ 
+@@ -198,6 +209,11 @@ func RecordEtcdEvent(resource string) {
+ 	etcdEventsReceivedCounts.WithLabelValues(resource).Inc()
+ }
+ 
++// RecordListStorageLatency sets the "apiserver_storage_list_duration_seconds" metrics.
++func RecordListStorageLatency(resource string, startTime time.Time) {
++	listStorageLatency.WithLabelValues(resource).Observe(sinceInSeconds(startTime))
++}
++
+ // RecordEtcdBookmark updates the etcd_bookmark_counts metric.
+ func RecordEtcdBookmark(resource string) {
+ 	etcdBookmarkCounts.WithLabelValues(resource).Inc()
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go
+index 1e5e40d6235..0a2e7716126 100644
+--- a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go
+@@ -23,6 +23,7 @@ import (
+ 	"fmt"
+ 	"path"
+ 	"reflect"
++	"strconv"
+ 	"strings"
+ 	"time"
+ 
+@@ -77,6 +78,7 @@ type store struct {
+ 	groupResource       schema.GroupResource
+ 	groupResourceString string
+ 	watcher             *watcher
++	maxPageSize         int64
+ 	leaseManager        *leaseManager
+ }
+ 
+@@ -86,6 +88,19 @@ func (s *store) RequestWatchProgress(ctx context.Context) error {
+ 	return s.client.RequestProgress(s.watchContext(ctx))
+ }
+ 
++// PagingConfig groups the parameter related with paging inside GetList calls.
++// The main reason for paging is to protect etcd from returning unlimited list of items.
++// Because etcd buffers all of the response in memory before returning it to the client,
++// there is a possiblity of using too much memory and get killed by OOM killer.
++type PagingConfig struct {
++	// PagingEnabled enables/disables paging logic.
++	// If paging is disabled, etcd will return all items in the query.
++	PagingEnabled bool
++	// MaximumPageSize is a maximum page limit used when fetching objects from etcd.
++	// It has no effect if `PagingEnabled` is false.
++	MaximumPageSize int64
++}
++
+ type objState struct {
+ 	obj   runtime.Object
+ 	meta  *storage.ResponseMeta
+@@ -95,11 +110,11 @@ type objState struct {
+ }
+ 
+ // New returns an etcd3 implementation of storage.Interface.
+-func New(c *clientv3.Client, codec runtime.Codec, newFunc, newListFunc func() runtime.Object, prefix, resourcePrefix string, groupResource schema.GroupResource, transformer value.Transformer, leaseManagerConfig LeaseManagerConfig) storage.Interface {
+-	return newStore(c, codec, newFunc, newListFunc, prefix, resourcePrefix, groupResource, transformer, leaseManagerConfig)
++func New(c *clientv3.Client, codec runtime.Codec, newFunc, newListFunc func() runtime.Object, prefix, resourcePrefix string, groupResource schema.GroupResource, transformer value.Transformer, pagingConfig PagingConfig, leaseManagerConfig LeaseManagerConfig) storage.Interface {
++	return newStore(c, codec, newFunc, newListFunc, prefix, resourcePrefix, groupResource, transformer, pagingConfig, leaseManagerConfig)
+ }
+ 
+-func newStore(c *clientv3.Client, codec runtime.Codec, newFunc, newListFunc func() runtime.Object, prefix, resourcePrefix string, groupResource schema.GroupResource, transformer value.Transformer, leaseManagerConfig LeaseManagerConfig) *store {
++func newStore(c *clientv3.Client, codec runtime.Codec, newFunc, newListFunc func() runtime.Object, prefix, resourcePrefix string, groupResource schema.GroupResource, transformer value.Transformer, pagingConfig PagingConfig, leaseManagerConfig LeaseManagerConfig) *store {
+ 	versioner := storage.APIObjectVersioner{}
+ 	// for compatibility with etcd2 impl.
+ 	// no-op for default prefix of '/registry'.
+@@ -128,6 +143,7 @@ func newStore(c *clientv3.Client, codec runtime.Codec, newFunc, newListFunc func
+ 		codec:               codec,
+ 		versioner:           versioner,
+ 		transformer:         transformer,
++		maxPageSize:         pagingConfig.MaximumPageSize,
+ 		pathPrefix:          pathPrefix,
+ 		groupResource:       groupResource,
+ 		groupResourceString: groupResource.String(),
+@@ -135,6 +151,10 @@ func newStore(c *clientv3.Client, codec runtime.Codec, newFunc, newListFunc func
+ 		leaseManager:        newDefaultLeaseManager(c, leaseManagerConfig),
+ 	}
+ 
++	if result.maxPageSize <= 0 {
++		result.maxPageSize = maxLimit
++	}
++
+ 	w.getCurrentStorageRV = func(ctx context.Context) (uint64, error) {
+ 		return storage.GetCurrentResourceVersionFromStorage(ctx, s, newListFunc, resourcePrefix, w.objectType)
+ 	}
+@@ -622,6 +642,10 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
+ 	var paging bool
+ 	options := make([]clientv3.OpOption, 0, 4)
+ 	if opts.Predicate.Limit > 0 {
++		// Put a default limit if no limit specified and cap it at max value.
++		if limit <= 0 || limit > s.maxPageSize {
++			limit = s.maxPageSize
++		}
+ 		paging = true
+ 		options = append(options, clientv3.WithLimit(limit))
+ 		limitOption = &options[len(options)-1]
+@@ -683,9 +707,16 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
+ 	var getResp *clientv3.GetResponse
+ 	var numFetched int
+ 	var numEvald int
++	var pages int
+ 	// Because these metrics are for understanding the costs of handling LIST requests,
+ 	// get them recorded even in error cases.
++	start := time.Now()
+ 	defer func() {
++		if err == nil {
++			// quantify the list from storage latency
++			metrics.RecordListStorageLatency(s.groupResourceString, start)
++		}
++		span.AddEvent("fetched all pages from etcd", attribute.String("page-count", strconv.FormatInt(int64(pages), 10)))
+ 		numReturn := v.Len()
+ 		metrics.RecordStorageListMetrics(s.groupResourceString, numFetched, numEvald, numReturn)
+ 	}()
+@@ -703,6 +734,7 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
+ 			return interpretListError(err, len(opts.Predicate.Continue) > 0, continueKey, keyPrefix)
+ 		}
+ 		numFetched += len(getResp.Kvs)
++		pages++
+ 		if err = s.validateMinimumResourceVersion(opts.ResourceVersion, uint64(getResp.Header.Revision)); err != nil {
+ 			return err
+ 		}
+@@ -727,7 +759,7 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
+ 
+ 		// take items from the response until the bucket is full, filtering as we go
+ 		for i, kv := range getResp.Kvs {
+-			if paging && int64(v.Len()) >= opts.Predicate.Limit {
++			if limitOption != nil && opts.Predicate.Limit > 0 && int64(v.Len()) >= opts.Predicate.Limit {
+ 				hasMore = true
+ 				break
+ 			}
+@@ -753,16 +785,16 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
+ 			break
+ 		}
+ 		// we're paging but we have filled our bucket
+-		if int64(v.Len()) >= opts.Predicate.Limit {
++		if limitOption != nil && opts.Predicate.Limit > 0 && int64(v.Len()) >= opts.Predicate.Limit {
+ 			break
+ 		}
+ 
+-		if limit < maxLimit {
++		if limit < s.maxPageSize {
+ 			// We got incomplete result due to field/label selector dropping the object.
+ 			// Double page size to reduce total number of calls to etcd.
+ 			limit *= 2
+-			if limit > maxLimit {
+-				limit = maxLimit
++			if limit > s.maxPageSize {
++				limit = s.maxPageSize
+ 			}
+ 			*limitOption = clientv3.WithLimit(limit)
+ 		}
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store_test.go b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store_test.go
+index dcf6c9d0f4d..1788c375571 100644
+--- a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store_test.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store_test.go
+@@ -50,7 +50,10 @@ import (
+ var scheme = runtime.NewScheme()
+ var codecs = serializer.NewCodecFactory(scheme)
+ 
+-const defaultTestPrefix = "test!"
++const (
++	defaultTestPrefix       = "test!"
++	defaultListEtcdMaxLimit = 500
++)
+ 
+ func init() {
+ 	metav1.AddToGroupVersion(scheme, metav1.SchemeGroupVersion)
+@@ -222,30 +225,38 @@ func checkStorageCallsInvariants(transformer *storagetesting.PrefixTransformer,
+ 			t.Errorf("unexpected reads: %d, expected: %d", reads, estimatedProcessedObjects)
+ 		}
+ 		estimatedGetCalls := uint64(1)
+-		if pageSize != 0 {
+-			// We expect that kube-apiserver will be increasing page sizes
+-			// if not full pages are received, so we should see significantly less
+-			// than 1000 pages (which would be result of talking to etcd with page size
+-			// copied from pred.Limit).
+-			// The expected number of calls is n+1 where n is the smallest n so that:
+-			// pageSize + pageSize * 2 + pageSize * 4 + ... + pageSize * 2^n >= podCount.
+-			// For pageSize = 1, podCount = 1000, we get n+1 = 10, 2 ^ 10 = 1024.
+-			currLimit := pageSize
+-			for sum := uint64(1); sum < estimatedProcessedObjects; {
+-				currLimit *= 2
+-				if currLimit > maxLimit {
+-					currLimit = maxLimit
+-				}
+-				sum += currLimit
+-				estimatedGetCalls++
++		if pageSize <= 0 || pageSize > defaultListEtcdMaxLimit {
++			pageSize = defaultListEtcdMaxLimit
++		}
++		// We expect that kube-apiserver will be increasing page sizes
++		// if not full pages are received, so we should see significantly less
++		// than 1000 pages (which would be result of talking to etcd with page size
++		// copied from pred.Limit).
++		// The expected number of calls is n+1 where n is the smallest n so that:
++		// pageSize + pageSize * 2 + pageSize * 4 + ... + pageSize * 2^n >= podCount.
++		// For pageSize = 1, podCount = 1000, we get n+1 = 10, 2 ^ 10 = 1024.
++		currLimit := pageSize
++		for sum := pageSize; sum < estimatedProcessedObjects; {
++			currLimit *= 2
++			if currLimit > defaultListEtcdMaxLimit {
++				currLimit = defaultListEtcdMaxLimit
+ 			}
++			sum += currLimit
++			estimatedGetCalls++
+ 		}
+ 		if reads := recorder.GetReadsAndReset(); reads != estimatedGetCalls {
+-			t.Errorf("unexpected reads: %d", reads)
++			t.Errorf("unexpected reads: %d, expected: %d", reads, estimatedGetCalls)
+ 		}
+ 	}
+ }
+ 
++func TestListPaginationWithEnforcedLimit(t *testing.T) {
++	ctx, store, etcdClient := testSetup(t, withRecorder())
++	validation := checkStorageCallsInvariants(
++		store.transformer.(*storagetesting.PrefixTransformer), etcdClient.KV.(*clientRecorder))
++	storagetesting.RunTestListPaginationWithEnforcedLimit(ctx, t, store, validation)
++}
++
+ func TestListContinuation(t *testing.T) {
+ 	ctx, store, etcdClient := testSetup(t, withRecorder())
+ 	validation := checkStorageCallsInvariants(
+@@ -490,6 +501,7 @@ type setupOptions struct {
+ 	resourcePrefix string
+ 	groupResource  schema.GroupResource
+ 	transformer    value.Transformer
++	pagingConfig   PagingConfig
+ 	leaseConfig    LeaseManagerConfig
+ 
+ 	recorderEnabled bool
+@@ -534,6 +546,7 @@ func withDefaults(options *setupOptions) {
+ 	options.resourcePrefix = "/pods"
+ 	options.groupResource = schema.GroupResource{Resource: "pods"}
+ 	options.transformer = newTestTransformer()
++	options.pagingConfig = PagingConfig{MaximumPageSize: defaultListEtcdMaxLimit}
+ 	options.leaseConfig = newTestLeaseManagerConfig()
+ }
+ 
+@@ -558,6 +571,7 @@ func testSetup(t testing.TB, opts ...setupOption) (context.Context, *store, *cli
+ 		setupOpts.resourcePrefix,
+ 		setupOpts.groupResource,
+ 		setupOpts.transformer,
++		setupOpts.pagingConfig,
+ 		setupOpts.leaseConfig,
+ 	)
+ 	ctx := context.Background()
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/config.go b/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/config.go
+index 93b1e707f66..1f1e1511207 100644
+--- a/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/config.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/config.go
+@@ -63,6 +63,8 @@ type Config struct {
+ 	// Transport holds all connection related info, i.e. equal TransportConfig means equal servers we talk to.
+ 	Transport TransportConfig
+ 
++	MaximumPageSize int64
++
+ 	Codec runtime.Codec
+ 	// EncodeVersioner is the same groupVersioner used to build the
+ 	// storage encoder. Given a list of kinds the input object might belong
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/factory/etcd3.go b/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/factory/etcd3.go
+index 2aab5c76d21..66578273dc3 100644
+--- a/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/factory/etcd3.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/factory/etcd3.go
+@@ -454,7 +454,8 @@ func newETCD3Storage(c storagebackend.ConfigForResource, newFunc, newListFunc fu
+ 	if transformer == nil {
+ 		transformer = identity.NewEncryptCheckTransformer()
+ 	}
+-	return etcd3.New(client, c.Codec, newFunc, newListFunc, c.Prefix, resourcePrefix, c.GroupResource, transformer, c.LeaseManagerConfig), destroyFunc, nil
++	pagingConfig := etcd3.PagingConfig{MaximumPageSize: c.MaximumPageSize}
++	return etcd3.New(client, c.Codec, newFunc, newListFunc, c.Prefix, resourcePrefix, c.GroupResource, transformer, pagingConfig, c.LeaseManagerConfig), destroyFunc, nil
+ }
+ 
+ // startDBSizeMonitorPerEndpoint starts a loop to monitor etcd database size and update the
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/testing/store_tests.go b/staging/src/k8s.io/apiserver/pkg/storage/testing/store_tests.go
+index c5a1d98ec7c..1e3ce108f31 100644
+--- a/staging/src/k8s.io/apiserver/pkg/storage/testing/store_tests.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/testing/store_tests.go
+@@ -42,6 +42,150 @@ import (
+ 
+ type KeyValidation func(ctx context.Context, t *testing.T, key string)
+ 
++func RunTestListPaginationWithEnforcedLimit(ctx context.Context, t *testing.T, store storage.Interface, validation CallsValidation) {
++	// write pods
++	podCount := 2000
++	var pods []*example.Pod
++	for i := 0; i < podCount; i++ {
++		obj := &example.Pod{ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("pod-%04d", i)}}
++		key := computePodKey(obj)
++		storedObj := &example.Pod{}
++		err := store.Create(ctx, key, obj, storedObj, 0)
++		if err != nil {
++			t.Fatalf("Set failed: %v", err)
++		}
++		pods = append(pods, storedObj)
++	}
++
++	// user list requests with 100 limit + latest resource version
++	options := storage.ListOptions{
++		ResourceVersion: "0",
++		Predicate: storage.SelectionPredicate{
++			Label: labels.Everything(),
++			GetAttrs: func(obj runtime.Object) (labels.Set, fields.Set, error) {
++				pod := obj.(*example.Pod)
++				return nil, fields.Set{"metadata.name": pod.Name}, nil
++			},
++		},
++		Recursive: true,
++	}
++
++	testCases := []struct {
++		// are we selecting everything or one item?
++		setFieldSelector bool
++		// predicate setLimit
++		setLimit int64
++		// expected number of total items from GetList
++		expectItems int
++		// expected number of transformer reads
++		expectTransformerReads uint64
++		// expected number of calls to etcd
++		expectPages uint64
++		// expected continuation token in GetList response
++		expectContinue bool
++	}{
++		{
++			setFieldSelector:       false,
++			setLimit:               0, // no limit is set, we want all items
++			expectItems:            2000,
++			expectTransformerReads: 2000,
++			expectPages:            4,
++			expectContinue:         false,
++		},
++		{
++			setFieldSelector:       false,
++			setLimit:               50, // limit < maxLimit
++			expectItems:            50,
++			expectTransformerReads: 50,
++			expectPages:            1,
++			expectContinue:         true,
++		},
++		{
++			setFieldSelector:       false,
++			setLimit:               500, // limit = maxLimit
++			expectItems:            500,
++			expectTransformerReads: 500,
++			expectPages:            1,
++			expectContinue:         true,
++		},
++		{
++			setFieldSelector:       false,
++			setLimit:               1000, // limit > maxLimit
++			expectItems:            1000,
++			expectTransformerReads: 1000,
++			expectPages:            2,
++			expectContinue:         true,
++		},
++		{
++			setFieldSelector:       true,
++			setLimit:               0,
++			expectItems:            1,
++			expectTransformerReads: 2000,
++			expectPages:            4,
++			expectContinue:         false,
++		},
++		{
++			setFieldSelector:       true,
++			setLimit:               1,
++			expectItems:            1,
++			expectTransformerReads: 1000,
++			expectPages:            10,
++			expectContinue:         true,
++		},
++		{
++			setFieldSelector:       true,
++			setLimit:               50,
++			expectItems:            1,
++			expectTransformerReads: 2000,
++			expectPages:            7,
++			expectContinue:         false,
++		},
++		{
++			setFieldSelector:       true,
++			setLimit:               500,
++			expectItems:            1,
++			expectTransformerReads: 2000,
++			expectPages:            4,
++			expectContinue:         false,
++		},
++		{
++			setFieldSelector:       true,
++			setLimit:               1000,
++			expectItems:            1,
++			expectTransformerReads: 2000,
++			expectPages:            4,
++			expectContinue:         false,
++		},
++	}
++	for i, tc := range testCases {
++		t.Logf("--- Running test case #%d:\n\tsetFieldSelector: %v\n\tsetLimit: %d\n\texpectItems: %d\n\texpectTransformerReads: %d\n\texpectPages: %d\n\texpectContinue: %v", i, tc.setFieldSelector, tc.setLimit, tc.expectItems, tc.expectTransformerReads, tc.expectPages, tc.expectContinue)
++
++		options.Predicate.Limit = tc.setLimit
++		if tc.setFieldSelector {
++			options.Predicate.Field = fields.OneTermEqualSelector("metadata.name", "pod-0999")
++		} else {
++			options.Predicate.Field = fields.Everything()
++		}
++
++		out := &example.PodList{}
++		if err := store.GetList(ctx, "/pods", options, out); err != nil {
++			t.Fatalf("Unable to get initial list: %v", err)
++		}
++		if tc.expectContinue != (len(out.Continue) != 0) {
++			t.Errorf("Unexpected continuation token")
++		}
++		if len(out.Items) != tc.expectItems {
++			t.Fatalf("expect %d items, but got %d", tc.expectItems, len(out.Items))
++		}
++		if tc.setFieldSelector {
++			if !reflect.DeepEqual(&out.Items[0], pods[999]) {
++				t.Fatalf("Unexpected first page: %#v", out.Items)
++			}
++		}
++		validation(t, uint64(tc.setLimit), tc.expectTransformerReads)
++	}
++}
++
+ func RunTestCreate(ctx context.Context, t *testing.T, store storage.Interface, validation KeyValidation) {
+ 	tests := []struct {
+ 		name          string

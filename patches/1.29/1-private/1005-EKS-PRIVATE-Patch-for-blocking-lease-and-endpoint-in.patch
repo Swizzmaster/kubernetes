@@ -9,9 +9,9 @@ ref: https://quip-amazon.com/0k7FAEo7j60v/Stop-software-operations-in-the-impact
  .../coordination/validation/validation.go     |  61 ++
  .../validation/validation_test.go             | 191 +++++
  pkg/controlplane/reconcilers/lease.go         |  49 +-
- pkg/controlplane/reconcilers/lease_test.go    | 694 ++++++++++++++++++
+ pkg/controlplane/reconcilers/lease_test.go    | 698 ++++++++++++++++++
  pkg/kubeapiserver/az/utils.go                 |  49 ++
- 5 files changed, 1038 insertions(+), 6 deletions(-)
+ 5 files changed, 1042 insertions(+), 6 deletions(-)
  create mode 100644 pkg/kubeapiserver/az/utils.go
 
 diff --git a/pkg/apis/coordination/validation/validation.go b/pkg/apis/coordination/validation/validation.go
@@ -412,7 +412,7 @@ index 486b52445a5..f6061a0811d 100644
 +	return false
 +}
 diff --git a/pkg/controlplane/reconcilers/lease_test.go b/pkg/controlplane/reconcilers/lease_test.go
-index 1e9d3ce13ae..031c05634ba 100644
+index 1e9d3ce13ae..0ac83fcbcce 100644
 --- a/pkg/controlplane/reconcilers/lease_test.go
 +++ b/pkg/controlplane/reconcilers/lease_test.go
 @@ -22,13 +22,18 @@ https://github.com/openshift/origin/blob/bb340c5dd5ff72718be86fb194dedc0faed7f4c
@@ -442,7 +442,7 @@ index 1e9d3ce13ae..031c05634ba 100644
  	netutils "k8s.io/utils/net"
  )
  
-@@ -452,6 +458,694 @@ func TestLeaseEndpointReconciler(t *testing.T) {
+@@ -452,6 +458,698 @@ func TestLeaseEndpointReconciler(t *testing.T) {
  	}
  }
  
@@ -451,9 +451,11 @@ index 1e9d3ce13ae..031c05634ba 100644
 +	t.Cleanup(func() { server.Terminate(t) })
 +
 +	newFunc := func() runtime.Object { return &corev1.Endpoints{} }
++	newListFunc := func() runtime.Object { return &corev1.EndpointsList{} }
++
 +	sc.Codec = apitesting.TestStorageCodec(codecs, corev1.SchemeGroupVersion)
 +
-+	s, dFunc, err := factory.Create(*sc.ForResource(schema.GroupResource{Resource: "endpoints"}), newFunc)
++	s, dFunc, err := factory.Create(*sc.ForResource(schema.GroupResource{Resource: "endpoints"}), newFunc, newListFunc, "")
 +	if err != nil {
 +		t.Fatalf("Error creating storage: %v", err)
 +	}
@@ -718,9 +720,10 @@ index 1e9d3ce13ae..031c05634ba 100644
 +	t.Cleanup(func() { server.Terminate(t) })
 +
 +	newFunc := func() runtime.Object { return &corev1.Endpoints{} }
++	newListFunc := func() runtime.Object { return &corev1.EndpointsList{} }
 +	sc.Codec = apitesting.TestStorageCodec(codecs, corev1.SchemeGroupVersion)
 +
-+	s, dFunc, err := factory.Create(*sc.ForResource(schema.GroupResource{Resource: "endpoints"}), newFunc)
++	s, dFunc, err := factory.Create(*sc.ForResource(schema.GroupResource{Resource: "endpoints"}), newFunc, newListFunc, "")
 +	if err != nil {
 +		t.Fatalf("Error creating storage: %v", err)
 +	}
@@ -956,9 +959,10 @@ index 1e9d3ce13ae..031c05634ba 100644
 +	t.Cleanup(func() { server.Terminate(t) })
 +
 +	newFunc := func() runtime.Object { return &corev1.Endpoints{} }
++	newListFunc := func() runtime.Object { return &corev1.EndpointsList{} }
 +	sc.Codec = apitesting.TestStorageCodec(codecs, corev1.SchemeGroupVersion)
 +
-+	s, dFunc, err := factory.Create(*sc.ForResource(schema.GroupResource{Resource: "endpoints"}), newFunc)
++	s, dFunc, err := factory.Create(*sc.ForResource(schema.GroupResource{Resource: "endpoints"}), newFunc, newListFunc, "")
 +	if err != nil {
 +		t.Fatalf("Error creating storage: %v", err)
 +	}
