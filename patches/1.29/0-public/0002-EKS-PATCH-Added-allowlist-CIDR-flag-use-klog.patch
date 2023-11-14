@@ -145,7 +145,7 @@ index d40c4282fed..6d89e9dca5d 100644
  		"A port range to reserve for services with NodePort visibility.  This must not overlap with the ephemeral port range on nodes.  "+
  		"Example: '30000-32767'. Inclusive at both ends of the range.")
 diff --git a/cmd/kube-apiserver/app/options/options_test.go b/cmd/kube-apiserver/app/options/options_test.go
-index 432530f08e2..704c95a4ae1 100644
+index ba5bf525b44..f3140b592e7 100644
 --- a/cmd/kube-apiserver/app/options/options_test.go
 +++ b/cmd/kube-apiserver/app/options/options_test.go
 @@ -115,6 +115,7 @@ func TestAddFlags(t *testing.T) {
@@ -156,7 +156,7 @@ index 432530f08e2..704c95a4ae1 100644
  		"--proxy-client-cert-file=/var/run/kubernetes/proxy.crt",
  		"--proxy-client-key-file=/var/run/kubernetes/proxy.key",
  		"--request-timeout=2m",
-@@ -302,6 +303,7 @@ func TestAddFlags(t *testing.T) {
+@@ -298,6 +299,7 @@ func TestAddFlags(t *testing.T) {
  			ServiceClusterIPRanges: (&net.IPNet{IP: netutils.ParseIPSloppy("192.168.128.0"), Mask: net.CIDRMask(17, 32)}).String(),
  			EndpointReconcilerType: string(reconcilers.LeaseEndpointReconcilerType),
  			AllowPrivileged:        false,
@@ -165,7 +165,7 @@ index 432530f08e2..704c95a4ae1 100644
  				Port:         10250,
  				ReadOnlyPort: 10255,
 diff --git a/cmd/kube-apiserver/app/options/validation.go b/cmd/kube-apiserver/app/options/validation.go
-index 53dcdf5e628..0a449710381 100644
+index cc64a288635..d1aefec16af 100644
 --- a/cmd/kube-apiserver/app/options/validation.go
 +++ b/cmd/kube-apiserver/app/options/validation.go
 @@ -31,6 +31,18 @@ import (
@@ -187,7 +187,7 @@ index 53dcdf5e628..0a449710381 100644
  // TODO: Longer term we should read this from some config store, rather than a flag.
  // validateClusterIPFlags is expected to be called after Complete()
  func validateClusterIPFlags(options Extra) []error {
-@@ -138,5 +150,9 @@ func (s CompletedOptions) Validate() []error {
+@@ -139,5 +151,9 @@ func (s CompletedOptions) Validate() []error {
  		errs = append(errs, fmt.Errorf("--apiserver-count should be a positive number, but value '%d' provided", s.MasterCount))
  	}
  
@@ -198,7 +198,7 @@ index 53dcdf5e628..0a449710381 100644
  	return errs
  }
 diff --git a/cmd/kube-apiserver/app/server.go b/cmd/kube-apiserver/app/server.go
-index 807c169631f..de44c495b52 100644
+index f8eefb7c7dd..888e1907c56 100644
 --- a/cmd/kube-apiserver/app/server.go
 +++ b/cmd/kube-apiserver/app/server.go
 @@ -213,7 +213,10 @@ func CreateKubeAPIServerConfig(opts options.CompletedOptions) (

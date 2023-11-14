@@ -22,7 +22,7 @@ in the network namespace where the kubelet is running so validations will fail.
  5 files changed, 18 insertions(+), 1 deletion(-)
 
 diff --git a/cmd/kubelet/app/options/options.go b/cmd/kubelet/app/options/options.go
-index 71ea243361c..36b960370b1 100644
+index aafd37a5283..bd0c7531092 100644
 --- a/cmd/kubelet/app/options/options.go
 +++ b/cmd/kubelet/app/options/options.go
 @@ -62,6 +62,9 @@ type KubeletFlags struct {
@@ -45,10 +45,10 @@ index 71ea243361c..36b960370b1 100644
  		"If --tls-cert-file and --tls-private-key-file are provided, this flag will be ignored.")
  
 diff --git a/cmd/kubelet/app/server.go b/cmd/kubelet/app/server.go
-index 78b2d2c1394..ebfcfb92194 100644
+index bb81ec68738..e218eeb6fd2 100644
 --- a/cmd/kubelet/app/server.go
 +++ b/cmd/kubelet/app/server.go
-@@ -1283,7 +1283,8 @@ func createAndInitKubelet(kubeServer *options.KubeletServer,
+@@ -1288,7 +1288,8 @@ func createAndInitKubelet(kubeServer *options.KubeletServer,
  		kubeServer.KeepTerminatedPodVolumes,
  		kubeServer.NodeLabels,
  		kubeServer.NodeStatusMaxImages,
@@ -59,10 +59,10 @@ index 78b2d2c1394..ebfcfb92194 100644
  		return nil, err
  	}
 diff --git a/pkg/kubelet/kubelet.go b/pkg/kubelet/kubelet.go
-index b1076b84980..36ec9a5035f 100644
+index 49e7c6f4c63..fc3a261a0d1 100644
 --- a/pkg/kubelet/kubelet.go
 +++ b/pkg/kubelet/kubelet.go
-@@ -360,6 +360,7 @@ func NewMainKubelet(kubeCfg *kubeletconfiginternal.KubeletConfiguration,
+@@ -362,6 +362,7 @@ func NewMainKubelet(kubeCfg *kubeletconfiginternal.KubeletConfiguration,
  	nodeLabels map[string]string,
  	nodeStatusMaxImages int32,
  	seccompDefault bool,
@@ -70,7 +70,7 @@ index b1076b84980..36ec9a5035f 100644
  ) (*Kubelet, error) {
  	ctx := context.Background()
  	logger := klog.TODO()
-@@ -546,6 +547,7 @@ func NewMainKubelet(kubeCfg *kubeletconfiginternal.KubeletConfiguration,
+@@ -554,6 +555,7 @@ func NewMainKubelet(kubeCfg *kubeletconfiginternal.KubeletConfiguration,
  		containerManager:               kubeDeps.ContainerManager,
  		nodeIPs:                        nodeIPs,
  		nodeIPValidator:                validateNodeIP,
@@ -78,7 +78,7 @@ index b1076b84980..36ec9a5035f 100644
  		clock:                          clock.RealClock{},
  		enableControllerAttachDetach:   kubeCfg.EnableControllerAttachDetach,
  		makeIPTablesUtilChains:         kubeCfg.MakeIPTablesUtilChains,
-@@ -1223,6 +1225,9 @@ type Kubelet struct {
+@@ -1235,6 +1237,9 @@ type Kubelet struct {
  	// use this function to validate the kubelet nodeIP
  	nodeIPValidator func(net.IP) error
  
@@ -89,10 +89,10 @@ index b1076b84980..36ec9a5035f 100644
  	providerID string
  
 diff --git a/pkg/kubelet/kubelet_node_status.go b/pkg/kubelet/kubelet_node_status.go
-index d598c55b79a..14b9e7d7e91 100644
+index 7723abc64b2..6345a10523a 100644
 --- a/pkg/kubelet/kubelet_node_status.go
 +++ b/pkg/kubelet/kubelet_node_status.go
-@@ -465,6 +465,11 @@ func (kl *Kubelet) fastNodeStatusUpdate(ctx context.Context, timeout bool) (comp
+@@ -469,6 +469,11 @@ func (kl *Kubelet) fastNodeStatusUpdate(ctx context.Context, timeout bool) (comp
  		return false
  	}
  
@@ -105,10 +105,10 @@ index d598c55b79a..14b9e7d7e91 100644
  		return true
  	}
 diff --git a/pkg/kubelet/kubelet_test.go b/pkg/kubelet/kubelet_test.go
-index 1b83b320c00..a944f51e35a 100644
+index 3da53e5ea85..c55880a323c 100644
 --- a/pkg/kubelet/kubelet_test.go
 +++ b/pkg/kubelet/kubelet_test.go
-@@ -3003,6 +3003,7 @@ func TestNewMainKubeletStandAlone(t *testing.T) {
+@@ -3189,6 +3189,7 @@ func TestNewMainKubeletStandAlone(t *testing.T) {
  		map[string]string{},
  		1024,
  		false,

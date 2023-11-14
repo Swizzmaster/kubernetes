@@ -318,7 +318,7 @@ index 2d102c6a154..a5b7a119c0f 100644
 +	}
 +}
 diff --git a/pkg/controlplane/reconcilers/lease.go b/pkg/controlplane/reconcilers/lease.go
-index ce7b478cb78..7eb22d29b35 100644
+index 486b52445a5..f6061a0811d 100644
 --- a/pkg/controlplane/reconcilers/lease.go
 +++ b/pkg/controlplane/reconcilers/lease.go
 @@ -24,6 +24,7 @@ https://github.com/openshift/origin/blob/bb340c5dd5ff72718be86fb194dedc0faed7f4c
@@ -337,7 +337,7 @@ index ce7b478cb78..7eb22d29b35 100644
  )
  
  // Leases is an interface which assists in managing the set of active masters
-@@ -177,6 +179,11 @@ func (r *leaseEndpointReconciler) ReconcileEndpoints(serviceName string, ip net.
+@@ -179,6 +181,11 @@ func (r *leaseEndpointReconciler) ReconcileEndpoints(serviceName string, ip net.
  	r.reconcilingLock.Lock()
  	defer r.reconcilingLock.Unlock()
  
@@ -349,7 +349,7 @@ index ce7b478cb78..7eb22d29b35 100644
  	// Refresh the TTL on our key, independently of whether any error or
  	// update conflict happens below. This makes sure that at least some of
  	// the masters will add our endpoint.
-@@ -184,13 +191,14 @@ func (r *leaseEndpointReconciler) ReconcileEndpoints(serviceName string, ip net.
+@@ -186,13 +193,14 @@ func (r *leaseEndpointReconciler) ReconcileEndpoints(serviceName string, ip net.
  		return err
  	}
  
@@ -369,7 +369,7 @@ index ce7b478cb78..7eb22d29b35 100644
  	shouldCreate := false
  	if err != nil {
  		if !errors.IsNotFound(err) {
-@@ -333,7 +341,8 @@ func (r *leaseEndpointReconciler) RemoveEndpoints(serviceName string, ip net.IP,
+@@ -335,7 +343,8 @@ func (r *leaseEndpointReconciler) RemoveEndpoints(serviceName string, ip net.IP,
  		return err
  	}
  
@@ -379,7 +379,7 @@ index ce7b478cb78..7eb22d29b35 100644
  }
  
  func (r *leaseEndpointReconciler) StopReconciling() {
-@@ -343,3 +352,31 @@ func (r *leaseEndpointReconciler) StopReconciling() {
+@@ -345,3 +354,31 @@ func (r *leaseEndpointReconciler) StopReconciling() {
  func (r *leaseEndpointReconciler) Destroy() {
  	r.masterLeases.Destroy()
  }
@@ -412,7 +412,7 @@ index ce7b478cb78..7eb22d29b35 100644
 +	return false
 +}
 diff --git a/pkg/controlplane/reconcilers/lease_test.go b/pkg/controlplane/reconcilers/lease_test.go
-index cc4884d3610..00c8a1c1f4b 100644
+index 1e9d3ce13ae..031c05634ba 100644
 --- a/pkg/controlplane/reconcilers/lease_test.go
 +++ b/pkg/controlplane/reconcilers/lease_test.go
 @@ -22,13 +22,18 @@ https://github.com/openshift/origin/blob/bb340c5dd5ff72718be86fb194dedc0faed7f4c
@@ -442,7 +442,7 @@ index cc4884d3610..00c8a1c1f4b 100644
  	netutils "k8s.io/utils/net"
  )
  
-@@ -451,6 +457,694 @@ func TestLeaseEndpointReconciler(t *testing.T) {
+@@ -452,6 +458,694 @@ func TestLeaseEndpointReconciler(t *testing.T) {
  	}
  }
  

@@ -80,10 +80,10 @@ Signed-off-by: Jyoti Mahapatra<jyotima@amazon.com>
  create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator_testdata/valid-volumes.yaml
 
 diff --git a/pkg/features/kube_features.go b/pkg/features/kube_features.go
-index 816c456ca59..d185e9966f8 100644
+index 62e256dbfd7..208398f13d5 100644
 --- a/pkg/features/kube_features.go
 +++ b/pkg/features/kube_features.go
-@@ -671,6 +671,12 @@ const (
+@@ -677,6 +677,12 @@ const (
  	// Enable users to specify when a Pod is ready for scheduling.
  	PodSchedulingReadiness featuregate.Feature = "PodSchedulingReadiness"
  
@@ -96,7 +96,7 @@ index 816c456ca59..d185e9966f8 100644
  	// owner: @jessfraz
  	// alpha: v1.12
  	//
-@@ -1144,6 +1150,8 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
+@@ -1152,6 +1158,8 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
  
  	PodSchedulingReadiness: {Default: true, PreRelease: featuregate.Beta},
  

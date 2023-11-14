@@ -1174,7 +1174,7 @@ index 00000000000..510c36ec553
 +
 +}
 diff --git a/pkg/serviceaccount/jwt_test.go b/pkg/serviceaccount/jwt_test.go
-index 629bb8496ab..3ebd4eb35b7 100644
+index 629bb8496ab..562bffb1692 100644
 --- a/pkg/serviceaccount/jwt_test.go
 +++ b/pkg/serviceaccount/jwt_test.go
 @@ -34,8 +34,10 @@ import (
@@ -1611,7 +1611,7 @@ index 00000000000..0ec98768eb1
 +	return out, err
 +}
 diff --git a/vendor/modules.txt b/vendor/modules.txt
-index 5e935734690..8d4bc11d59e 100644
+index 75b1c670564..3e8a4c8e331 100644
 --- a/vendor/modules.txt
 +++ b/vendor/modules.txt
 @@ -1256,6 +1256,7 @@ gopkg.in/natefinch/lumberjack.v2

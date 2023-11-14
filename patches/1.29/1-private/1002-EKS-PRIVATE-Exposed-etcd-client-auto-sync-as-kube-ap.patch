@@ -17,10 +17,10 @@ Signed-off-by: Davanum Srinivas <davanum@gmail.com>
  3 files changed, 6 insertions(+), 1 deletion(-)
 
 diff --git a/staging/src/k8s.io/apiserver/pkg/server/options/etcd.go b/staging/src/k8s.io/apiserver/pkg/server/options/etcd.go
-index 57e9c1a9f13..2a9c4be8b00 100644
+index a1fc3168c5d..6c125bafa26 100644
 --- a/staging/src/k8s.io/apiserver/pkg/server/options/etcd.go
 +++ b/staging/src/k8s.io/apiserver/pkg/server/options/etcd.go
-@@ -170,6 +170,9 @@ func (s *EtcdOptions) AddFlags(fs *pflag.FlagSet) {
+@@ -179,6 +179,9 @@ func (s *EtcdOptions) AddFlags(fs *pflag.FlagSet) {
  	fs.StringSliceVar(&s.StorageConfig.Transport.ServerList, "etcd-servers", s.StorageConfig.Transport.ServerList,
  		"List of etcd servers to connect with (scheme://ip:port), comma separated.")
  
@@ -31,7 +31,7 @@ index 57e9c1a9f13..2a9c4be8b00 100644
  		"The prefix to prepend to all resource paths in etcd.")
  
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/config.go b/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/config.go
-index 47534c97818..694ca749a1c 100644
+index 93b1e707f66..9d1a29bf0cb 100644
 --- a/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/config.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/config.go
 @@ -43,7 +43,8 @@ const (
@@ -45,7 +45,7 @@ index 47534c97818..694ca749a1c 100644
  	KeyFile       string
  	CertFile      string
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/factory/etcd3.go b/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/factory/etcd3.go
-index 94cb3710bed..055fa6a401f 100644
+index 2aab5c76d21..521bf55f147 100644
 --- a/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/factory/etcd3.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/factory/etcd3.go
 @@ -342,6 +342,7 @@ var newETCD3Client = func(c storagebackend.TransportConfig) (*clientv3.Client, e
