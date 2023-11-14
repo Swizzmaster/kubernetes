@@ -24,13 +24,13 @@ Signed-off-by: Davanum Srinivas <davanum@gmail.com>
  .../externalsigner/v1alpha1/service.pb.go     | 317 ++++++++++++++++++
  .../externalsigner/v1alpha1/service.proto     |  40 +++
  pkg/serviceaccount/jwt.go                     |  18 +-
- pkg/serviceaccount/jwt_external.go            | 225 +++++++++++++
+ pkg/serviceaccount/jwt_external.go            | 228 +++++++++++++
  pkg/serviceaccount/jwt_external_test.go       | 130 +++++++
- pkg/serviceaccount/jwt_test.go                | 212 ++++++++----
+ pkg/serviceaccount/jwt_test.go                | 215 ++++++++----
  staging/src/k8s.io/client-go/util/cert/pem.go |   7 +-
  .../go-jose.v2/cryptosigner/cryptosigner.go   | 138 ++++++++
  vendor/modules.txt                            |   1 +
- 17 files changed, 1228 insertions(+), 75 deletions(-)
+ 17 files changed, 1234 insertions(+), 75 deletions(-)
  create mode 100755 hack/update-generated-externalsigner-dockerized.sh
  create mode 100755 hack/update-generated-externalsigner.sh
  create mode 100755 hack/verify-generated-externalsigner.sh
@@ -808,10 +808,10 @@ index 57ae0a59b99..cb2c7a6ace4 100644
  		return nil, fmt.Errorf("failed to create signer: %v", err)
 diff --git a/pkg/serviceaccount/jwt_external.go b/pkg/serviceaccount/jwt_external.go
 new file mode 100644
-index 00000000000..8ce8140fcb5
+index 00000000000..ce5de5902ac
 --- /dev/null
 +++ b/pkg/serviceaccount/jwt_external.go
-@@ -0,0 +1,225 @@
+@@ -0,0 +1,228 @@
 +/*
 +Copyright 2019 The Kubernetes Authors.
 +
@@ -869,7 +869,10 @@ index 00000000000..8ce8140fcb5
 +	Client externalsigner.KeyServiceClient
 +}
 +
-+func (g *ExternalTokenGenerator) GenerateToken(claims *jwt.Claims, privateClaims interface{}) (string, error) {
++func (g *ExternalTokenGenerator) GenerateToken(claims *jwt.Claims, privateClaims interface{}, passedErr error) (string, error) {
++	if passedErr != nil {
++		return "", passedErr
++	}
 +	signer := NewRemoteOpaqueSigner(g.Client)
 +	generator, err := JWTTokenGenerator(g.Iss, signer)
 +	if err != nil {
@@ -1174,7 +1177,7 @@ index 00000000000..510c36ec553
 +
 +}
 diff --git a/pkg/serviceaccount/jwt_test.go b/pkg/serviceaccount/jwt_test.go
-index 629bb8496ab..40d1c6a8227 100644
+index 629bb8496ab..5bb042a3803 100644
 --- a/pkg/serviceaccount/jwt_test.go
 +++ b/pkg/serviceaccount/jwt_test.go
 @@ -34,8 +34,10 @@ import (
@@ -1220,7 +1223,7 @@ index 629bb8496ab..40d1c6a8227 100644
 +		Client: newMockKeyServiceClient(getPrivateKey(rsaPrivateKey)),
 +	}
 +	remoteRsaToken, err := remoteRsaGenerator.GenerateToken(
-+		serviceaccount.Claims(coreSa, nil, nil, 60*60*24, 0, []string{"kubernetes"}),
++		serviceaccount.Claims(coreSa, nil, nil, nil, 60*60*24, 0, []string{"kubernetes"}),
 +	)
 +	if err != nil {
 +		t.Fatalf("error generating token: %v", err)
@@ -1253,7 +1256,7 @@ index 629bb8496ab..40d1c6a8227 100644
  	}{
  		"no keys": {
  			Token:       rsaToken,
-@@ -356,69 +385,122 @@ func TestTokenGenerateAndValidate(t *testing.T) {
+@@ -356,69 +385,125 @@ func TestTokenGenerateAndValidate(t *testing.T) {
  			Keys:        []interface{}{getPublicKey(rsaPublicKey)},
  			ExpectedErr: true,
  		},
@@ -1365,6 +1368,9 @@ index 629bb8496ab..40d1c6a8227 100644
 +				})),
 +				v1listers.NewPodLister(newIndexer(func(namespace, name string) (interface{}, error) {
 +					return tc.Client.CoreV1().Pods(namespace).Get(context.TODO(), name, metav1.GetOptions{})
++				})),
++				v1listers.NewNodeLister(newIndexer(func(_, name string) (interface{}, error) {
++					return tc.Client.CoreV1().Nodes().Get(context.TODO(), name, metav1.GetOptions{})
 +				})),
 +			)
 +			var authn authenticator.Token
