@@ -1219,7 +1219,7 @@ index 629bb8496ab..3ebd4eb35b7 100644
 +		Iss:    newIssuer[0],
 +		Client: newMockKeyServiceClient(getPrivateKey(rsaPrivateKey)),
 +	}
-+	sc, pc, err := serviceaccount.Claims(coreSa, nil, nil, nil, 60*60*24, 0, []string{"kubernetes"}),
++	sc, pc, err := serviceaccount.Claims(coreSa, nil, nil, nil, 60*60*24, 0, []string{"kubernetes"})
 +	if err != nil {
 +		t.Fatalf("error generating claim: %v", err)
 +	}
