@@ -17,10 +17,10 @@ Signed-off-by: Ernest Wong <ernwong@amazon.com>
  9 files changed, 249 insertions(+), 32 deletions(-)
 
 diff --git a/staging/src/k8s.io/apiserver/pkg/server/options/etcd.go b/staging/src/k8s.io/apiserver/pkg/server/options/etcd.go
-index 6c125bafa26..11133fb5fda 100644
+index a1fc3168c5d..43c6b98e36d 100644
 --- a/staging/src/k8s.io/apiserver/pkg/server/options/etcd.go
 +++ b/staging/src/k8s.io/apiserver/pkg/server/options/etcd.go
-@@ -213,6 +213,9 @@ func (s *EtcdOptions) AddFlags(fs *pflag.FlagSet) {
+@@ -210,6 +210,9 @@ func (s *EtcdOptions) AddFlags(fs *pflag.FlagSet) {
  	fs.DurationVar(&s.StorageConfig.HealthcheckTimeout, "etcd-healthcheck-timeout", s.StorageConfig.HealthcheckTimeout,
  		"The timeout to use when checking etcd health.")
  
@@ -342,10 +342,10 @@ index dcf6c9d0f4d..1788c375571 100644
  	)
  	ctx := context.Background()
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/config.go b/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/config.go
-index 9d1a29bf0cb..4f68deb59de 100644
+index 93b1e707f66..003a740c4ea 100644
 --- a/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/config.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/config.go
-@@ -64,6 +64,8 @@ type Config struct {
+@@ -63,6 +63,8 @@ type Config struct {
  	// Transport holds all connection related info, i.e. equal TransportConfig means equal servers we talk to.
  	Transport TransportConfig
  
@@ -355,10 +355,10 @@ index 9d1a29bf0cb..4f68deb59de 100644
  	// EncodeVersioner is the same groupVersioner used to build the
  	// storage encoder. Given a list of kinds the input object might belong
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/factory/etcd3.go b/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/factory/etcd3.go
-index 521bf55f147..89d8d5fb7e2 100644
+index 2aab5c76d21..66578273dc3 100644
 --- a/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/factory/etcd3.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/factory/etcd3.go
-@@ -455,7 +455,8 @@ func newETCD3Storage(c storagebackend.ConfigForResource, newFunc, newListFunc fu
+@@ -454,7 +454,8 @@ func newETCD3Storage(c storagebackend.ConfigForResource, newFunc, newListFunc fu
  	if transformer == nil {
  		transformer = identity.NewEncryptCheckTransformer()
  	}
@@ -369,7 +369,7 @@ index 521bf55f147..89d8d5fb7e2 100644
  
  // startDBSizeMonitorPerEndpoint starts a loop to monitor etcd database size and update the
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/testing/store_tests.go b/staging/src/k8s.io/apiserver/pkg/storage/testing/store_tests.go
-index c5a1d98ec7c..925cf171912 100644
+index c5a1d98ec7c..1e3ce108f31 100644
 --- a/staging/src/k8s.io/apiserver/pkg/storage/testing/store_tests.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/testing/store_tests.go
 @@ -42,6 +42,150 @@ import (
@@ -423,7 +423,7 @@ index c5a1d98ec7c..925cf171912 100644
 +			setLimit:               0, // no limit is set, we want all items
 +			expectItems:            2000,
 +			expectTransformerReads: 2000,
-+			expectPages:            1,
++			expectPages:            4,
 +			expectContinue:         false,
 +		},
 +		{
@@ -455,7 +455,7 @@ index c5a1d98ec7c..925cf171912 100644
 +			setLimit:               0,
 +			expectItems:            1,
 +			expectTransformerReads: 2000,
-+			expectPages:            1,
++			expectPages:            4,
 +			expectContinue:         false,
 +		},
 +		{
