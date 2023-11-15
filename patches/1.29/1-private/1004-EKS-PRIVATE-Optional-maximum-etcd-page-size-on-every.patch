@@ -369,7 +369,7 @@ index 2aab5c76d21..66578273dc3 100644
  
  // startDBSizeMonitorPerEndpoint starts a loop to monitor etcd database size and update the
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/testing/store_tests.go b/staging/src/k8s.io/apiserver/pkg/storage/testing/store_tests.go
-index c5a1d98ec7c..1e3ce108f31 100644
+index c5a1d98ec7c..f4545fd4a63 100644
 --- a/staging/src/k8s.io/apiserver/pkg/storage/testing/store_tests.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/testing/store_tests.go
 @@ -42,6 +42,150 @@ import (
@@ -455,7 +455,7 @@ index c5a1d98ec7c..1e3ce108f31 100644
 +			setLimit:               0,
 +			expectItems:            1,
 +			expectTransformerReads: 2000,
-+			expectPages:            4,
++			expectPages:            1,
 +			expectContinue:         false,
 +		},
 +		{
