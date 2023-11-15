@@ -13,13 +13,14 @@ Signed-off-by: Ernest Wong <ernwong@amazon.com>
  .../pkg/storage/storagebackend/config.go      |   2 +
  .../storage/storagebackend/factory/etcd3.go   |   3 +-
  .../pkg/storage/testing/store_tests.go        | 144 ++++++++++++++++++
- 8 files changed, 245 insertions(+), 27 deletions(-)
+ .../k8s.io/apiserver/pkg/storage/util_test.go |   3 +-
+ 9 files changed, 247 insertions(+), 28 deletions(-)
 
 diff --git a/staging/src/k8s.io/apiserver/pkg/server/options/etcd.go b/staging/src/k8s.io/apiserver/pkg/server/options/etcd.go
-index 6c125bafa26..11133fb5fda 100644
+index a1fc3168c5d..43c6b98e36d 100644
 --- a/staging/src/k8s.io/apiserver/pkg/server/options/etcd.go
 +++ b/staging/src/k8s.io/apiserver/pkg/server/options/etcd.go
-@@ -213,6 +213,9 @@ func (s *EtcdOptions) AddFlags(fs *pflag.FlagSet) {
+@@ -210,6 +210,9 @@ func (s *EtcdOptions) AddFlags(fs *pflag.FlagSet) {
  	fs.DurationVar(&s.StorageConfig.HealthcheckTimeout, "etcd-healthcheck-timeout", s.StorageConfig.HealthcheckTimeout,
  		"The timeout to use when checking etcd health.")
  
@@ -338,10 +339,10 @@ index dcf6c9d0f4d..1788c375571 100644
  	)
  	ctx := context.Background()
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/config.go b/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/config.go
-index 9d1a29bf0cb..4f68deb59de 100644
+index 93b1e707f66..003a740c4ea 100644
 --- a/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/config.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/config.go
-@@ -64,6 +64,8 @@ type Config struct {
+@@ -63,6 +63,8 @@ type Config struct {
  	// Transport holds all connection related info, i.e. equal TransportConfig means equal servers we talk to.
  	Transport TransportConfig
  
@@ -351,10 +352,10 @@ index 9d1a29bf0cb..4f68deb59de 100644
  	// EncodeVersioner is the same groupVersioner used to build the
  	// storage encoder. Given a list of kinds the input object might belong
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/factory/etcd3.go b/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/factory/etcd3.go
-index 521bf55f147..89d8d5fb7e2 100644
+index 2aab5c76d21..66578273dc3 100644
 --- a/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/factory/etcd3.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/factory/etcd3.go
-@@ -455,7 +455,8 @@ func newETCD3Storage(c storagebackend.ConfigForResource, newFunc, newListFunc fu
+@@ -454,7 +454,8 @@ func newETCD3Storage(c storagebackend.ConfigForResource, newFunc, newListFunc fu
  	if transformer == nil {
  		transformer = identity.NewEncryptCheckTransformer()
  	}
@@ -519,3 +520,17 @@ index c5a1d98ec7c..1e3ce108f31 100644
  func RunTestCreate(ctx context.Context, t *testing.T, store storage.Interface, validation KeyValidation) {
  	tests := []struct {
  		name          string
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/util_test.go b/staging/src/k8s.io/apiserver/pkg/storage/util_test.go
+index 8f44d44411a..70c3ac7d01c 100644
+--- a/staging/src/k8s.io/apiserver/pkg/storage/util_test.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/util_test.go
+@@ -85,7 +85,8 @@ func TestGetCurrentResourceVersionFromStorage(t *testing.T) {
+ 	// test data
+ 	newEtcdTestStorage := func(t *testing.T, prefix string) (*etcd3testing.EtcdTestServer, storage.Interface) {
+ 		server, _ := etcd3testing.NewUnsecuredEtcd3TestClientServer(t)
+-		storage := etcd3.New(server.V3Client, apitesting.TestCodec(codecs, examplev1.SchemeGroupVersion, example2v1.SchemeGroupVersion), func() runtime.Object { return &example.Pod{} }, func() runtime.Object { return &example.PodList{} }, prefix, "/pods", schema.GroupResource{Resource: "pods"}, identity.NewEncryptCheckTransformer(), etcd3.NewDefaultLeaseManagerConfig())
++		pagingConfig := etcd3.PagingConfig{MaximumPageSize: defaultListEtcdMaxLimit}
++		storage := etcd3.New(server.V3Client, apitesting.TestCodec(codecs, examplev1.SchemeGroupVersion, example2v1.SchemeGroupVersion), func() runtime.Object { return &example.Pod{} }, func() runtime.Object { return &example.PodList{} }, prefix, "/pods", schema.GroupResource{Resource: "pods"}, identity.NewEncryptCheckTransformer(), pagingConfig, etcd3.NewDefaultLeaseManagerConfig())
+ 		return server, storage
+ 	}
+ 	server, etcdStorage := newEtcdTestStorage(t, "")
