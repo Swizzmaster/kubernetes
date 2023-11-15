@@ -8,13 +8,13 @@ Signed-off-by: Ernest Wong <ernwong@amazon.com>
  .../apiserver/pkg/server/options/etcd.go      |   3 +
  .../cacher/cacher_testing_utils_test.go       |   6 +
  .../pkg/storage/etcd3/metrics/metrics.go      |  16 ++
- .../apiserver/pkg/storage/etcd3/store.go      |  50 ++++--
+ .../apiserver/pkg/storage/etcd3/store.go      |  56 +++++--
  .../apiserver/pkg/storage/etcd3/store_test.go |  50 +++---
  .../pkg/storage/storagebackend/config.go      |   2 +
  .../storage/storagebackend/factory/etcd3.go   |   3 +-
  .../pkg/storage/testing/store_tests.go        | 144 ++++++++++++++++++
  .../k8s.io/apiserver/pkg/storage/util_test.go |   7 +-
- 9 files changed, 252 insertions(+), 29 deletions(-)
+ 9 files changed, 254 insertions(+), 33 deletions(-)
 
 diff --git a/staging/src/k8s.io/apiserver/pkg/server/options/etcd.go b/staging/src/k8s.io/apiserver/pkg/server/options/etcd.go
 index a1fc3168c5d..43c6b98e36d 100644
@@ -103,7 +103,7 @@ index fadc87d53de..70081f06c6c 100644
  func RecordEtcdBookmark(resource string) {
  	etcdBookmarkCounts.WithLabelValues(resource).Inc()
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go
-index 1e5e40d6235..3edc41045a2 100644
+index 1e5e40d6235..400908a343a 100644
 --- a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go
 @@ -23,6 +23,7 @@ import (
@@ -185,18 +185,25 @@ index 1e5e40d6235..3edc41045a2 100644
  	w.getCurrentStorageRV = func(ctx context.Context) (uint64, error) {
  		return storage.GetCurrentResourceVersionFromStorage(ctx, s, newListFunc, resourcePrefix, w.objectType)
  	}
-@@ -622,6 +642,10 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
+@@ -621,11 +641,13 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
+ 	limit := opts.Predicate.Limit
  	var paging bool
  	options := make([]clientv3.OpOption, 0, 4)
- 	if opts.Predicate.Limit > 0 {
-+		// Put a default limit if no limit specified and cap it at max value.
-+		if limit <= 0 || limit > s.maxPageSize {
-+			limit = s.maxPageSize
-+		}
- 		paging = true
- 		options = append(options, clientv3.WithLimit(limit))
- 		limitOption = &options[len(options)-1]
-@@ -683,9 +707,16 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
+-	if opts.Predicate.Limit > 0 {
+-		paging = true
+-		options = append(options, clientv3.WithLimit(limit))
+-		limitOption = &options[len(options)-1]
++	// Put a default limit if no limit specified and cap it at max value.
++	if limit <= 0 || limit > s.maxPageSize {
++		limit = s.maxPageSize
+ 	}
++	paging = true
++	options = append(options, clientv3.WithLimit(limit))
++	limitOption = &options[len(options)-1]
+ 
+ 	if opts.Recursive {
+ 		rangeEnd := clientv3.GetPrefixRangeEnd(keyPrefix)
+@@ -683,9 +705,16 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
  	var getResp *clientv3.GetResponse
  	var numFetched int
  	var numEvald int
@@ -213,7 +220,7 @@ index 1e5e40d6235..3edc41045a2 100644
  		numReturn := v.Len()
  		metrics.RecordStorageListMetrics(s.groupResourceString, numFetched, numEvald, numReturn)
  	}()
-@@ -703,6 +734,7 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
+@@ -703,6 +732,7 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
  			return interpretListError(err, len(opts.Predicate.Continue) > 0, continueKey, keyPrefix)
  		}
  		numFetched += len(getResp.Kvs)
@@ -221,7 +228,7 @@ index 1e5e40d6235..3edc41045a2 100644
  		if err = s.validateMinimumResourceVersion(opts.ResourceVersion, uint64(getResp.Header.Revision)); err != nil {
  			return err
  		}
-@@ -727,7 +759,7 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
+@@ -727,7 +757,7 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
  
  		// take items from the response until the bucket is full, filtering as we go
  		for i, kv := range getResp.Kvs {
@@ -230,7 +237,7 @@ index 1e5e40d6235..3edc41045a2 100644
  				hasMore = true
  				break
  			}
-@@ -753,16 +785,16 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
+@@ -753,16 +783,16 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
  			break
  		}
  		// we're paging but we have filled our bucket
