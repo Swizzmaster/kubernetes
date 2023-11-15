@@ -8,13 +8,13 @@ Signed-off-by: Ernest Wong <ernwong@amazon.com>
  .../apiserver/pkg/server/options/etcd.go      |   3 +
  .../cacher/cacher_testing_utils_test.go       |   6 +
  .../pkg/storage/etcd3/metrics/metrics.go      |  16 ++
- .../apiserver/pkg/storage/etcd3/store.go      |  54 +++++--
+ .../apiserver/pkg/storage/etcd3/store.go      |  50 ++++--
  .../apiserver/pkg/storage/etcd3/store_test.go |  50 +++---
  .../pkg/storage/storagebackend/config.go      |   2 +
  .../storage/storagebackend/factory/etcd3.go   |   3 +-
  .../pkg/storage/testing/store_tests.go        | 144 ++++++++++++++++++
  .../k8s.io/apiserver/pkg/storage/util_test.go |   7 +-
- 9 files changed, 253 insertions(+), 32 deletions(-)
+ 9 files changed, 249 insertions(+), 32 deletions(-)
 
 diff --git a/staging/src/k8s.io/apiserver/pkg/server/options/etcd.go b/staging/src/k8s.io/apiserver/pkg/server/options/etcd.go
 index a1fc3168c5d..43c6b98e36d 100644
@@ -103,7 +103,7 @@ index fadc87d53de..70081f06c6c 100644
  func RecordEtcdBookmark(resource string) {
  	etcdBookmarkCounts.WithLabelValues(resource).Inc()
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go
-index 1e5e40d6235..fc55744a62b 100644
+index 1e5e40d6235..244b7f95604 100644
 --- a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go
 @@ -23,6 +23,7 @@ import (
@@ -122,7 +122,7 @@ index 1e5e40d6235..fc55744a62b 100644
  	leaseManager        *leaseManager
  }
  
-@@ -86,6 +88,19 @@ func (s *store) RequestWatchProgress(ctx context.Context) error {
+@@ -86,6 +88,15 @@ func (s *store) RequestWatchProgress(ctx context.Context) error {
  	return s.client.RequestProgress(s.watchContext(ctx))
  }
  
@@ -131,18 +131,14 @@ index 1e5e40d6235..fc55744a62b 100644
 +// Because etcd buffers all of the response in memory before returning it to the client,
 +// there is a possiblity of using too much memory and get killed by OOM killer.
 +type PagingConfig struct {
-+	// PagingEnabled enables/disables paging logic.
-+	// If paging is disabled, etcd will return all items in the query.
-+	PagingEnabled bool
 +	// MaximumPageSize is a maximum page limit used when fetching objects from etcd.
-+	// It has no effect if `PagingEnabled` is false.
 +	MaximumPageSize int64
 +}
 +
  type objState struct {
  	obj   runtime.Object
  	meta  *storage.ResponseMeta
-@@ -95,11 +110,11 @@ type objState struct {
+@@ -95,11 +106,11 @@ type objState struct {
  }
  
  // New returns an etcd3 implementation of storage.Interface.
@@ -157,7 +153,7 @@ index 1e5e40d6235..fc55744a62b 100644
  	versioner := storage.APIObjectVersioner{}
  	// for compatibility with etcd2 impl.
  	// no-op for default prefix of '/registry'.
-@@ -128,6 +143,7 @@ func newStore(c *clientv3.Client, codec runtime.Codec, newFunc, newListFunc func
+@@ -128,6 +139,7 @@ func newStore(c *clientv3.Client, codec runtime.Codec, newFunc, newListFunc func
  		codec:               codec,
  		versioner:           versioner,
  		transformer:         transformer,
@@ -165,7 +161,7 @@ index 1e5e40d6235..fc55744a62b 100644
  		pathPrefix:          pathPrefix,
  		groupResource:       groupResource,
  		groupResourceString: groupResource.String(),
-@@ -135,6 +151,10 @@ func newStore(c *clientv3.Client, codec runtime.Codec, newFunc, newListFunc func
+@@ -135,6 +147,10 @@ func newStore(c *clientv3.Client, codec runtime.Codec, newFunc, newListFunc func
  		leaseManager:        newDefaultLeaseManager(c, leaseManagerConfig),
  	}
  
@@ -176,7 +172,7 @@ index 1e5e40d6235..fc55744a62b 100644
  	w.getCurrentStorageRV = func(ctx context.Context) (uint64, error) {
  		return storage.GetCurrentResourceVersionFromStorage(ctx, s, newListFunc, resourcePrefix, w.objectType)
  	}
-@@ -621,11 +641,13 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
+@@ -621,11 +637,13 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
  	limit := opts.Predicate.Limit
  	var paging bool
  	options := make([]clientv3.OpOption, 0, 4)
@@ -194,7 +190,7 @@ index 1e5e40d6235..fc55744a62b 100644
  
  	if opts.Recursive {
  		rangeEnd := clientv3.GetPrefixRangeEnd(keyPrefix)
-@@ -683,9 +705,16 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
+@@ -683,9 +701,16 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
  	var getResp *clientv3.GetResponse
  	var numFetched int
  	var numEvald int
@@ -211,7 +207,7 @@ index 1e5e40d6235..fc55744a62b 100644
  		numReturn := v.Len()
  		metrics.RecordStorageListMetrics(s.groupResourceString, numFetched, numEvald, numReturn)
  	}()
-@@ -703,6 +732,7 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
+@@ -703,6 +728,7 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
  			return interpretListError(err, len(opts.Predicate.Continue) > 0, continueKey, keyPrefix)
  		}
  		numFetched += len(getResp.Kvs)
@@ -219,7 +215,7 @@ index 1e5e40d6235..fc55744a62b 100644
  		if err = s.validateMinimumResourceVersion(opts.ResourceVersion, uint64(getResp.Header.Revision)); err != nil {
  			return err
  		}
-@@ -727,7 +757,7 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
+@@ -727,7 +753,7 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
  
  		// take items from the response until the bucket is full, filtering as we go
  		for i, kv := range getResp.Kvs {
@@ -228,7 +224,7 @@ index 1e5e40d6235..fc55744a62b 100644
  				hasMore = true
  				break
  			}
-@@ -753,16 +783,16 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
+@@ -753,16 +779,16 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
  			break
  		}
  		// we're paging but we have filled our bucket
