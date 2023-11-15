@@ -51,14 +51,14 @@ Signed-off-by: Jyoti Mahapatra<jyotima@amazon.com>
  .../invalid-spec-fields.yaml                  |  24 ++
  .../invalid-volume-non-efspv.yaml             |  30 ++
  .../invalid-volume-unboundpvc.yaml            |  23 +
- .../invalid-volumemount.yaml                  |  26 ++
+ .../invalid-volumemount.yaml                  |  25 ++
  .../valid-fargate-scheduler.yaml              |  69 +++
  ...-security-context-advanced-linux-caps.yaml |  39 ++
  .../valid-security-context.yaml               |  32 ++
  .../valid-volumes.yaml                        |  74 ++++
  pkg/kubelet/server/server.go                  |   3 +-
  pkg/kubelet/util/util.go                      |  19 +
- 29 files changed, 1279 insertions(+), 6 deletions(-)
+ 29 files changed, 1278 insertions(+), 6 deletions(-)
  create mode 100644 pkg/kubelet/lifecycle/fargate_pod_admit_handler.go
  create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator.go
  create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator_test.go
@@ -80,10 +80,10 @@ Signed-off-by: Jyoti Mahapatra<jyotima@amazon.com>
  create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator_testdata/valid-volumes.yaml
 
 diff --git a/pkg/features/kube_features.go b/pkg/features/kube_features.go
-index 62e256dbfd7..208398f13d5 100644
+index 816c456ca59..d185e9966f8 100644
 --- a/pkg/features/kube_features.go
 +++ b/pkg/features/kube_features.go
-@@ -677,6 +677,12 @@ const (
+@@ -671,6 +671,12 @@ const (
  	// Enable users to specify when a Pod is ready for scheduling.
  	PodSchedulingReadiness featuregate.Feature = "PodSchedulingReadiness"
  
@@ -96,7 +96,7 @@ index 62e256dbfd7..208398f13d5 100644
  	// owner: @jessfraz
  	// alpha: v1.12
  	//
-@@ -1152,6 +1158,8 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
+@@ -1144,6 +1150,8 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
  
  	PodSchedulingReadiness: {Default: true, PreRelease: featuregate.Beta},
  
@@ -1341,10 +1341,10 @@ index 00000000000..b13ce34f714
 +        claimName: invalid-pvc
 diff --git a/pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-volumemount.yaml b/pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-volumemount.yaml
 new file mode 100644
-index 00000000000..bb1b9a68423
+index 00000000000..86af7019a85
 --- /dev/null
 +++ b/pkg/kubelet/lifecycle/fargate_pod_validator_testdata/invalid-volumemount.yaml
-@@ -0,0 +1,26 @@
+@@ -0,0 +1,25 @@
 +apiVersion: v1
 +kind: Pod
 +metadata:
@@ -1370,7 +1370,6 @@ index 00000000000..bb1b9a68423
 +      awsElasticBlockStore:
 +        volumeID: vol-abc123
 +        fsType: ext4
-+
 diff --git a/pkg/kubelet/lifecycle/fargate_pod_validator_testdata/valid-fargate-scheduler.yaml b/pkg/kubelet/lifecycle/fargate_pod_validator_testdata/valid-fargate-scheduler.yaml
 new file mode 100644
 index 00000000000..a60bf0e9219

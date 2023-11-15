@@ -8,13 +8,13 @@ Signed-off-by: Ernest Wong <ernwong@amazon.com>
  .../apiserver/pkg/server/options/etcd.go      |   3 +
  .../cacher/cacher_testing_utils_test.go       |   6 +
  .../pkg/storage/etcd3/metrics/metrics.go      |  16 ++
- .../apiserver/pkg/storage/etcd3/store.go      |  56 +++++--
+ .../apiserver/pkg/storage/etcd3/store.go      |  54 +++++--
  .../apiserver/pkg/storage/etcd3/store_test.go |  50 +++---
  .../pkg/storage/storagebackend/config.go      |   2 +
  .../storage/storagebackend/factory/etcd3.go   |   3 +-
  .../pkg/storage/testing/store_tests.go        | 144 ++++++++++++++++++
  .../k8s.io/apiserver/pkg/storage/util_test.go |   7 +-
- 9 files changed, 254 insertions(+), 33 deletions(-)
+ 9 files changed, 253 insertions(+), 32 deletions(-)
 
 diff --git a/staging/src/k8s.io/apiserver/pkg/server/options/etcd.go b/staging/src/k8s.io/apiserver/pkg/server/options/etcd.go
 index a1fc3168c5d..43c6b98e36d 100644
@@ -103,7 +103,7 @@ index fadc87d53de..70081f06c6c 100644
  func RecordEtcdBookmark(resource string) {
  	etcdBookmarkCounts.WithLabelValues(resource).Inc()
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go
-index 1e5e40d6235..400908a343a 100644
+index 1e5e40d6235..fc55744a62b 100644
 --- a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go
 @@ -23,6 +23,7 @@ import (
@@ -114,15 +114,6 @@ index 1e5e40d6235..400908a343a 100644
  	"strings"
  	"time"
  
-@@ -49,7 +50,7 @@ const (
- 	// maxLimit is a maximum page limit increase used when fetching objects from etcd.
- 	// This limit is used only for increasing page size by kube-apiserver. If request
- 	// specifies larger limit initially, it won't be changed.
--	maxLimit = 10000
-+	maxLimit = 500
- )
- 
- // authenticatedDataString satisfies the value.Context interface. It uses the key to
 @@ -77,6 +78,7 @@ type store struct {
  	groupResource       schema.GroupResource
  	groupResourceString string
@@ -382,7 +373,7 @@ index 2aab5c76d21..66578273dc3 100644
  
  // startDBSizeMonitorPerEndpoint starts a loop to monitor etcd database size and update the
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/testing/store_tests.go b/staging/src/k8s.io/apiserver/pkg/storage/testing/store_tests.go
-index c5a1d98ec7c..1e3ce108f31 100644
+index c5a1d98ec7c..925cf171912 100644
 --- a/staging/src/k8s.io/apiserver/pkg/storage/testing/store_tests.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/testing/store_tests.go
 @@ -42,6 +42,150 @@ import (
@@ -436,7 +427,7 @@ index c5a1d98ec7c..1e3ce108f31 100644
 +			setLimit:               0, // no limit is set, we want all items
 +			expectItems:            2000,
 +			expectTransformerReads: 2000,
-+			expectPages:            4,
++			expectPages:            1,
 +			expectContinue:         false,
 +		},
 +		{
@@ -468,7 +459,7 @@ index c5a1d98ec7c..1e3ce108f31 100644
 +			setLimit:               0,
 +			expectItems:            1,
 +			expectTransformerReads: 2000,
-+			expectPages:            4,
++			expectPages:            1,
 +			expectContinue:         false,
 +		},
 +		{
