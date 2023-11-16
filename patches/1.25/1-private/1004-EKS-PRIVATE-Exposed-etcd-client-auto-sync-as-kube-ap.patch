@@ -17,7 +17,7 @@ Signed-off-by: Davanum Srinivas <davanum@gmail.com>
  3 files changed, 6 insertions(+), 1 deletion(-)
 
 diff --git a/staging/src/k8s.io/apiserver/pkg/server/options/etcd.go b/staging/src/k8s.io/apiserver/pkg/server/options/etcd.go
-index 00c43324b6f..c43b06d8e93 100644
+index 380d44d94bf..703671529f7 100644
 --- a/staging/src/k8s.io/apiserver/pkg/server/options/etcd.go
 +++ b/staging/src/k8s.io/apiserver/pkg/server/options/etcd.go
 @@ -156,6 +156,9 @@ func (s *EtcdOptions) AddFlags(fs *pflag.FlagSet) {

@@ -90,7 +90,7 @@ index 4bf416d6961..566077609ac 100644
  }
  
 diff --git a/cmd/kube-apiserver/app/server.go b/cmd/kube-apiserver/app/server.go
-index 9ddcc7f51d6..e673ce41ec9 100644
+index 0196490b218..51399d26f4f 100644
 --- a/cmd/kube-apiserver/app/server.go
 +++ b/cmd/kube-apiserver/app/server.go
 @@ -612,7 +612,27 @@ func Complete(s *options.ServerRunOptions) (completedServerRunOptions, error) {
@@ -1527,10 +1527,10 @@ index 00000000000..0ec98768eb1
 +	return out, err
 +}
 diff --git a/vendor/modules.txt b/vendor/modules.txt
-index b44d462b1e1..d944adad859 100644
+index 1ea34ebaf0d..35f5bd8f2b7 100644
 --- a/vendor/modules.txt
 +++ b/vendor/modules.txt
-@@ -1356,6 +1356,7 @@ gopkg.in/natefinch/lumberjack.v2
+@@ -1359,6 +1359,7 @@ gopkg.in/natefinch/lumberjack.v2
  ## explicit
  gopkg.in/square/go-jose.v2
  gopkg.in/square/go-jose.v2/cipher
