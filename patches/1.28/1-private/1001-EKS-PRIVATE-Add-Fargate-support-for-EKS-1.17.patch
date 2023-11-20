@@ -217,7 +217,7 @@ index f14b6d1a6fc..ab1609d6fff 100644
  		resources.CpuPeriod = cpuPeriod
  	}
 diff --git a/pkg/kubelet/kuberuntime/kuberuntime_manager.go b/pkg/kubelet/kuberuntime/kuberuntime_manager.go
-index 49add764798..5a757b61a96 100644
+index 9854b207fd0..170017c7a77 100644
 --- a/pkg/kubelet/kuberuntime/kuberuntime_manager.go
 +++ b/pkg/kubelet/kuberuntime/kuberuntime_manager.go
 @@ -168,6 +168,9 @@ type kubeGenericRuntimeManager struct {
@@ -246,7 +246,7 @@ index 49add764798..5a757b61a96 100644
  	}
  
  	typedVersion, err := kubeRuntimeManager.getTypedVersion(ctx)
-@@ -1226,6 +1231,14 @@ func (m *kubeGenericRuntimeManager) SyncPod(ctx context.Context, pod *v1.Pod, po
+@@ -1231,6 +1236,14 @@ func (m *kubeGenericRuntimeManager) SyncPod(ctx context.Context, pod *v1.Pod, po
  		startContainerResult := kubecontainer.NewSyncResult(kubecontainer.StartContainer, spec.container.Name)
  		result.AddSyncResult(startContainerResult)
  
