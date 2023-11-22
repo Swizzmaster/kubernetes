@@ -196,10 +196,10 @@ index 00000000000..8f66dc9b437
 +    exit 1
 +fi
 diff --git a/pkg/controlplane/apiserver/options/options.go b/pkg/controlplane/apiserver/options/options.go
-index a3a7b03442d..3572db9e9a5 100644
+index 5a1c3ec9734..a706813ec9e 100644
 --- a/pkg/controlplane/apiserver/options/options.go
 +++ b/pkg/controlplane/apiserver/options/options.go
-@@ -269,6 +269,26 @@ func (o *Options) Complete(alternateDNS []string, alternateIPs []net.IP) (Comple
+@@ -272,6 +272,26 @@ func (o *Options) Complete(alternateDNS []string, alternateIPs []net.IP) (Comple
  		completed.ServiceAccountTokenMaxExpiration = completed.Authentication.ServiceAccounts.MaxExpiration
  	}
  
@@ -275,10 +275,10 @@ index 1cae7323ab1..97c6f2dc9be 100644
  	return errs
  }
 diff --git a/pkg/features/kube_features.go b/pkg/features/kube_features.go
-index 816c456ca59..62e256dbfd7 100644
+index 21990f2919a..595bcb32acc 100644
 --- a/pkg/features/kube_features.go
 +++ b/pkg/features/kube_features.go
-@@ -283,6 +283,12 @@ const (
+@@ -289,6 +289,12 @@ const (
  	// This flag used to be needed for dockershim CRI and currently does nothing.
  	ExperimentalHostUserNamespaceDefaultingGate featuregate.Feature = "ExperimentalHostUserNamespaceDefaulting"
  
@@ -291,7 +291,7 @@ index 816c456ca59..62e256dbfd7 100644
  	// owner: @bobbypage
  	// alpha: v1.20
  	// beta:  v1.21
-@@ -1042,6 +1048,8 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
+@@ -1056,6 +1062,8 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
  
  	ExperimentalHostUserNamespaceDefaultingGate: {Default: false, PreRelease: featuregate.Deprecated, LockToDefault: true}, // remove in 1.30
  
@@ -1611,7 +1611,7 @@ index 00000000000..0ec98768eb1
 +	return out, err
 +}
 diff --git a/vendor/modules.txt b/vendor/modules.txt
-index 75b1c670564..3e8a4c8e331 100644
+index 51240998210..01fda7469c1 100644
 --- a/vendor/modules.txt
 +++ b/vendor/modules.txt
 @@ -1256,6 +1256,7 @@ gopkg.in/natefinch/lumberjack.v2
