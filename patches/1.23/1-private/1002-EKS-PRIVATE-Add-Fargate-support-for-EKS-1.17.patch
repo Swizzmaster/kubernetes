@@ -506,10 +506,10 @@ index 00000000000..aca39d8c6f5
 +	return true, ""
 +}
 diff --git a/pkg/kubelet/server/server.go b/pkg/kubelet/server/server.go
-index 28dfc44977c..6d57786ac07 100644
+index 3f50ae56fbc..73e296bc01a 100644
 --- a/pkg/kubelet/server/server.go
 +++ b/pkg/kubelet/server/server.go
-@@ -477,8 +477,7 @@ func (s *Server) InstallDebuggingHandlers() {
+@@ -478,8 +478,7 @@ func (s *Server) InstallDebuggingHandlers() {
  
  	s.addMetricsBucketMatcher("containerLogs")
  	ws = new(restful.WebService)
