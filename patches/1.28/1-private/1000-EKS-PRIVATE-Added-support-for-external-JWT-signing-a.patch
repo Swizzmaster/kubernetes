@@ -275,7 +275,7 @@ index 879833ed2a7..c9ee582873f 100644
  	return errs
  }
 diff --git a/pkg/features/kube_features.go b/pkg/features/kube_features.go
-index 56791b47c87..c48b38dfa1f 100644
+index 1173090b10a..5f0b989ac5d 100644
 --- a/pkg/features/kube_features.go
 +++ b/pkg/features/kube_features.go
 @@ -280,6 +280,12 @@ const (
