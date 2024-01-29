@@ -80,10 +80,10 @@ Signed-off-by: Jyoti Mahapatra<jyotima@amazon.com>
  create mode 100644 pkg/kubelet/lifecycle/fargate_pod_validator_testdata/valid-volumes.yaml
 
 diff --git a/pkg/features/kube_features.go b/pkg/features/kube_features.go
-index d43eddd2583..4e56f96cab3 100644
+index 3eeaf65f6e9..32b59dab70f 100644
 --- a/pkg/features/kube_features.go
 +++ b/pkg/features/kube_features.go
-@@ -677,6 +677,12 @@ const (
+@@ -676,6 +676,12 @@ const (
  	// Enables the PodSecurity admission plugin
  	PodSecurity featuregate.Feature = "PodSecurity"
  
@@ -96,7 +96,7 @@ index d43eddd2583..4e56f96cab3 100644
  	// owner: @ehashman
  	// alpha: v1.21
  	// beta: v1.22
-@@ -1108,6 +1114,8 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
+@@ -1107,6 +1113,8 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
  
  	PodSecurity: {Default: true, PreRelease: featuregate.GA, LockToDefault: true},
  

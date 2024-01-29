@@ -276,10 +276,10 @@ index 00000000000..8f66dc9b437
 +    exit 1
 +fi
 diff --git a/pkg/features/kube_features.go b/pkg/features/kube_features.go
-index 13cf2c97961..d43eddd2583 100644
+index a4a2711e096..3eeaf65f6e9 100644
 --- a/pkg/features/kube_features.go
 +++ b/pkg/features/kube_features.go
-@@ -300,6 +300,12 @@ const (
+@@ -299,6 +299,12 @@ const (
  	// SYS_TIME). This should only be enabled if user namespace remapping is enabled in the docker daemon.
  	ExperimentalHostUserNamespaceDefaultingGate featuregate.Feature = "ExperimentalHostUserNamespaceDefaulting"
  
@@ -292,7 +292,7 @@ index 13cf2c97961..d43eddd2583 100644
  	// owner: @yuzhiquan, @bowei, @PxyUp, @SergeyKanzhelev
  	// kep: https://kep.k8s.io/2727
  	// alpha: v1.23
-@@ -1000,6 +1006,8 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
+@@ -999,6 +1005,8 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
  
  	ExperimentalHostUserNamespaceDefaultingGate: {Default: false, PreRelease: featuregate.Beta},
  
@@ -1604,10 +1604,10 @@ index 00000000000..0ec98768eb1
 +	return out, err
 +}
 diff --git a/vendor/modules.txt b/vendor/modules.txt
-index fc217c0297d..59d031a9719 100644
+index 95d609f307d..77b342da56e 100644
 --- a/vendor/modules.txt
 +++ b/vendor/modules.txt
-@@ -1210,6 +1210,7 @@ gopkg.in/natefinch/lumberjack.v2
+@@ -1209,6 +1209,7 @@ gopkg.in/natefinch/lumberjack.v2
  ## explicit
  gopkg.in/square/go-jose.v2
  gopkg.in/square/go-jose.v2/cipher

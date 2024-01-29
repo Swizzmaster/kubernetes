@@ -275,10 +275,10 @@ index 879833ed2a7..c9ee582873f 100644
  	return errs
  }
 diff --git a/pkg/features/kube_features.go b/pkg/features/kube_features.go
-index 1173090b10a..5f0b989ac5d 100644
+index df20ae1204b..cb86329864e 100644
 --- a/pkg/features/kube_features.go
 +++ b/pkg/features/kube_features.go
-@@ -280,6 +280,12 @@ const (
+@@ -279,6 +279,12 @@ const (
  	// This flag used to be needed for dockershim CRI and currently does nothing.
  	ExperimentalHostUserNamespaceDefaultingGate featuregate.Feature = "ExperimentalHostUserNamespaceDefaulting"
  
@@ -291,7 +291,7 @@ index 1173090b10a..5f0b989ac5d 100644
  	// owner: @yuzhiquan, @bowei, @PxyUp, @SergeyKanzhelev
  	// kep: https://kep.k8s.io/2727
  	// alpha: v1.23
-@@ -1013,6 +1019,8 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
+@@ -1012,6 +1018,8 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
  
  	ExperimentalHostUserNamespaceDefaultingGate: {Default: false, PreRelease: featuregate.Deprecated, LockToDefault: true}, // remove in 1.30
  
@@ -1603,7 +1603,7 @@ index 00000000000..0ec98768eb1
 +	return out, err
 +}
 diff --git a/vendor/modules.txt b/vendor/modules.txt
-index 9742a8785c8..ba7ebc0cfdc 100644
+index e6e3b5419be..12cc0be6a59 100644
 --- a/vendor/modules.txt
 +++ b/vendor/modules.txt
 @@ -1226,6 +1226,7 @@ gopkg.in/natefinch/lumberjack.v2
