@@ -2,14 +2,14 @@ From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Jyoti Mahapatra <jyotima@amazon.com>
 Date: Thu, 16 Nov 2023 18:54:32 -0800
 Subject: [PATCH] --EKS-PRIVATE-- Stop Kubernetes Endpoint reconciliation when
- advertise address is 127.0.0.1 Ref: https://t.corp.amazon.com/V1112481956 .
- This is a temporary patch until an az-poller based solution is implemented.
+ advertise address is 127.0.0.1 or ::1 Ref:
+ https://t.corp.amazon.com/V1112481956 .
 
 Signed-off-by: Jyoti Mahapatra <jyotima@amazon.com>
 ---
  pkg/controlplane/reconcilers/lease.go      |   5 +
- pkg/controlplane/reconcilers/lease_test.go | 185 +++++++++++++++++++++
- 2 files changed, 190 insertions(+)
+ pkg/controlplane/reconcilers/lease_test.go | 215 +++++++++++++++++++++
+ 2 files changed, 220 insertions(+)
 
 diff --git a/pkg/controlplane/reconcilers/lease.go b/pkg/controlplane/reconcilers/lease.go
 index 7eb22d29b35..7e52e769837 100644
@@ -28,10 +28,10 @@ index 7eb22d29b35..7e52e769837 100644
  	// found vs not found will yield the same results for the string
  	excludedZone, _ := e.GetLabels()[az.ZoneEvacuationLabelKey]
 diff --git a/pkg/controlplane/reconcilers/lease_test.go b/pkg/controlplane/reconcilers/lease_test.go
-index 00c8a1c1f4b..27a89d5abd6 100644
+index 00c8a1c1f4b..915c4f517e2 100644
 --- a/pkg/controlplane/reconcilers/lease_test.go
 +++ b/pkg/controlplane/reconcilers/lease_test.go
-@@ -1145,6 +1145,191 @@ func TestLeaseEndpointReconcilerForAZEvacuationExpiryNotSetShouldFailOpen(t *tes
+@@ -1145,6 +1145,221 @@ func TestLeaseEndpointReconcilerForAZEvacuationExpiryNotSetShouldFailOpen(t *tes
  	}
  }
  
@@ -106,6 +106,36 @@ index 00c8a1c1f4b..27a89d5abd6 100644
 +			currentZone:  "az1",
 +			evacuateZone: "az2",
 +			expectLeases: []string{"4.3.2.1"},
++		},
++		{
++			testName:      "Skip Reconcile Localhost Ipv6",
++			serviceName:   "foo",
++			ip:            "::1",
++			endpointPorts: []corev1.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
++			endpointKeys:  []string{"2600:1f13:1bf:b00::"},
++			endpoints: &corev1.EndpointsList{
++				Items: []corev1.Endpoints{{
++					ObjectMeta: om("foo", "az2", false),
++					Subsets: []corev1.EndpointSubset{{
++						Addresses: []corev1.EndpointAddress{
++							{IP: "2600:1f13:1bf:b00::"},
++						},
++						Ports: []corev1.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
++					}},
++				}},
++			},
++			expectEndpoints: &corev1.Endpoints{
++				ObjectMeta: om("foo", "az2", false),
++				Subsets: []corev1.EndpointSubset{{
++					Addresses: []corev1.EndpointAddress{
++						{IP: "2600:1f13:1bf:b00::"},
++					},
++					Ports: []corev1.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
++				}},
++			},
++			currentZone:  "az1",
++			evacuateZone: "az2",
++			expectLeases: []string{"2600:1f13:1bf:b00::"},
 +		},
 +		{
 +			testName:      "Localhost skips when current zone is evacuated zone",
